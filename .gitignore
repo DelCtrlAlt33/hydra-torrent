@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+certs/
+*.part
+transfers.json
+hydra_config.json
+downloads/
+shared_files/
+GeoLite2-Country.mmdb

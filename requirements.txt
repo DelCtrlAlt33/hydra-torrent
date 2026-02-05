@@ -1,0 +1,9 @@
+ttkbootstrap
+requests
+beautifulsoup4
+miniupnpc
+aiofiles
+libtorrent
+maxminddb
+Pillow
+cryptography
