@@ -125,8 +125,9 @@ class TransferManager:
                 self.progress_widgets[iid].place_forget()
             return
         x, y, width, height = bbox
+        pad = 2
         pb = self.progress_widgets[iid]
-        pb.place(x=x, y=y, width=width, height=height)
+        pb.place(x=x, y=y + pad, width=width, height=height - pad * 2)
 
     def update_progress_positions(self):
         for iid in list(self.progress_widgets):
@@ -140,13 +141,13 @@ class TransferManager:
                     saved_v = v.copy()
                     saved_v.pop('handle', None)
                     data[k] = saved_v
-            with open('transfers.json', 'w') as f:
+            with open('transfers.json', 'w', encoding='utf-8') as f:
                 json.dump(data, f)
 
     def load_transfers(self):
         if os.path.exists('transfers.json'):
             try:
-                with open('transfers.json', 'r') as f:
+                with open('transfers.json', 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 with self.lock:
                     for k, v in data.items():

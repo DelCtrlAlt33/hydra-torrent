@@ -58,7 +58,7 @@ def hide_console():
 def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
-            with open(CONFIG_FILE, 'r') as f:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception:
             pass
@@ -68,5 +68,5 @@ def load_config():
 def save_config(key, value):
     config = load_config()
     config[key] = value
-    with open(CONFIG_FILE, 'w') as f:
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
         json.dump(config, f)
