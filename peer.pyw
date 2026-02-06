@@ -14,11 +14,12 @@ import re
 import shutil
 import warnings
 import io
+import ctypes
 
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from ttkbootstrap.widgets.scrolled import ScrolledText
-from ttkbootstrap.scrolled import ScrolledFrame
+from ttkbootstrap.widgets.scrolled import ScrolledFrame
 import tkinter as tk
 from tkinter import messagebox, simpledialog, filedialog
 import tkinter.ttk as standard_ttk
@@ -40,13 +41,144 @@ from search import (
 )
 from download import download_from_peer
 from transfer_manager import TransferManager, PiecesBar
+from theme_manager import ThemeManager
 
 hide_console()
+
+
+# ---------------------------------------------------------------------------
+# File-type icons with checkbox (drawn programmatically, 32x16 composite)
+# ---------------------------------------------------------------------------
+_file_icons = {}
+
+VIDEO_EXTS = {'mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mpg', 'mpeg', 'm4v', 'ts'}
+AUDIO_EXTS = {'mp3', 'flac', 'wav', 'aac', 'ogg', 'wma', 'm4a', 'opus'}
+IMAGE_EXTS = {'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'tiff', 'svg', 'ico'}
+TEXT_EXTS = {'txt', 'nfo', 'log', 'md', 'csv', 'srt', 'sub', 'ass', 'ssa', 'xml', 'json', 'yml', 'yaml', 'ini', 'cfg'}
+ARCHIVE_EXTS = {'zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'iso'}
+EXEC_EXTS = {'exe', 'msi', 'bat', 'sh', 'cmd', 'app', 'dmg'}
+
+
+def _ext_to_category(ext: str) -> str:
+    ext = ext.lower().lstrip('.')
+    if ext in VIDEO_EXTS:
+        return 'video'
+    elif ext in AUDIO_EXTS:
+        return 'audio'
+    elif ext in IMAGE_EXTS:
+        return 'image'
+    elif ext in TEXT_EXTS:
+        return 'text'
+    elif ext in ARCHIVE_EXTS:
+        return 'archive'
+    elif ext in EXEC_EXTS:
+        return 'exec'
+    return 'generic'
+
+
+def _draw_base_page(draw, outline, fill, ox=0):
+    """Draw a basic page/document shape with folded corner, offset by ox."""
+    draw.rectangle([ox + 2, 1, ox + 13, 15], fill=fill, outline=outline)
+    draw.polygon([(ox + 10, 1), (ox + 13, 4), (ox + 10, 4)], fill=outline)
+
+
+def _draw_file_icon(draw, category, ox=0):
+    """Draw a 16x16 file-type icon at horizontal offset ox."""
+    if category == 'video':
+        _draw_base_page(draw, '#4A90D9', '#2C3E6B', ox)
+        draw.polygon([(ox + 6, 7), (ox + 6, 13), (ox + 11, 10)], fill='#4FC3F7')
+    elif category == 'audio':
+        _draw_base_page(draw, '#9B59B6', '#4A235A', ox)
+        draw.ellipse([ox + 5, 11, ox + 8, 14], fill='#CE93D8')
+        draw.line([(ox + 8, 7), (ox + 8, 13)], fill='#CE93D8', width=1)
+        draw.line([(ox + 8, 7), (ox + 11, 6)], fill='#CE93D8', width=1)
+    elif category == 'image':
+        _draw_base_page(draw, '#27AE60', '#1B4332', ox)
+        draw.polygon([(ox + 4, 13), (ox + 7, 9), (ox + 10, 13)], fill='#66BB6A')
+        draw.ellipse([ox + 9, 7, ox + 12, 10], fill='#FDD835')
+    elif category == 'text':
+        _draw_base_page(draw, '#7F8C8D', '#2C3E50', ox)
+        for y in [7, 9, 11, 13]:
+            draw.line([(ox + 5, y), (ox + 11, y)], fill='#BDC3C7', width=1)
+    elif category == 'archive':
+        _draw_base_page(draw, '#E67E22', '#7D4E1A', ox)
+        for y in [6, 8, 10, 12]:
+            draw.rectangle([ox + 7, y, ox + 9, y + 1], fill='#F39C12')
+    elif category == 'exec':
+        _draw_base_page(draw, '#E74C3C', '#6B2020', ox)
+        draw.rectangle([ox + 6, 8, ox + 10, 12], fill='#EF5350')
+        draw.rectangle([ox + 7, 9, ox + 9, 11], fill='#6B2020')
+    else:
+        _draw_base_page(draw, '#95A5A6', '#34495E', ox)
+
+
+def _draw_folder_icon(draw, ox=0):
+    """Draw a 16x16 folder icon at horizontal offset ox."""
+    draw.rectangle([ox + 1, 3, ox + 6, 5], fill='#F5A623', outline='#C68410')
+    draw.rectangle([ox + 1, 5, ox + 14, 14], fill='#F5A623', outline='#C68410')
+    draw.rectangle([ox + 2, 6, ox + 13, 7], fill='#FDCB6E')
+
+
+def _draw_checkbox(draw, checked, ox=0):
+    """Draw a 12x12 checkbox at offset ox, vertically centered in 16px."""
+    y0, y1 = 2, 14
+    draw.rectangle([ox, y0, ox + 12, y1], fill='#2C3E50', outline='#7F8C8D')
+    if checked:
+        # Checkmark
+        draw.line([(ox + 2, 8), (ox + 5, 11)], fill='#2ECC71', width=2)
+        draw.line([(ox + 5, 11), (ox + 10, 4)], fill='#2ECC71', width=2)
+
+
+def get_file_icon(extension: str, checked: bool = True) -> "ImageTk.PhotoImage":
+    """Return a 32x16 composite: [checkbox][file icon] for the given extension."""
+    category = _ext_to_category(extension)
+    cache_key = f"{category}_{'c' if checked else 'u'}"
+    if cache_key in _file_icons:
+        return _file_icons[cache_key]
+
+    from PIL import Image as PilImage, ImageDraw
+    img = PilImage.new('RGBA', (32, 16), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    _draw_checkbox(draw, checked, ox=0)
+    _draw_file_icon(draw, category, ox=16)
+
+    tk_img = ImageTk.PhotoImage(img)
+    _file_icons[cache_key] = tk_img
+    return tk_img
+
+
+def get_folder_icon(checked: bool = True) -> "ImageTk.PhotoImage":
+    """Return a 32x16 composite: [checkbox][folder icon]."""
+    cache_key = f"folder_{'c' if checked else 'u'}"
+    if cache_key in _file_icons:
+        return _file_icons[cache_key]
+
+    from PIL import Image as PilImage, ImageDraw
+    img = PilImage.new('RGBA', (32, 16), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    _draw_checkbox(draw, checked, ox=0)
+    _draw_folder_icon(draw, ox=16)
+
+    tk_img = ImageTk.PhotoImage(img)
+    _file_icons[cache_key] = tk_img
+    return tk_img
+
+
+def format_size(size_bytes):
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 ** 2:
+        return f"{size_bytes / 1024:.1f} KB"
+    elif size_bytes < 1024 ** 3:
+        return f"{size_bytes / 1024 ** 2:.1f} MB"
+    else:
+        return f"{size_bytes / 1024 ** 3:.2f} GB"
 
 
 class FileSharingApp:
     def __init__(self, root):
         self.root = root
+        self.theme_manager = ThemeManager(self.root)
         try:
             self.root.iconbitmap("image8.ico")
         except Exception as e:
@@ -54,13 +186,14 @@ class FileSharingApp:
         self.root.title(f"Hydra Torrent v0.1 - ({MY_PUBLIC_IP}:{PEER_PORT})")
         self.status_visible_var = tk.BooleanVar(value=True)
         # ====================
-        # MENU BAR
+        # CUSTOM MENU BAR (frame-based for full theme control)
         # ====================
-        menubar = tk.Menu(self.root, bg="#2c3e50", fg="white", activebackground="#34495e")
-        self.root.config(menu=menubar)
+        self.menubar_frame = tk.Frame(root, pady=0)
+        self.menubar_frame.pack(fill='x')
+        self.menubar_separator = tk.Frame(root, height=1)
+        self.menubar_separator.pack(fill='x')
         # File Menu
-        file_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="File", menu=file_menu)
+        file_menu = tk.Menu(root, tearoff=0)
         file_menu.add_command(label="Add Magnet Link...",
                               command=self.prompt_add_magnet,
                               accelerator="Ctrl+M")
@@ -72,25 +205,33 @@ class FileSharingApp:
                               command=self.on_close,
                               accelerator="Ctrl+Q")
         # Edit Menu
-        edit_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Edit", menu=edit_menu)
+        edit_menu = tk.Menu(root, tearoff=0)
         edit_menu.add_command(label="Preferences...",
                               command=self.open_preferences_dialog,
                               accelerator="Ctrl+P")
         edit_menu.add_command(label="Clear Completed Transfers",
                               command=self.clear_completed_transfers)
         # View Menu
-        view_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="View", menu=view_menu)
+        view_menu = tk.Menu(root, tearoff=0)
         view_menu.add_command(label="Refresh Library",
                               command=self.refresh_library,
                               accelerator="F5")
         view_menu.add_checkbutton(label="Show Status Log",
                                   command=self.toggle_status_log,
                                   variable=self.status_visible_var)
+        view_menu.add_separator()
+        theme_menu = tk.Menu(view_menu, tearoff=0)
+        view_menu.add_cascade(label="Theme", menu=theme_menu)
+        self.theme_var = tk.StringVar(value=self.theme_manager.load_saved_theme())
+        for key, preset in ThemeManager.get_all_themes().items():
+            theme_menu.add_radiobutton(
+                label=f"{preset.name}  -  {preset.description}",
+                variable=self.theme_var,
+                value=key,
+                command=lambda k=key: self.theme_manager.apply_theme(k)
+            )
         # Tools Menu
-        tools_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Tools", menu=tools_menu)
+        tools_menu = tk.Menu(root, tearoff=0)
         tools_menu.add_command(label="Create Torrent...",
                                command=self.open_torrent_creator_dialog)
         tools_menu.add_command(label="Check Port Status",
@@ -100,57 +241,119 @@ class FileSharingApp:
         tools_menu.add_command(label="Open Download Folder",
                                command=lambda: self.open_folder(DOWNLOAD_DIR))
         # Help Menu
-        help_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu = tk.Menu(root, tearoff=0)
         help_menu.add_command(label="About Hydra Torrent",
                               command=self.show_about)
         help_menu.add_command(label="Documentation / GitHub",
                               command=lambda: webbrowser.open("https://github.com/yourusername/hydra-torrent"))
-        ttk.Label(root, text="Indexing Server:").pack(pady=10)
-        self.server_entry = ttk.Entry(root, width=50)
-        self.server_entry.pack(pady=5)
-        # Load saved server address
+        # Create menu labels in the custom bar
+        self._menu_buttons = []
+        for label_text, menu in [("File", file_menu), ("Edit", edit_menu),
+                                 ("View", view_menu), ("Tools", tools_menu),
+                                 ("Help", help_menu)]:
+            lbl = tk.Label(self.menubar_frame, text=label_text,
+                           padx=6, pady=3, bd=0, highlightthickness=0,
+                           cursor="hand2")
+            lbl.pack(side='left')
+            lbl.bind("<Button-1>", lambda e, m=menu: m.post(e.widget.winfo_rootx(),
+                     e.widget.winfo_rooty() + e.widget.winfo_height()))
+            self._menu_buttons.append(lbl)
+        self.theme_manager.register_menubar(self.menubar_frame, self._menu_buttons, self.menubar_separator)
+        # Register dropdown menus with theme manager
+        for m in [file_menu, edit_menu, view_menu, tools_menu, help_menu, theme_menu]:
+            self.theme_manager.register_menu(m)
+        # Load saved config
         config = load_config()
         saved_server = config.get('indexing_server', 'localhost')
+        saved_mode = config.get('search_mode', 'online')
+        self.jackett_api_key = config.get('jackett_api_key', "")
+        # Main paned window for resizable panels
+        self.main_pane = tk.PanedWindow(root, orient='vertical', sashwidth=4, bd=0,
+                                        opaqueresize=True)
+        self.main_pane.pack(fill='both', expand=True, padx=10, pady=(5, 5))
+        self.theme_manager.register_paned_window(self.main_pane)
+        self.notebook = ttk.Notebook(self.main_pane)
+        self.main_pane.add(self.notebook, minsize=150, stretch='always')
+        # Mode controls floating right, inline with notebook tabs
+        mode_frame = ttk.Frame(root)
+        mode_frame.place(relx=1.0, x=-10, y=self.notebook.winfo_y(), anchor='ne')
+        key_label = ttk.Label(mode_frame, text="\U0001f511 API Key", cursor="hand2")
+        key_label.pack(side='right', padx=(10, 0))
+        key_label.bind("<Button-1>", lambda e: self.change_jackett_key())
+        self.server_entry = ttk.Entry(mode_frame, width=20)
         self.server_entry.insert(0, saved_server)
-        # Save on change
         self.server_entry.bind("<FocusOut>", self.save_indexing_server)
         self.server_entry.bind("<Return>", self.save_indexing_server)
-        self.jackett_api_key = config.get('jackett_api_key', "")
-        # Add clickable key icon for changing API key
-        key_label = ttk.Label(root, text="\U0001f511 Change Jackett API Key", bootstyle="info", cursor="hand2")
-        key_label.pack(pady=5)
-        key_label.bind("<Button-1>", lambda e: self.change_jackett_key())
-        self.notebook = ttk.Notebook(root)
-        self.notebook.pack(pady=10, fill='both', expand=True)
+        self.server_label = ttk.Label(mode_frame, text="Server:")
+        self.search_mode = tk.StringVar(value=saved_mode)
+        self.local_btn = ttk.Radiobutton(
+            mode_frame, text="Local Network", variable=self.search_mode,
+            value="local", style="Hydra.Toolbutton",
+            command=self._on_mode_change
+        )
+        self.local_btn.pack(side='right', padx=(2, 0))
+        self.online_btn = ttk.Radiobutton(
+            mode_frame, text="Online", variable=self.search_mode,
+            value="online", style="Hydra.Toolbutton",
+            command=self._on_mode_change
+        )
+        self.online_btn.pack(side='right', padx=(0, 2))
+        self._on_mode_change()
+        # Position mode_frame after layout settles
+        def _position_mode_frame(event=None):
+            try:
+                # Get notebook's absolute screen position and convert to root-relative
+                nb_screen_y = self.notebook.winfo_rooty()
+                root_screen_y = self.root.winfo_rooty()
+                nb_y = nb_screen_y - root_screen_y
+                mode_frame.place(relx=1.0, x=-10, y=nb_y, anchor='ne')
+            except tk.TclError:
+                pass
+        root.after(100, _position_mode_frame)
+        root.bind("<Configure>", _position_mode_frame)
         # Library Tab
         lib = ttk.Frame(self.notebook)
         self.notebook.add(lib, text='Library')
-        self.lib_tree = ttk.Treeview(lib, columns=('Name', 'Size KB'), show='headings')
-        self.lib_tree.heading('Name', text='Name')
-        self.lib_tree.heading('Size KB', text='Size KB')
-        self.lib_tree.pack(fill='both', expand=True)
-        ttk.Button(lib, text="Refresh", bootstyle="info", command=self.refresh_library).pack(pady=8)
+        lib_frame = standard_ttk.Frame(lib)
+        lib_frame.pack(fill='both', expand=True)
+        self.lib_tree = ttk.Treeview(lib_frame, columns=('Name', 'Size'), show='headings')
+        self.lib_tree.heading('Name', text='Name', anchor='w')
+        self.lib_tree.heading('Size', text='Size', anchor='e')
+        self.lib_tree.column('Name', width=500, anchor='w')
+        self.lib_tree.column('Size', width=120, anchor='e')
+        self.lib_tree.grid(row=0, column=0, sticky='nsew')
+        lib_scroll = standard_ttk.Scrollbar(lib_frame, orient='vertical', command=self.lib_tree.yview)
+        lib_scroll.grid(row=0, column=1, sticky='ns')
+        self.lib_tree.configure(yscrollcommand=lib_scroll.set)
+        lib_frame.rowconfigure(0, weight=1)
+        lib_frame.columnconfigure(0, weight=1)
+        ttk.Button(lib, text="Refresh", style="Accent.TButton", command=self.refresh_library).pack(pady=5, anchor='w', padx=5)
         # Search Tab
         search = ttk.Frame(self.notebook)
         self.notebook.add(search, text='Search')
-        ttk.Label(search, text="Keyword:").pack(pady=(20, 5))
-        self.search_entry = ttk.Entry(search, width=40)
-        self.search_entry.pack(pady=5)
-        ttk.Button(search, text="Search", bootstyle="primary", command=self.search).pack(pady=10)
+        search_bar = ttk.Frame(search)
+        search_bar.pack(fill='x', pady=(5, 5), padx=5)
+        ttk.Label(search_bar, text="Keyword:").pack(side='left', padx=(0, 5))
+        self.search_entry = ttk.Entry(search_bar, width=40)
+        self.search_entry.pack(side='left', padx=(0, 10))
+        self.search_entry.bind("<Return>", lambda e: self.search())
+        ttk.Button(search_bar, text="Search", style="Accent.TButton", command=self.search).pack(side='left')
+        self.search_loading = ttk.Progressbar(search, mode='indeterminate', style="Hydra.Striped.Horizontal.TProgressbar")
         # Search Treeview with qBittorrent-like columns
+        search_frame = standard_ttk.Frame(search)
+        search_frame.pack(fill='both', expand=True, pady=(5, 0))
         self.search_tree = ttk.Treeview(
-            search,
+            search_frame,
             columns=('Name', 'Size', 'Seeders', 'Leechers', 'Engine', 'Published', 'Engine URL'),
             show='headings'
         )
-        self.search_tree.heading('Name', text='Name')
-        self.search_tree.heading('Size', text='Size')
-        self.search_tree.heading('Seeders', text='Seeds')
-        self.search_tree.heading('Leechers', text='Leech')
-        self.search_tree.heading('Engine', text='Engine')
-        self.search_tree.heading('Published', text='Published On')
-        self.search_tree.heading('Engine URL', text='Engine URL')
+        self.search_tree.heading('Name', text='Name', anchor='w')
+        self.search_tree.heading('Size', text='Size', anchor='e')
+        self.search_tree.heading('Seeders', text='Seeds', anchor='center')
+        self.search_tree.heading('Leechers', text='Leech', anchor='center')
+        self.search_tree.heading('Engine', text='Engine', anchor='center')
+        self.search_tree.heading('Published', text='Published On', anchor='center')
+        self.search_tree.heading('Engine URL', text='Engine URL', anchor='w')
         self.search_tree.column('Name', width=350, anchor='w')
         self.search_tree.column('Size', width=100, anchor='e')
         self.search_tree.column('Seeders', width=80, anchor='center')
@@ -158,9 +361,15 @@ class FileSharingApp:
         self.search_tree.column('Engine', width=120, anchor='center')
         self.search_tree.column('Published', width=140, anchor='center')
         self.search_tree.column('Engine URL', width=200, anchor='w')
-        self.search_tree.pack(fill='both', expand=True, pady=10)
-        self.download_btn = ttk.Button(search, text="Download", bootstyle="success", command=self.download, state='disabled')
-        self.download_btn.pack(pady=10)
+        self.search_tree.grid(row=0, column=0, sticky='nsew')
+        search_scroll = standard_ttk.Scrollbar(search_frame, orient='vertical', command=self.search_tree.yview)
+        search_scroll.grid(row=0, column=1, sticky='ns')
+        self.search_tree.configure(yscrollcommand=search_scroll.set)
+        search_frame.rowconfigure(0, weight=1)
+        search_frame.columnconfigure(0, weight=1)
+        self.search_tree.bind("<Double-1>", lambda e: self.download())
+        self.download_btn = ttk.Button(search, text="Download", style="Success.TButton", command=self.download, state='disabled')
+        self.download_btn.pack(pady=5)
         # Transfers Tab
         trans = ttk.Frame(self.notebook)
         self.notebook.add(trans, text='Transfers')
@@ -169,12 +378,14 @@ class FileSharingApp:
         self.trans_tree = ttk.Treeview(
             trans_frame, columns=('File', 'Size', 'Prog', 'Status', 'Peer', 'Speed', 'ETA'), show='headings'
         )
-        for c in self.trans_tree['columns']:
-            self.trans_tree.heading(c, text=c)
-        # Alternating rows for visual separation/gaps
-        self.trans_tree.tag_configure('evenrow', background='#3a0a4a')
-        self.trans_tree.tag_configure('oddrow', background='#2c0a3a')
-        # Column widths
+        self.trans_tree.heading('File', text='File', anchor='w')
+        self.trans_tree.heading('Size', text='Size', anchor='e')
+        self.trans_tree.heading('Prog', text='Progress', anchor='center')
+        self.trans_tree.heading('Status', text='Status', anchor='center')
+        self.trans_tree.heading('Peer', text='Peer', anchor='w')
+        self.trans_tree.heading('Speed', text='Speed', anchor='e')
+        self.trans_tree.heading('ETA', text='ETA', anchor='e')
+        self.theme_manager.register_treeview(self.trans_tree, has_alternating_rows=True)
         self.trans_tree.column('File', width=250, anchor='w')
         self.trans_tree.column('Size', width=80, anchor='e')
         self.trans_tree.column('Prog', width=150, anchor='center')
@@ -182,10 +393,6 @@ class FileSharingApp:
         self.trans_tree.column('Peer', width=150, anchor='w')
         self.trans_tree.column('Speed', width=80, anchor='e')
         self.trans_tree.column('ETA', width=80, anchor='e')
-        # Taller rows + border for gap/separation
-        style = ttk.Style()
-        style.configure("Treeview", rowheight=35, borderwidth=1, relief="flat")
-        style.configure("Treeview.Item", borderwidth=1, relief="flat")
         self.trans_tree.grid(row=0, column=0, sticky='nsew')
         self.yscroll = standard_ttk.Scrollbar(trans_frame, orient='vertical', command=self.trans_tree.yview)
         self.yscroll.grid(row=0, column=1, sticky='ns')
@@ -197,8 +404,8 @@ class FileSharingApp:
         self.transfer_manager.load_transfers()
         self.transfer_manager.show_piecesbar = True
         # Bottom status panel
-        self.bottom_notebook = ttk.Notebook(self.root)
-        self.bottom_notebook.pack(pady=5, padx=10, fill='x')
+        self.bottom_notebook = ttk.Notebook(self.main_pane)
+        self.main_pane.add(self.bottom_notebook, minsize=80, stretch='never')
         # General tab
         general_tab = ttk.Frame(self.bottom_notebook)
         self.bottom_notebook.add(general_tab, text="General")
@@ -206,6 +413,7 @@ class FileSharingApp:
         self.progress_widget = PiecesBar(general_tab, height=20)
         self.progress_widget.grid(row=0, column=1, sticky='ew', padx=5, pady=2)
         self.progress_widget.bind("<Configure>", self.progress_widget.draw)
+        self.theme_manager.register_pieces_bar(self.progress_widget)
         ttk.Label(general_tab, text="Transfer:").grid(row=1, column=0, sticky='w', padx=5, pady=2)
         self.transfer_label = ttk.Label(general_tab, text="Down: 0 MB/s | Up: 0 MB/s | ETA: N/A")
         self.transfer_label.grid(row=1, column=1, sticky='w', padx=5, pady=2)
@@ -229,29 +437,31 @@ class FileSharingApp:
         trackers_tab = ttk.Frame(self.bottom_notebook)
         self.bottom_notebook.add(trackers_tab, text="Trackers")
         self.trackers_tree = ttk.Treeview(trackers_tab, columns=('URL', 'Status', 'Peers', 'Fails'), show='headings')
-        self.trackers_tree.heading('URL', text='URL')
-        self.trackers_tree.heading('Status', text='Status')
-        self.trackers_tree.heading('Peers', text='Peers')
-        self.trackers_tree.heading('Fails', text='Fails')
+        self.trackers_tree.heading('URL', text='URL', anchor='w')
+        self.trackers_tree.heading('Status', text='Status', anchor='center')
+        self.trackers_tree.heading('Peers', text='Peers', anchor='e')
+        self.trackers_tree.heading('Fails', text='Fails', anchor='e')
+        self.trackers_tree.column('URL', width=350, anchor='w')
+        self.trackers_tree.column('Status', width=100, anchor='center')
+        self.trackers_tree.column('Peers', width=80, anchor='e')
+        self.trackers_tree.column('Fails', width=80, anchor='e')
         self.trackers_tree.pack(fill='both', expand=True)
         # Peers tab
         peers_tab = ttk.Frame(self.bottom_notebook)
         self.bottom_notebook.add(peers_tab, text="Peers")
         self.peers_tree = ttk.Treeview(peers_tab, columns=('Country/Region', 'IP', 'Down Speed', 'Up Speed', 'Client'), show='tree headings')
-        self.peers_tree.heading('#0', text='Flag')
-        self.peers_tree.heading('Country/Region', text='Country/Region')
-        self.peers_tree.heading('IP', text='IP')
-        self.peers_tree.heading('Down Speed', text='Down Speed')
-        self.peers_tree.heading('Up Speed', text='Up Speed')
-        self.peers_tree.heading('Client', text='Client')
+        self.peers_tree.heading('#0', text='Flag', anchor='center')
+        self.peers_tree.heading('Country/Region', text='Country/Region', anchor='w')
+        self.peers_tree.heading('IP', text='IP', anchor='w')
+        self.peers_tree.heading('Down Speed', text='Down Speed', anchor='e')
+        self.peers_tree.heading('Up Speed', text='Up Speed', anchor='e')
+        self.peers_tree.heading('Client', text='Client', anchor='w')
         self.peers_tree.column('#0', width=30, anchor='center')
         self.peers_tree.column('Country/Region', width=120, anchor='w')
         self.peers_tree.column('IP', width=130, anchor='w')
         self.peers_tree.column('Down Speed', width=80, anchor='e')
         self.peers_tree.column('Up Speed', width=80, anchor='e')
         self.peers_tree.column('Client', width=140, anchor='w')
-        style = ttk.Style()
-        style.configure("Treeview", rowheight=20)
         self.peers_tree.pack(fill='both', expand=True)
         # Bind selection and start recurring update
         self.trans_tree.bind("<<TreeviewSelect>>", self.update_bottom_status)
@@ -275,20 +485,22 @@ class FileSharingApp:
         self.update_bottom_status()
         # Add context menu for removal
         self.trans_context_menu = tk.Menu(self.root, tearoff=0)
+        self.theme_manager.register_menu(self.trans_context_menu)
         self.trans_tree.bind("<Button-3>", self.show_trans_context_menu)
         self.item_data = {}
-        self.status = ScrolledText(root, height=8, autohide=True, bootstyle="dark")
-        self.status.pack(pady=10, padx=10, fill='both', expand=True)
-        self.status.tag_config("success", foreground="#00ff00")
-        self.status.tag_config("error", foreground="#ff4444")
+        self.status = ScrolledText(self.main_pane, height=6, autohide=True, bootstyle="dark")
+        self.main_pane.add(self.status, minsize=60, stretch='never')
+        self.theme_manager.register_status_text(self.status)
+        # Apply saved theme now that all widgets are registered
+        self.theme_manager.apply_theme(self.theme_manager.load_saved_theme())
         about_label = ttk.Label(
             root,
             text="Hydra Torrent v0.1 \u2013 Built with \u2764\ufe0f",
-            bootstyle="success",
+            foreground=self.theme_manager.current.accent,
             justify="center",
             cursor="hand2"
         )
-        about_label.pack(pady=10)
+        about_label.pack(pady=(0, 5))
         about_label.bind("<Button-1>", lambda e: self.show_about())
 
         def run_peer_server():
@@ -307,6 +519,33 @@ class FileSharingApp:
             self.geo_reader = maxminddb.open_database('GeoLite2-Country.mmdb')
         except Exception as e:
             logger.error(f"GeoIP DB load failed: {e} - Flags disabled")
+
+    def _style_toplevel(self, win):
+        """Apply icon and dark title bar to a child Toplevel window."""
+        try:
+            win.iconbitmap("image8.ico")
+        except Exception:
+            pass
+        if os.name == 'nt':
+            try:
+                win.update()
+                hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 20,
+                    ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
+                )
+            except Exception:
+                pass
+
+    def _on_mode_change(self):
+        mode = self.search_mode.get()
+        save_config('search_mode', mode)
+        if mode == "local":
+            self.server_entry.pack(side='right', padx=(0, 5), before=self.online_btn)
+            self.server_label.pack(side='right', padx=(0, 3), before=self.server_entry)
+        else:
+            self.server_label.pack_forget()
+            self.server_entry.pack_forget()
 
     def yscroll_set(self, *args):
         self.yscroll.set(*args)
@@ -344,9 +583,10 @@ class FileSharingApp:
         prefs.geometry("450x350")
         prefs.transient(self.root)
         prefs.grab_set()
-        ttk.Label(prefs, text="Hydra Torrent Preferences", font=("Helvetica", 12, "bold")).pack(pady=10)
+        self._style_toplevel(prefs)
+        ttk.Label(prefs, text="Hydra Torrent Preferences", font=self.theme_manager.get_font(12, bold=True)).pack(pady=10)
         ttk.Label(prefs, text="(Expand this dialog with real options soon!)").pack(pady=20)
-        ttk.Button(prefs, text="Close", command=prefs.destroy, bootstyle="primary").pack(pady=10)
+        ttk.Button(prefs, text="Close", command=prefs.destroy, style="Accent.TButton").pack(pady=10)
 
     def clear_completed_transfers(self):
         with self.transfer_manager.lock:
@@ -365,10 +605,10 @@ class FileSharingApp:
 
     def toggle_status_log(self):
         if self.status.winfo_ismapped():
-            self.status.pack_forget()
+            self.main_pane.forget(self.status)
             self.status_visible_var.set(False)
         else:
-            self.status.pack(pady=10, padx=10, fill='both', expand=True)
+            self.main_pane.add(self.status, minsize=60, stretch='never')
             self.status_visible_var.set(True)
 
     def open_folder(self, path):
@@ -389,7 +629,8 @@ class FileSharingApp:
         creator_win = ttk.Toplevel(self.root)
         creator_win.title("Create Torrent")
         creator_win.geometry("500x400")
-        ttk.Label(creator_win, text="Torrent Creator (Basic - Expand Later)", font=("Helvetica", 12)).pack(pady=15)
+        self._style_toplevel(creator_win)
+        ttk.Label(creator_win, text="Torrent Creator (Basic - Expand Later)", font=self.theme_manager.get_font(12)).pack(pady=15)
         ttk.Label(creator_win, text="Select file/folder to share:").pack()
         path_var = tk.StringVar()
         ttk.Entry(creator_win, textvariable=path_var, width=50).pack(pady=5)
@@ -404,7 +645,7 @@ class FileSharingApp:
             messagebox.showinfo("Placeholder", "Torrent creation not fully implemented yet!\nUse qBittorrent/mktorrent for now.")
             creator_win.destroy()
 
-        ttk.Button(creator_win, text="Create .torrent", bootstyle="success", command=create).pack(pady=20)
+        ttk.Button(creator_win, text="Create .torrent", style="Success.TButton", command=create).pack(pady=20)
 
     def save_indexing_server(self, event=None):
         address = self.server_entry.get().strip()
@@ -444,8 +685,6 @@ class FileSharingApp:
                     else:
                         handle.resume()
                     t['handle'] = handle
-                    t['status'] = 'Resuming'
-                    self.transfer_manager._update_table_internal(filename)
                     threading.Thread(target=self.monitor_seeding, args=(filename,), daemon=True).start()
 
     def monitor_seeding(self, filename):
@@ -842,16 +1081,17 @@ class FileSharingApp:
         from datetime import datetime
         dialog = ttk.Toplevel(self.root)
         dialog.title(f"Add Download: {filename[:50]}...")
-        dialog.geometry("900x700")
+        dialog.geometry("900x850")
         dialog.transient(self.root)
         dialog.grab_set()
+        self._style_toplevel(dialog)
 
         scrolled_main = ScrolledFrame(dialog, autohide=True, bootstyle="dark")
         scrolled_main.pack(fill='both', expand=True, padx=10, pady=10)
         main_frame = ttk.Frame(scrolled_main)
         main_frame.pack(fill='both', expand=True)
 
-        save_label = ttk.Label(main_frame, text="Save at", font=("Helvetica", 10, "bold"))
+        save_label = ttk.Label(main_frame, text="Save at", font=self.theme_manager.get_font(10, bold=True))
         save_label.pack(anchor='w', pady=(0, 5))
         save_var = tk.StringVar(value=DOWNLOAD_DIR)
         save_entry = ttk.Entry(main_frame, textvariable=save_var, width=60)
@@ -863,14 +1103,14 @@ class FileSharingApp:
         incomplete_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(main_frame, text="Use another path for incomplete torrent", variable=incomplete_var).pack(anchor='w', pady=5)
         remember_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(main_frame, text="Remember last used save path", variable=remember_var, bootstyle="info").pack(anchor='w', pady=5)
+        ttk.Checkbutton(main_frame, text="Remember last used save path", variable=remember_var).pack(anchor='w', pady=5)
 
-        file_section_label = ttk.Label(main_frame, text="Files", font=("Helvetica", 10, "bold"))
+        file_section_label = ttk.Label(main_frame, text="Files", font=self.theme_manager.get_font(10, bold=True))
         file_section_label.pack(anchor='w', pady=(20, 5))
 
         controls_frame = ttk.Frame(main_frame)
         controls_frame.pack(fill='x', pady=(0, 5))
-        tree = ttk.Treeview(main_frame, columns=('Name', 'Total Size', 'Priority'), show='tree headings', height=15)
+        tree = ttk.Treeview(main_frame, columns=('Total Size', 'Priority'), show='tree headings', height=10)
         ttk.Button(controls_frame, text="Select All", command=lambda: self.select_all(tree, True)).pack(side='left', padx=5)
         ttk.Button(controls_frame, text="Select None", command=lambda: self.select_all(tree, False)).pack(side='left', padx=5)
         filter_label = ttk.Label(controls_frame, text="Filter:")
@@ -880,19 +1120,19 @@ class FileSharingApp:
         filter_entry.pack(side='left', padx=5)
         filter_entry.bind("<KeyRelease>", lambda e: self.filter_tree(tree, filter_var.get()))
 
-        tree.heading('Name', text='Name')
+        tree.heading('#0', text='Name', anchor='w')
         tree.heading('Total Size', text='Total Size')
         tree.heading('Priority', text='Download Priority')
-        tree.column('Name', width=400, anchor='w')
+        tree.column('#0', width=450, anchor='w')
         tree.column('Total Size', width=120, anchor='e')
         tree.column('Priority', width=150, anchor='center')
         tree.pack(fill='both', expand=True)
         tree.bind('<Button-1>', lambda e: self.handle_tree_click(tree, e))
 
-        status_label = ttk.Label(main_frame, text="Fetching metadata...", foreground="orange")
+        status_label = ttk.Label(main_frame, text="Fetching metadata...", foreground=self.theme_manager.current.status_warning)
         status_label.pack(pady=5)
 
-        info_label = ttk.Label(main_frame, text="Torrent Information", font=("Helvetica", 10, "bold"))
+        info_label = ttk.Label(main_frame, text="Torrent Information", font=self.theme_manager.get_font(10, bold=True))
         info_label.pack(anchor='w', pady=(20, 5))
         info_frame = ttk.LabelFrame(main_frame, text="Details")
         info_frame.pack(fill='x', pady=5)
@@ -916,8 +1156,8 @@ class FileSharingApp:
         bottom_frame.pack(fill='x', pady=10, padx=10)
         never_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(bottom_frame, text="Never show again", variable=never_var).pack(side='left')
-        ttk.Button(bottom_frame, text="Cancel", command=lambda: self.cancel_magnet(dialog), bootstyle="danger").pack(side='right', padx=5)
-        ok_btn = ttk.Button(bottom_frame, text="OK", state='disabled', bootstyle="success")
+        ttk.Button(bottom_frame, text="Cancel", command=lambda: self.cancel_magnet(dialog), style="Danger.TButton").pack(side='right', padx=5)
+        ok_btn = ttk.Button(bottom_frame, text="OK", state='disabled', style="Success.TButton")
         ok_btn.pack(side='right', padx=5)
 
         temp_handle = None
@@ -950,19 +1190,24 @@ class FileSharingApp:
 
                 if dialog.winfo_exists():
                     dialog.after(0, lambda: self.populate_file_tree(tree, file_list, total_size))
-                    dialog.after(0, lambda: status_label.config(text="Metadata ready \u2713", foreground="green"))
+                    dialog.after(0, lambda: status_label.config(text="Metadata ready \u2713", foreground=self.theme_manager.current.status_success))
                     dialog.after(0, lambda: ok_btn.config(state='normal'))
                     dialog.after(0, lambda: ok_btn.config(command=lambda: self.confirm_magnet_download(dialog, temp_handle, file_list, save_var.get(), never_var.get(), tree)))
             except Exception as e:
                 if dialog.winfo_exists():
-                    dialog.after(0, lambda: status_label.config(text=f"Error: {str(e)}", foreground="red"))
+                    dialog.after(0, lambda: status_label.config(text=f"Error: {str(e)}", foreground=self.theme_manager.current.status_error))
                     dialog.after(0, lambda: ok_btn.config(state='disabled'))
 
         if magnet:
             threading.Thread(target=fetch_metadata, daemon=True).start()
         else:
             size_str = f"{file_size / (1024**3):.2f} GiB" if file_size > 0 else "Unknown"
-            item = tree.insert('', 'end', values=(filename, size_str, 'Normal'), tags=('checked',))
+            ext = os.path.splitext(filename)[1]
+            icon = get_file_icon(ext, checked=True)
+            self._tree_icon_refs = [icon]
+            self._item_ext = {}
+            item = tree.insert('', 'end', text=filename, image=icon, values=(size_str, 'Normal'), tags=('checked',))
+            self._item_ext[item] = ext
             self.parent_map[filename] = item
             self.item_priorities[item] = 'Normal'
             status_label.config(text="Ready")
@@ -977,16 +1222,35 @@ class FileSharingApp:
             tree.delete(item)
         self.item_priorities = {}
         self.parent_map = {}
+        self._tree_icon_refs = []
+        # Track each item's extension/type for icon toggling
+        self._item_ext = {}
         for path, size, priority in file_list:
             parts = path.split(os.sep)
             current_parent = ''
             for i, part in enumerate(parts):
                 full_part = os.sep.join(parts[:i+1])
                 if full_part not in self.parent_map:
-                    size_str = f"{size / (1024**3):.2f} GiB" if size > 1e9 else f"{size / (1024**2):.1f} MiB" if i == len(parts)-1 else ""
-                    item = tree.insert(current_parent, 'end', values=(part, size_str, priority if i == len(parts)-1 else ''), tags=('checked',) if i == len(parts)-1 else ())
+                    is_leaf = (i == len(parts) - 1)
+                    size_str = format_size(size) if is_leaf else ""
+                    if is_leaf:
+                        ext = os.path.splitext(part)[1]
+                        icon = get_file_icon(ext, checked=True)
+                    else:
+                        ext = '__folder__'
+                        icon = get_folder_icon(checked=True)
+                    self._tree_icon_refs.append(icon)
+                    item = tree.insert(
+                        current_parent, 'end',
+                        text=part,
+                        image=icon,
+                        values=(size_str, priority if is_leaf else ''),
+                        tags=('checked',),
+                        open=not is_leaf,
+                    )
+                    self._item_ext[item] = ext
                     self.parent_map[full_part] = item
-                    if i == len(parts)-1:
+                    if is_leaf:
                         self.item_priorities[item] = priority
                 current_parent = self.parent_map[full_part]
 
@@ -1011,31 +1275,40 @@ class FileSharingApp:
         col = tree.identify_column(event.x)
         if not item:
             return
-        if col == '#1':
-            tags = tree.item(item)['tags']
+        if col == '#0':
+            # Click on checkbox/icon/name area — toggle check state
             if tree.get_children(item):
                 self.toggle_folder_check(tree, item)
             else:
-                if 'checked' in tags:
-                    tree.item(item, tags=())
-                else:
-                    tree.item(item, tags=('checked',))
-        elif col == '#3' and not tree.get_children(item):
+                tags = tree.item(item)['tags']
+                checked = 'checked' not in tags
+                new_tags = ('checked',) if checked else ()
+                tree.item(item, tags=new_tags)
+                self._update_item_icon(tree, item, checked)
+        elif col == '#2' and not tree.get_children(item):
             self.edit_priority(tree, item, event)
+
+    def _update_item_icon(self, tree, item, checked):
+        """Swap the icon to show checked/unchecked checkbox."""
+        ext = getattr(self, '_item_ext', {}).get(item, '')
+        if ext == '__folder__':
+            icon = get_folder_icon(checked=checked)
+        else:
+            icon = get_file_icon(ext, checked=checked)
+        self._tree_icon_refs.append(icon)
+        tree.item(item, image=icon)
 
     def toggle_folder_check(self, tree, item):
         checked = 'checked' not in tree.item(item)['tags']
         def recurse(subitem):
-            if tree.get_children(subitem):
-                tree.item(subitem, tags=('checked',) if checked else ())
-                for child in tree.get_children(subitem):
-                    recurse(child)
-            else:
-                tree.item(subitem, tags=('checked',) if checked else ())
+            tree.item(subitem, tags=('checked',) if checked else ())
+            self._update_item_icon(tree, subitem, checked)
+            for child in tree.get_children(subitem):
+                recurse(child)
         recurse(item)
 
     def edit_priority(self, tree, item, event):
-        bbox = tree.bbox(item, column='#3')
+        bbox = tree.bbox(item, column='#2')
         if not bbox:
             return
         combo = ttk.Combobox(tree, values=['Do not download', 'Low', 'Normal', 'High'], state='readonly')
@@ -1043,7 +1316,7 @@ class FileSharingApp:
         combo.current(['Do not download', 'Low', 'Normal', 'High'].index(self.item_priorities.get(item, 'Normal')))
         def on_select(e):
             priority = combo.get()
-            tree.set(item, column='#3', value=priority)
+            tree.set(item, column='#2', value=priority)
             self.item_priorities[item] = priority
             combo.destroy()
         combo.bind('<<ComboboxSelected>>', on_select)
@@ -1054,7 +1327,7 @@ class FileSharingApp:
         filter_text = filter_text.lower()
         def recurse(item):
             visible = False
-            name = tree.set(item, 'Name').lower()
+            name = tree.item(item, 'text').lower()
             if filter_text in name:
                 visible = True
             for child in tree.get_children(item):
@@ -1073,8 +1346,13 @@ class FileSharingApp:
         self._download_confirmed = False
 
     def select_all(self, tree, select=True):
-        for item in tree.get_children(''):
+        def recurse(item):
             tree.item(item, tags=('checked',) if select else ())
+            self._update_item_icon(tree, item, select)
+            for child in tree.get_children(item):
+                recurse(child)
+        for item in tree.get_children(''):
+            recurse(item)
 
     def get_free_space(self, folder):
         total, used, free = shutil.disk_usage(folder)
@@ -1083,15 +1361,9 @@ class FileSharingApp:
     def custom_askstring(self, title, prompt, initialvalue=''):
         dialog = tk.Toplevel(self.root)
         dialog.title(title)
-        try:
-            icon_path = os.path.abspath("image8.ico")
-            dialog.iconbitmap(icon_path)
-        except Exception as e:
-            self.status.insert(tk.END, f"Icon load failed: {e}\n", "error")
-            self.status.see(tk.END)
-
         dialog.transient(self.root)
         dialog.grab_set()
+        self._style_toplevel(dialog)
 
         ttk.Label(dialog, text=prompt).pack(pady=10, padx=20)
         entry = ttk.Entry(dialog, width=50)
@@ -1110,8 +1382,8 @@ class FileSharingApp:
         btn_frame = ttk.Frame(dialog)
         btn_frame.pack(pady=10)
 
-        ttk.Button(btn_frame, text="OK", bootstyle="success", command=ok).pack(side=LEFT, padx=10)
-        ttk.Button(btn_frame, text="Cancel", bootstyle="danger", command=cancel).pack(side=LEFT, padx=10)
+        ttk.Button(btn_frame, text="OK", style="Success.TButton", command=ok).pack(side=LEFT, padx=10)
+        ttk.Button(btn_frame, text="Cancel", style="Danger.TButton", command=cancel).pack(side=LEFT, padx=10)
 
         dialog.protocol("WM_DELETE_WINDOW", cancel)
         self.root.wait_window(dialog)
@@ -1265,7 +1537,7 @@ class FileSharingApp:
         for f in os.listdir(SHARED_DIR):
             path = os.path.join(SHARED_DIR, f)
             if os.path.isfile(path):
-                sz = round(os.path.getsize(path) / 1024, 2)
+                sz = format_size(os.path.getsize(path))
                 self.lib_tree.insert('', 'end', values=(f, sz))
                 count += 1
         self.status.insert(tk.END, f"Library: {count} file(s)\n")
@@ -1273,85 +1545,122 @@ class FileSharingApp:
 
     def search(self):
         kw = self.search_entry.get().strip()
-        srv = self.server_entry.get().strip()
-        if not kw or not srv:
-            messagebox.showerror("Error", "Enter a keyword and server")
+        mode = self.search_mode.get()
+        if not kw:
+            messagebox.showerror("Error", "Enter a search keyword")
             return
-        use_online = kw.lower().startswith("online:")
-        if use_online:
-            kw = kw[7:].strip()
-        try:
-            local_results = self.search_local_index(srv, kw)
-            online_results = search_online_public(kw) if use_online else []
-            all_matches = local_results + online_results
-            self.search_tree.delete(*self.search_tree.get_children())
-            self.item_data = {}
-            for match in all_matches:
-                filename = match.get('filename', 'Unknown')
-                size_bytes = match.get('size', 0)
-                piece_size = match.get('piece_size', 0)
-                piece_hashes = match.get('piece_hashes', [])
-                if size_bytes >= 1024**3:
-                    size_display = f"{size_bytes / (1024**3):.2f} GB"
-                elif size_bytes >= 1024**2:
-                    size_display = f"{size_bytes / (1024**2):.2f} MB"
-                elif size_bytes > 0:
-                    size_display = f"{size_bytes / 1024:.0f} KB"
-                else:
-                    size_display = "Unknown"
-                peers = match.get('peers', [])
-                magnet = match.get('magnet', '')
-                source = match.get('source', 'Unknown')
-                published = match.get('published', 'Unknown')
-                engine_url = match.get('engine_url', '')
-                if peers:
-                    for peer in peers:
-                        ip = peer.get('peer_ip') or peer.get('peer_ip_public') or peer.get('peer_ip_local')
-                        port = peer.get('peer_port')
-                        if ip and port:
-                            ping = self.ping_peer(ip, port)
-                            item_id = self.search_tree.insert(
-                                '', 'end',
-                                values=(filename, size_display, '1', '0', 'Local', ping, ''),
-                                tags=()
-                            )
-                            self.item_data[item_id] = {
-                                'piece_size': piece_size,
-                                'piece_hashes': piece_hashes,
-                                'size_bytes': size_bytes,
-                                'peer_ip': ip,
-                                'peer_port': port,
-                            }
-                else:
-                    seeders = match.get('seeders', 0) if match.get('seeders', 0) > 0 else '0'
-                    leechers = match.get('leechers', 0) if match.get('leechers', 0) > 0 else '0'
-                    item_id = self.search_tree.insert(
-                        '', 'end',
-                        values=(filename, size_display, seeders, leechers, source, published, engine_url),
-                        tags=()
-                    )
-                    self.item_data[item_id] = {
-                        'piece_size': piece_size,
-                        'piece_hashes': piece_hashes,
-                        'size_bytes': size_bytes,
-                        'magnet': magnet,
-                    }
-                if engine_url:
-                    def open_url(event, url=engine_url):
-                        webbrowser.open(url)
-                    self.search_tree.tag_bind(item_id, '<Button-1>', open_url)
-            self.download_btn.config(state='normal' if self.search_tree.get_children() else 'disabled')
-        except Exception as e:
-            logger.error(f"Search error: {e}")
-            self.status.insert(tk.END, f"Search failed: {e}\n", "error")
-            self.status.see(tk.END)
+        if mode == "local":
+            srv = self.server_entry.get().strip()
+            if not srv:
+                messagebox.showerror("Error", "Enter a server address for local network search")
+                return
+        else:
+            srv = None
+        self.search_tree.delete(*self.search_tree.get_children())
+        self.item_data = {}
+        self.download_btn.config(state='disabled')
+        self.search_loading.pack(fill='x', padx=10, pady=5)
+        self.search_loading.start(15)
+        mode_label = "online" if mode == "online" else "local network"
+        self.status.insert(tk.END, f"Searching {mode_label} for '{kw}'...\n")
+        self.status.see(tk.END)
+
+        def do_search():
+            try:
+                local_results = self.search_local_index(srv, kw) if srv else []
+                online_results = []
+                if mode == "online":
+                    # Try Jackett first if API key is configured
+                    if self.jackett_api_key:
+                        try:
+                            jackett_url = "http://localhost:9117"
+                            self.root.after(0, lambda: self.status.insert(tk.END, "Searching via Jackett...\n"))
+                            online_results = search_jackett(jackett_url, kw, self.jackett_api_key)
+                        except Exception as e:
+                            logger.error(f"Jackett search failed: {e}")
+                            self.root.after(0, lambda: self.status.insert(tk.END, f"Jackett unavailable, falling back to public sources...\n", "error"))
+                    # Fall back to public scrapers if Jackett returned nothing
+                    if not online_results:
+                        online_results = search_online_public(kw)
+                all_matches = local_results + online_results
+                self.root.after(0, lambda: self._populate_search_results(all_matches))
+            except Exception as e:
+                logger.error(f"Search error: {e}")
+                self.root.after(0, lambda: self._stop_search_loading())
+                self.root.after(0, lambda: self.status.insert(tk.END, f"Search failed: {e}\n", "error"))
+                self.root.after(0, lambda: self.status.see(tk.END))
+
+        threading.Thread(target=do_search, daemon=True).start()
+
+    def _stop_search_loading(self):
+        self.search_loading.stop()
+        self.search_loading.pack_forget()
+
+    def _populate_search_results(self, all_matches):
+        self._stop_search_loading()
+        self.search_tree.delete(*self.search_tree.get_children())
+        self.item_data = {}
+        for match in all_matches:
+            filename = match.get('filename', 'Unknown')
+            size_bytes = match.get('size', 0)
+            piece_size = match.get('piece_size', 0)
+            piece_hashes = match.get('piece_hashes', [])
+            size_display = format_size(size_bytes) if size_bytes > 0 else "Unknown"
+            peers = match.get('peers', [])
+            magnet = match.get('magnet', '')
+            source = match.get('source', 'Unknown')
+            published = match.get('published', 'Unknown')
+            engine_url = match.get('engine_url', '')
+            if peers:
+                for peer in peers:
+                    ip = peer.get('peer_ip') or peer.get('peer_ip_public') or peer.get('peer_ip_local')
+                    port = peer.get('peer_port')
+                    if ip and port:
+                        item_id = self.search_tree.insert(
+                            '', 'end',
+                            values=(filename, size_display, '1', '0', 'Local', '', ''),
+                            tags=()
+                        )
+                        self.item_data[item_id] = {
+                            'piece_size': piece_size,
+                            'piece_hashes': piece_hashes,
+                            'size_bytes': size_bytes,
+                            'peer_ip': ip,
+                            'peer_port': port,
+                        }
+            else:
+                seeders = match.get('seeders', 0) if match.get('seeders', 0) > 0 else '0'
+                leechers = match.get('leechers', 0) if match.get('leechers', 0) > 0 else '0'
+                item_id = self.search_tree.insert(
+                    '', 'end',
+                    values=(filename, size_display, seeders, leechers, source, published, engine_url),
+                    tags=()
+                )
+                self.item_data[item_id] = {
+                    'piece_size': piece_size,
+                    'piece_hashes': piece_hashes,
+                    'size_bytes': size_bytes,
+                    'magnet': magnet,
+                }
+            if engine_url:
+                def open_url(event, url=engine_url):
+                    webbrowser.open(url)
+                self.search_tree.tag_bind(item_id, '<Button-1>', open_url)
+        self.download_btn.config(state='normal' if self.search_tree.get_children() else 'disabled')
+        self.status.insert(tk.END, f"Found {len(all_matches)} result(s).\n", "success")
+        self.status.see(tk.END)
 
 
 # ----------------------------------------------------------------------
 # MAIN
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
-    app = ttk.Window(themename="vapor")
+    # Load saved theme base for initial window creation
+    _cfg = load_config()
+    _saved_key = _cfg.get('theme', 'hydra_default')
+    _preset = ThemeManager.get_theme(_saved_key)
+    _base = _preset.ttkbootstrap_base if _preset else "cyborg"
+    app = ttk.Window(themename=_base)
     app.geometry("1100x750")
     FileSharingApp(app)
     app.mainloop()

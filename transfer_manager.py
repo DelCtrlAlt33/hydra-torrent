@@ -165,6 +165,12 @@ class PiecesBar(tk.Canvas):
         self.fraction = 0.0
         self.pieces = []
         self.num_pieces = 0
+        self.colors = {
+            'complete': 'green',
+            'empty': 'gray',
+            'progress': 'blue',
+            'text': 'white',
+        }
         self.bind("<Configure>", self.draw)
 
     def set_fraction(self, fraction):
@@ -186,9 +192,9 @@ class PiecesBar(tk.Canvas):
         if self.num_pieces > 0 and self.pieces:
             piece_width = max(1, width / self.num_pieces)
             for i in range(self.num_pieces):
-                color = "green" if self.pieces[i] else "gray"
+                color = self.colors['complete'] if self.pieces[i] else self.colors['empty']
                 self.create_rectangle(i * piece_width, 0, (i + 1) * piece_width, height, fill=color, outline="")
         else:
-            self.create_rectangle(0, 0, width * self.fraction, height, fill="blue", outline="")
+            self.create_rectangle(0, 0, width * self.fraction, height, fill=self.colors['progress'], outline="")
 
-        self.create_text(width / 2, height / 2, text=f"{self.fraction * 100:.1f}%", fill="white", anchor="center")
+        self.create_text(width / 2, height / 2, text=f"{self.fraction * 100:.1f}%", fill=self.colors['text'], anchor="center")
