@@ -8,98 +8,202 @@ Hydra Torrent is a custom BitTorrent client with a GUI built in Python using tki
 - Two-stage download process (incomplete → complete → Plex)
 - Magnet link support
 - Resume/seeding functionality
+- **NEW**: Standalone Windows installer for multi-user deployment
 
-## Current State (2026-02-14)
+## Current State (2026-02-14 Evening)
 
 ### Working Features
 - ✅ Download torrents via magnet links
 - ✅ Peer list with country flags (async loading to prevent UI freeze)
 - ✅ Automatic move to Plex when complete (movies → M:\movies, TV → M:\tv)
 - ✅ Resume torrents on restart without re-downloading
-- ✅ Plex auto-scan via API when new media added
+- ✅ Plex auto-scan via API when new media added (with detailed error logging)
 - ✅ Theme system (dark/light modes)
 - ✅ File icons and progress tracking
+- ✅ Custom About dialog with Hydra logo and mission statement
+- ✅ All dialogs use dark title bars and custom icon
+- ✅ **Standalone .exe installer package for girlfriend's computer**
 
-### Architecture (Current - Temporary)
+### Architecture (Current)
 ```
-Desktop (192.168.20.2)
+Main Desktop (192.168.20.2) - Port 6001
 ├── Hydra Torrent GUI (peer.pyw)
 ├── Downloads to: C:\Users\Matth\hydra_torrent\downloads_incomplete (LOCAL)
-└── Auto-moves to: \\192.168.20.4\Plex\movies or \tv (TrueNAS SMB)
+├── Auto-moves to: \\192.168.20.4\Plex\movies or \tv (TrueNAS SMB)
+└── Jackett: http://127.0.0.1:9117 (shared via ENABLE_JACKETT_SHARING.bat)
+
+Girlfriend's Desktop (192.168.20.X) - Port 6002
+├── Hydra Torrent (standalone .exe)
+├── Downloads to: %LOCALAPPDATA%\HydraTorrent\downloads_incomplete
+├── Auto-moves to: \\192.168.20.4\Plex\movies or \tv (shared TrueNAS)
+└── Jackett: http://192.168.20.2:9117 (uses main Jackett instance)
 
 TrueNAS (192.168.20.4)
-├── \\192.168.20.4\Plex\movies (M:\movies)
-└── \\192.168.20.4\Plex\tv (M:\tv)
+├── \\192.168.20.4\Plex\movies
+└── \\192.168.20.4\Plex\tv
+└── Credentials: mediauser / [password]
 
 R710 Proxmox (192.168.20.33)
 └── Plex Container (LXC 100)
     └── Mounts TrueNAS via SMB at /mnt/smb-media
 ```
 
-### Known Issues & Technical Debt
-
-#### CRITICAL: Architectural Design Smell
-**Problem**: Hydra Torrent runs on the desktop (workstation), not a server.
-- Desktop should be a CLIENT, not a SERVER
-- Can't reboot desktop freely without stopping downloads
-- Uses local disk space unnecessarily
-- Two-copy operation (local → TrueNAS) wastes I/O
-
-**Why**: libtorrent doesn't work reliably when downloading directly to SMB shares (\\192.168.20.4\Plex\incomplete). We discovered this causes torrent failures.
-
-**Solution**: Migrate Hydra to R710 server (see "Next Steps" below)
-
-#### Other Issues
-- Some Plex movies may still need manual "Fix Match" after library cleanup
-- Flag downloads require internet connection (cached after first load)
-
 ## Recent Work Completed
 
-### Session 2026-02-14: Fixes and Plex Cleanup
+### Session 2026-02-14 Evening: Installer Package Creation
 
-1. **Fixed Download Failures**
-   - Problem: Torrents stopped working after changing `listen_interfaces` to specific IP
-   - Solution: Reverted to `listen_interfaces: '0.0.0.0:6001'`
-   - Problem: Downloads to SMB share unreliable
-   - Solution: Download to local disk first, then auto-move
+**Goal**: Package Hydra Torrent for girlfriend's computer with one-click install.
 
-2. **Performance Optimization**
-   - Removed debug alert monitoring thread (CPU overhead)
-   - Changed logging from DEBUG to INFO
-   - Made flag downloads async (prevented UI freezing on click)
+#### 1. Created PyInstaller Build System
+- Built standalone Windows .exe (~46MB) with all dependencies
+- No Python installation required on target computer
+- Bundles: libtorrent, ttkbootstrap, tkinter, PIL, maxminddb, all Python modules
 
-3. **Fixed Resume Logic**
-   - Problem: Completed torrents re-downloaded on restart
-   - Solution: Store `plex_path` in transfer data, use it for resume instead of incomplete dir
+#### 2. Fixed Resource Path Issues
+**Problem**: PyInstaller .exe couldn't find bundled resources (icons, GeoIP database)
 
-4. **Plex Library Cleanup**
-   - Created `plex_smart_cleanup.py` - comprehensive movie cleanup
-     - Fixed 116 movies with proper naming: "Movie Name (YEAR)"
-     - Removed quality tags (1080p, BluRay, x264, etc.)
-     - Merged 2 duplicates
-   - Created `plex_tv_cleanup.py` - TV show organization
-     - Merged 5 scattered season folders (Breaking Bad, Smiling Friends)
-     - Organized 13 loose episode files into proper structure
-   - Created `plex_quick_fixes.py` - targeted fixes for 22 specific issues
-     - Twilight series (5 movies)
-     - Scary Movie series (3 movies)
-     - Spider-Man movies
-     - Matrix trilogy
-   - Created `split_trilogies.py` - split trilogy packs
-     - The Grudge trilogy → 3 separate movies
-     - Austin Powers trilogy → 3 separate movies
+**Solution**: Added `resource_path()` helper function in peer.pyw:
+```python
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    try:
+        base_path = sys._MEIPASS  # PyInstaller temp folder
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+```
 
-5. **Plex Auto-Scan**
-   - Configured Plex API token in `hydra_config.json`
-   - Auto-triggers library scan when media added
+Updated all resource loads:
+- `image8.ico` → `resource_path("image8.ico")`
+- `GeoLite2-Country.mmdb` → `resource_path("GeoLite2-Country.mmdb")`
+
+#### 3. Fixed Working Directory Issues
+**Problem**: When running as .exe, files (transfers.json, config, etc.) were being created on desktop instead of app directory.
+
+**Solution**: Updated config.py to detect PyInstaller and use AppData:
+```python
+def get_base_dir():
+    """Get the correct base directory for data files"""
+    if getattr(sys, 'frozen', False):
+        # Running as compiled .exe - use AppData
+        app_data = os.path.join(os.environ['LOCALAPPDATA'], 'HydraTorrent')
+        os.makedirs(app_data, exist_ok=True)
+        return app_data
+    else:
+        # Running as script - use script directory
+        return os.path.dirname(os.path.abspath(__file__))
+
+BASE_DIR = get_base_dir()
+```
+
+Now all files go to: `%LOCALAPPDATA%\HydraTorrent\`
+
+#### 4. Created Complete Installer Package
+
+**Contents of `installer_package/` folder (55MB):**
+
+1. **HydraTorrent.exe** (46MB)
+   - Standalone executable
+   - Includes all dependencies
+   - Works on any Windows 10/11 machine
+
+2. **INSTALL.bat**
+   - Complete automated installer
+   - Prompts for Jackett API key
+   - Prompts for TrueNAS credentials
+   - Maps network drives
+   - Adds Windows Firewall rules (ports 6002, 6881)
+   - Creates desktop shortcut
+   - Pre-configures port 6002 (won't conflict with main instance on 6001)
+
+3. **CLEANUP_OLD_INSTALL.bat**
+   - Removes old installation
+   - Cleans up stray files on desktop
+   - Prepares for fresh install
+
+4. **TEST_PLEX_CONNECTION.bat**
+   - Tests Plex server connectivity
+   - Verifies API token works
+   - Tests library scan trigger
+   - Diagnoses auto-scan issues
+
+5. **README.txt**
+   - Complete installation instructions
+   - Troubleshooting guide
+   - Manual configuration examples
+   - Correct JSON format for config
+
+6. **image8.ico** - Hydra logo (401KB)
+7. **GeoLite2-Country.mmdb** - GeoIP database (9.2MB)
+
+#### 5. Improved UI Consistency
+- Replaced all `messagebox` and `simpledialog` with custom styled dialogs
+- All popups now have dark title bar and Hydra icon
+- Created comprehensive About dialog with mission statement
+- Removed unused `simpledialog` import
+
+#### 6. Enhanced Plex Auto-Scan
+**Improved error logging in media_organizer.py:**
+- ✓ "Plex library scan triggered successfully"
+- ✗ "Invalid token" (401 error)
+- ✗ "Connection timeout"
+- ✗ "Cannot connect to Plex server"
+
+Now provides actionable error messages when auto-scan fails.
+
+#### 7. Jackett Network Sharing
+Created `ENABLE_JACKETT_SHARING.bat` for main computer:
+- Opens port 9117 in Windows Firewall
+- Configures Jackett to allow external access (`AllowExternal: true`)
+- Restarts Jackett service
+- Allows girlfriend's computer to use main Jackett instance at http://192.168.20.2:9117
+
+### Installation Process (What User Does)
+
+**On Main Computer (192.168.20.2):**
+```
+1. Right-click ENABLE_JACKETT_SHARING.bat → Run as Administrator
+   (Allows girlfriend to use your Jackett)
+```
+
+**On Girlfriend's Computer:**
+```
+1. Copy entire installer_package folder
+2. Right-click CLEANUP_OLD_INSTALL.bat → Run (if reinstalling)
+3. Right-click INSTALL.bat → Run as Administrator
+4. Enter Jackett API key when prompted (from http://192.168.20.2:9117)
+5. Enter TrueNAS credentials (mediauser / password)
+6. Done! Desktop shortcut appears
+```
+
+**Testing:**
+```
+Run TEST_PLEX_CONNECTION.bat to verify Plex auto-scan will work
+```
 
 ## File Structure
 
 ### Core Application
 - `peer.pyw` - Main GUI application (tkinter)
-- `config.py` - Configuration (paths, logging, network settings)
-- `media_organizer.py` - Automatic categorization (movies vs TV)
+- `config.py` - Configuration (paths, logging, network settings, PyInstaller detection)
+- `media_organizer.py` - Automatic categorization (movies vs TV) + Plex API
 - `theme_manager.py` - Dark/light theme system
+- `transfer_manager.py` - Download progress tracking
+- `search.py` - Jackett/public torrent search
+- `download.py` - Download handling
+- `certs.py` - SSL certificate handling
+
+### Installer Files
+- `build_installer.py` - PyInstaller build script
+- `installer_package/` - Complete installer package
+  - `HydraTorrent.exe`
+  - `INSTALL.bat`
+  - `CLEANUP_OLD_INSTALL.bat`
+  - `TEST_PLEX_CONNECTION.bat`
+  - `README.txt`
+  - `image8.ico`
+  - `GeoLite2-Country.mmdb`
+- `ENABLE_JACKETT_SHARING.bat` - Enable Jackett network access
 
 ### Plex Utilities (One-time cleanup scripts)
 - `plex_smart_cleanup.py` - Comprehensive movie cleanup
@@ -107,19 +211,23 @@ R710 Proxmox (192.168.20.33)
 - `plex_quick_fixes.py` - Targeted manual fixes
 - `split_trilogies.py` - Split trilogy packs
 
-### Configuration Files
-- `hydra_config.json` - Plex URL and API token
+### Configuration Files (in AppData when running as .exe)
+- `hydra_config.json` - Plex URL, API token, Jackett settings
 - `transfers.json` - Active/completed transfers state
 
-### Data Directories
-- `downloads_incomplete/` - Active downloads (local disk)
-- `downloads_complete/` - Completed before Plex move (local disk)
+### Data Directories (in AppData when running as .exe)
+- `downloads_incomplete/` - Active downloads
+- `downloads_complete/` - Completed before Plex move
 - `flags/` - Cached country flag images
 
 ## Important Configuration
 
-### config.py Settings
+### config.py Settings (Auto-detected)
 ```python
+# BASE_DIR changes based on environment:
+# - Development: C:\Users\Matth\hydra_torrent
+# - Installed .exe: C:\Users\[User]\AppData\Local\HydraTorrent
+
 # Download directories (local - fast and reliable for libtorrent)
 DOWNLOAD_DIR_INCOMPLETE = os.path.join(BASE_DIR, 'downloads_incomplete')
 DOWNLOAD_DIR_COMPLETE = os.path.join(BASE_DIR, 'downloads_complete')
@@ -129,10 +237,8 @@ MEDIA_DIR_MOVIES = r'\\192.168.20.4\Plex\movies'
 MEDIA_DIR_TV = r'\\192.168.20.4\Plex\tv'
 
 # Network settings
-PEER_PORT = 6001  # BitTorrent port
-
-# Logging
-logging.basicConfig(level=logging.INFO)  # NOT DEBUG (performance)
+PEER_PORT = 6001  # Main instance
+# Girlfriend's instance uses 6002 (set in her hydra_config.json)
 ```
 
 ### libtorrent Session Config
@@ -146,85 +252,84 @@ self.ses = lt.session({
 })
 ```
 
-### Plex Configuration
+### Girlfriend's Config (Auto-created by INSTALL.bat)
 ```json
 {
+  "peer_port": 6002,
+  "jackett_url": "http://192.168.20.2:9117",
+  "jackett_api_key": "[entered during install]",
   "plex_url": "http://192.168.20.33:32400",
-  "plex_token": "8Jkzcq8frQYqxELDQV3K"
+  "plex_token": "8Jkzcq8frQYqxELDQV3K",
+  "auto_move_to_plex": true,
+  "search_mode": "jackett"
 }
+```
+
+### TrueNAS Credentials (Needed for Install)
+```
+Username: mediauser
+Password: [actual password]
 ```
 
 ### TrueNAS Permissions
 ```bash
 # On TrueNAS
-chown -R mediauser:mediauser /mnt/MainPool/media
-chmod -R 775 /mnt/MainPool/media
+chown -R mediauser:mediauser /mnt/MainPool/Plex
+chmod -R 775 /mnt/MainPool/Plex
 ```
 
-## Next Steps
+## Known Issues & Solutions
 
-### PRIORITY: Migrate to Proper Server Architecture
+### Issue: Files Appearing on Desktop
+**Status**: ✅ FIXED
+- **Was**: PyInstaller .exe created files on desktop
+- **Fix**: Updated config.py to use `%LOCALAPPDATA%\HydraTorrent\` when running as .exe
 
-**Why**: Running persistent services on desktop is a design anti-pattern. Desktop should be a client, not a server.
+### Issue: Icons Not Loading in .exe
+**Status**: ✅ FIXED
+- **Was**: image8.ico and GeoLite2-Country.mmdb not found
+- **Fix**: Added `resource_path()` helper for PyInstaller resource loading
 
-**Migration Plan**:
+### Issue: Desktop Shortcut Blank/Not Working
+**Status**: ⚠️ PARTIAL FIX
+- **Workaround**: Manual shortcut creation documented in README.txt
+- May need to create shortcut manually: Right-click Desktop → New → Shortcut → Browse to `%LOCALAPPDATA%\HydraTorrent\HydraTorrent.exe`
 
-1. **Create Hydra LXC on R710** (Proxmox LXC 104)
-   ```bash
-   pct create 104 local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
-     --hostname hydra-torrent \
-     --memory 2048 \
-     --cores 2 \
-     --net0 name=eth0,bridge=vmbr0,ip=192.168.20.104/24,gw=192.168.20.1 \
-     --rootfs local-lvm:8
-   ```
+### Issue: Jackett Search Not Working
+**Causes**:
+1. API key not in config
+2. Can't reach Jackett at http://192.168.20.2:9117
+3. Jackett not configured for external access
 
-2. **Mount TrueNAS Storage**
-   ```bash
-   # In LXC
-   mkdir -p /mnt/downloads /mnt/media
-   mount -t nfs 192.168.20.4:/mnt/MainPool/downloads /mnt/downloads
-   mount -t nfs 192.168.20.4:/mnt/MainPool/media /mnt/media
-   # Add to /etc/fstab for persistence
-   ```
+**Fix**:
+1. Run `ENABLE_JACKETT_SHARING.bat` on main computer
+2. Add API key to hydra_config.json
+3. Restart Hydra Torrent
 
-3. **Install Dependencies**
-   ```bash
-   apt update && apt install python3 python3-pip python3-tk git
-   pip3 install libtorrent requests pillow
-   ```
+### Issue: Can't Access TrueNAS Share
+**Error**: `[WinError 1326] The user name or password is incorrect`
 
-4. **Copy Code and Update Config**
-   - Copy entire hydra_torrent folder to `/opt/hydra_torrent`
-   - Update paths in config.py to use `/mnt/downloads` and `/mnt/media`
+**Fix**:
+- Run INSTALL.bat again and enter correct credentials
+- Or manually: `net use \\192.168.20.4\Plex /user:mediauser PASSWORD /persistent:yes`
 
-5. **Create Systemd Service**
-   - Run as persistent service
-   - Auto-start on boot
-   - Restart on failure
+### Issue: Plex Not Auto-Scanning
+**Diagnosis**: Run `TEST_PLEX_CONNECTION.bat`
 
-6. **Access from Desktop**
-   - Desktop just opens browser to `http://192.168.20.104:8080`
-   - Can shutdown desktop without affecting downloads
+**Common causes**:
+1. plex_token not in config
+2. Can't reach Plex server at 192.168.20.33:32400
+3. Firewall blocking port 32400
+4. Token expired/invalid
 
-**Benefits**:
-- No network copy overhead (downloads directly on server storage)
-- Desktop free to reboot anytime
-- Proper server/client separation
-- R710 has 3TB storage, better suited for this workload
-
-### Post-Migration Tasks
-- Test resume functionality on server
-- Verify Plex auto-scan still works
-- Update documentation with new architecture
-- Remove Hydra from desktop
+**Fix**: Check logs for detailed error messages (now includes ✓/✗ indicators)
 
 ## Troubleshooting
 
 ### Downloads Not Working
-- Check `listen_interfaces` is `0.0.0.0:6001` (not a specific IP)
+- Check `listen_interfaces` is `0.0.0.0:[port]` (not a specific IP)
 - Verify downloads are to LOCAL disk, not SMB share
-- Check firewall: port 6001 open
+- Check firewall: port open (6001 for main, 6002 for girlfriend)
 - Check tracker response in logs
 
 ### Completed Torrents Re-download on Restart
@@ -233,21 +338,36 @@ chmod -R 775 /mnt/MainPool/media
 - Look for "Resuming download..." in logs
 
 ### UI Freezing When Clicking Transfers
-- Check flag downloads are async (threading.Thread)
-- Verify flag_cache is being used
-- May need to clear flag cache if corrupted
-
-### Plex Not Showing New Media
-- Check Plex API token is valid
-- Verify auto-scan call succeeds (check logs)
-- Manual scan: Plex → Movies → ... → "Scan Library Files"
+- ✅ FIXED: Flag downloads are now async
+- If still freezing, clear flag cache
 
 ### Permission Denied Moving to Plex
-- Check TrueNAS ownership: `chown -R mediauser:mediauser /mnt/MainPool/media`
-- Check permissions: `chmod -R 775 /mnt/MainPool/media`
-- Verify SMB share allows write access
+- Check TrueNAS ownership: `chown -R mediauser:mediauser /mnt/MainPool/Plex`
+- Check permissions: `chmod -R 775 /mnt/MainPool/Plex`
+- Verify network drive is mapped with credentials
 
 ## Development Notes
+
+### PyInstaller Build Process
+```bash
+# Build the installer
+cd C:\Users\Matth\hydra_torrent
+python build_installer.py
+
+# Output: installer_package/ folder with all files
+```
+
+### Rebuilding After Code Changes
+```bash
+rm -rf build dist
+pyinstaller --name=HydraTorrent --windowed --onefile --icon=image8.ico \
+  --add-data="image8.ico;." --add-data="GeoLite2-Country.mmdb;." \
+  --hidden-import=ttkbootstrap --hidden-import=libtorrent \
+  --hidden-import=maxminddb --hidden-import=PIL \
+  --collect-all=ttkbootstrap peer.pyw
+
+cp dist/HydraTorrent.exe installer_package/
+```
 
 ### Why Local Downloads Then Move?
 libtorrent has issues with SMB/network shares:
@@ -255,43 +375,67 @@ libtorrent has issues with SMB/network shares:
 - Poor performance
 - Tracker timeout issues
 
-Downloading to local disk first, then moving when complete is the workaround until we migrate to R710 where downloads will be local to the server.
+Downloading to local disk first, then moving when complete is the workaround.
 
-### Resume Logic
+### Resource Path Helper (PyInstaller)
 ```python
-# Store destination when moved to Plex
-if success:
-    t['moved_to_plex'] = True
-    t['plex_path'] = os.path.dirname(dest_path)
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    try:
+        base_path = sys._MEIPASS  # PyInstaller extracts here
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
-# Resume with correct path
-save_path = t.get('plex_path', DOWNLOAD_DIR_INCOMPLETE)
+# Usage:
+logo_img = Image.open(resource_path("image8.ico"))
+geo_reader = maxminddb.open_database(resource_path('GeoLite2-Country.mmdb'))
 ```
 
-### Flag Loading Performance
-Flags are downloaded async to prevent UI freeze:
+### Detecting PyInstaller Environment
 ```python
-threading.Thread(target=download_flag, args=(flag_key,), daemon=True).start()
+if getattr(sys, 'frozen', False):
+    # Running as .exe
+    app_data = os.path.join(os.environ['LOCALAPPDATA'], 'HydraTorrent')
+else:
+    # Running as script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
 ```
 
-### Media Detection
-```python
-TV_PATTERNS = [
-    r'[Ss]\d{1,2}[Ee]\d{1,2}',  # S01E05
-    r'\d{1,2}x\d{1,2}',          # 1x05
-    r'Season\s*\d+',
-]
-```
+## Next Steps
+
+### IMMEDIATE: Test Installer on Girlfriend's Computer
+1. Copy `installer_package` folder to her computer
+2. Run `ENABLE_JACKETT_SHARING.bat` on main computer first
+3. Run `CLEANUP_OLD_INSTALL.bat` (if needed)
+4. Run `INSTALL.bat` as Administrator
+5. Enter Jackett API key and TrueNAS credentials
+6. Run `TEST_PLEX_CONNECTION.bat` to verify setup
+7. Test downloading a torrent
+8. Verify it moves to Plex and Plex auto-scans
+
+### TODO: Future Improvements
+- Fix desktop shortcut creation (currently requires manual creation sometimes)
+- Add logging viewer in GUI for troubleshooting
+- Add network connectivity tests in GUI
+- Create uninstaller script
+- Add update mechanism for installed .exe
+- Consider signed executable to avoid Windows Defender warnings
+
+### FUTURE: Migrate to R710 Server (Long-term)
+See original migration plan in "Next Steps" section of previous version.
 
 ## Git Status
-- Modified files: config.py, peer.pyw, theme_manager.py
-- Untracked: Plex cleanup scripts, screenshots, production_peer.pyw
+- Clean working tree (all changes committed)
+- Ready for deployment
+- installer_package/ folder excluded from git (.gitignore)
 
 ## Questions to Ask When Returning
-1. "Did you migrate to R710 yet?" (see Next Steps)
-2. "Any Plex movies still showing wrong posters?"
-3. "Downloads working reliably?"
-4. "Any new features needed?"
+1. "Did the installer work on girlfriend's computer?"
+2. "Any issues with Jackett search or Plex auto-scan?"
+3. "Are downloads and auto-organization working correctly?"
+4. "Any Windows Firewall warnings or issues?"
+5. "Does the desktop shortcut work properly?"
 
 ---
-Last updated: 2026-02-14
+Last updated: 2026-02-14 Evening

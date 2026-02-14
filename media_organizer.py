@@ -209,20 +209,28 @@ class MediaOrganizer:
             plex_token = self.config.get('plex_token', '')
 
             if not plex_url or not plex_token:
-                logger.debug("Plex URL/token not configured, skipping notification")
+                logger.warning("Plex auto-scan disabled: URL/token not configured in settings")
                 return
 
             # Trigger library scan
             scan_url = f"{plex_url}/library/sections/all/refresh?X-Plex-Token={plex_token}"
-            response = requests.get(scan_url, timeout=5)
+            logger.info(f"Triggering Plex scan at: {plex_url}")
+
+            response = requests.get(scan_url, timeout=10)
 
             if response.status_code == 200:
-                logger.info("Plex library scan triggered successfully")
+                logger.info("✓ Plex library scan triggered successfully")
+            elif response.status_code == 401:
+                logger.error("✗ Plex scan failed: Invalid token (check plex_token in settings)")
             else:
-                logger.warning(f"Plex scan returned status {response.status_code}")
+                logger.warning(f"✗ Plex scan returned status {response.status_code}")
 
+        except requests.exceptions.Timeout:
+            logger.error(f"✗ Plex scan failed: Connection timeout to {plex_url}")
+        except requests.exceptions.ConnectionError:
+            logger.error(f"✗ Plex scan failed: Cannot connect to {plex_url} (is Plex running?)")
         except Exception as e:
-            logger.debug(f"Could not notify Plex: {e}")
+            logger.error(f"✗ Plex scan failed: {str(e)}")
 
 
 # Convenience function
