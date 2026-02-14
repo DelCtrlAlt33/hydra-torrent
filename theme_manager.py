@@ -530,6 +530,7 @@ class ThemeManager:
         self._menubar_buttons: list = []
         self._menubar_separator = None
         self._paned_windows: list = []
+        self._ascii_logo = None
 
     @property
     def current(self) -> ThemePreset:
@@ -557,6 +558,9 @@ class ThemeManager:
 
     def register_paned_window(self, pw):
         self._paned_windows.append(pw)
+
+    def register_ascii_logo(self, label):
+        self._ascii_logo = label
 
     def register_menubar(self, frame, buttons, separator=None):
         self._menubar_frame = frame
@@ -658,6 +662,7 @@ class ThemeManager:
         self._apply_status_texts(theme)
         self._apply_treeviews(theme)
         self._apply_paned_windows(theme)
+        self._apply_ascii_logo(theme)
 
         save_config('theme', key)
 
@@ -758,6 +763,14 @@ class ThemeManager:
                     tree.tag_configure('oddrow', background=theme.treeview_oddrow)
             except tk.TclError:
                 pass
+
+    def _apply_ascii_logo(self, theme: ThemePreset):
+        if self._ascii_logo is None:
+            return
+        try:
+            self._ascii_logo.configure(foreground=theme.accent)
+        except tk.TclError:
+            pass
 
     def _apply_paned_windows(self, theme: ThemePreset):
         for pw in self._paned_windows:

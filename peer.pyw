@@ -29,7 +29,8 @@ from PIL import Image, ImageTk
 
 # --- Hydra modules ---
 from config import (
-    SHARED_DIR, DOWNLOAD_DIR, PEER_PORT, SERVER_PORT, CHUNK_SIZE,
+    SHARED_DIR, DOWNLOAD_DIR, DOWNLOAD_DIR_INCOMPLETE, DOWNLOAD_DIR_COMPLETE,
+    MEDIA_DIR_MOVIES, MEDIA_DIR_TV, PEER_PORT, SERVER_PORT, CHUNK_SIZE,
     logger, hide_console, load_config, save_config,
 )
 from certs import create_client_ssl_context
@@ -42,6 +43,7 @@ from search import (
 from download import download_from_peer
 from transfer_manager import TransferManager, PiecesBar
 from theme_manager import ThemeManager
+from media_organizer import auto_move_completed_download
 
 hide_console()
 
@@ -238,8 +240,12 @@ class FileSharingApp:
                                command=self.check_port_open)
         tools_menu.add_command(label="Open Shared Folder",
                                command=lambda: self.open_folder(SHARED_DIR))
-        tools_menu.add_command(label="Open Download Folder",
-                               command=lambda: self.open_folder(DOWNLOAD_DIR))
+        tools_menu.add_command(label="Open Downloads Folder",
+                               command=lambda: self.open_folder(DOWNLOAD_DIR_COMPLETE))
+        tools_menu.add_command(label="Open Movies Folder",
+                               command=lambda: self.open_folder(MEDIA_DIR_MOVIES))
+        tools_menu.add_command(label="Open TV Shows Folder",
+                               command=lambda: self.open_folder(MEDIA_DIR_TV))
         # Help Menu
         help_menu = tk.Menu(root, tearoff=0)
         help_menu.add_command(label="About Hydra Torrent",
@@ -340,10 +346,10 @@ class FileSharingApp:
         ttk.Button(search_bar, text="Search", style="Accent.TButton", command=self.search).pack(side='left')
         self.search_loading = ttk.Progressbar(search, mode='indeterminate', style="Hydra.Striped.Horizontal.TProgressbar")
         # Search Treeview with qBittorrent-like columns
-        search_frame = standard_ttk.Frame(search)
-        search_frame.pack(fill='both', expand=True, pady=(5, 0))
+        self.search_tree_frame = standard_ttk.Frame(search)
+        self.search_tree_frame.pack(fill='both', expand=True, pady=(5, 0))
         self.search_tree = ttk.Treeview(
-            search_frame,
+            self.search_tree_frame,
             columns=('Name', 'Size', 'Seeders', 'Leechers', 'Engine', 'Published', 'Engine URL'),
             show='headings'
         )
@@ -362,11 +368,11 @@ class FileSharingApp:
         self.search_tree.column('Published', width=140, anchor='center')
         self.search_tree.column('Engine URL', width=200, anchor='w')
         self.search_tree.grid(row=0, column=0, sticky='nsew')
-        search_scroll = standard_ttk.Scrollbar(search_frame, orient='vertical', command=self.search_tree.yview)
+        search_scroll = standard_ttk.Scrollbar(self.search_tree_frame, orient='vertical', command=self.search_tree.yview)
         search_scroll.grid(row=0, column=1, sticky='ns')
         self.search_tree.configure(yscrollcommand=search_scroll.set)
-        search_frame.rowconfigure(0, weight=1)
-        search_frame.columnconfigure(0, weight=1)
+        self.search_tree_frame.rowconfigure(0, weight=1)
+        self.search_tree_frame.columnconfigure(0, weight=1)
         self.search_tree.bind("<Double-1>", lambda e: self.download())
         self.download_btn = ttk.Button(search, text="Download", style="Success.TButton", command=self.download, state='disabled')
         self.download_btn.pack(pady=5)
@@ -433,6 +439,42 @@ class FileSharingApp:
         self.connections_label = ttk.Label(general_tab, text="0")
         self.connections_label.grid(row=6, column=1, sticky='w', padx=5, pady=2)
         general_tab.columnconfigure(1, weight=1)
+        # ASCII art logo on the right
+        HYDRA_ASCII = (
+            "                  ++++\n"
+            "           +##++#%@%########+++\n"
+            "       +++%@@%%%%%#++%%%%%%###++\n"
+            "      #@%%%%%%%%%%++#%###%%%%####++\n"
+            "    #%@%%%%%%%%##+%%%#++#%#+++####++\n"
+            "  +%@%%%%%%%%%%++#%%##%%%#+ +++++##+\n"
+            "  %%%%%%%@%##+#%%%++ #%##++  ++++++#+\n"
+            "  #%%%%%%% ## %%%%#+###+++     ++++ ++\n"
+            " +%%%%%%#+###%###+++++++#++     +++ ++\n"
+            "#%%##%%%####++#  +++++#+         +++ +\n"
+            "##%####+++ +  +++##++++           +\n"
+            "+##+++%  + + #+++++\n"
+            " +++  + + +++\n"
+            "   ++++++++       +      ++\n"
+            "    +++++               +\n"
+            "               +++++++++\n"
+            "             +#+++++++  ++\n"
+            "             #+++++++  +\n"
+            "           #++++++++  +\n"
+            "          +#+++++++\n"
+            "          +++##++++\n"
+            "         ++ +++++++\n"
+            "\n"
+            "      H Y D R A  T O R R E N T"
+        )
+        self.ascii_logo = ttk.Label(
+            general_tab,
+            text=HYDRA_ASCII,
+            font=("Consolas", 7),
+            justify='left',
+            anchor='ne',
+        )
+        self.ascii_logo.grid(row=0, column=2, rowspan=7, sticky='ne', padx=(10, 5))
+        self.theme_manager.register_ascii_logo(self.ascii_logo)
         # Trackers tab
         trackers_tab = ttk.Frame(self.bottom_notebook)
         self.bottom_notebook.add(trackers_tab, text="Trackers")
@@ -480,6 +522,7 @@ class FileSharingApp:
         self.ses.add_dht_router("router.utorrent.com", 6881)
         self.ses.add_dht_router("router.bittorrent.com", 6881)
         self.ses.add_dht_router("dht.transmissionbt.com", 6881)
+
         # Resume persisted torrents
         self.resume_persisted_torrents()
         self.update_bottom_status()
@@ -580,13 +623,104 @@ class FileSharingApp:
     def open_preferences_dialog(self):
         prefs = ttk.Toplevel(self.root)
         prefs.title("Preferences")
-        prefs.geometry("450x350")
+        prefs.geometry("600x500")
         prefs.transient(self.root)
         prefs.grab_set()
         self._style_toplevel(prefs)
-        ttk.Label(prefs, text="Hydra Torrent Preferences", font=self.theme_manager.get_font(12, bold=True)).pack(pady=10)
-        ttk.Label(prefs, text="(Expand this dialog with real options soon!)").pack(pady=20)
-        ttk.Button(prefs, text="Close", command=prefs.destroy, style="Accent.TButton").pack(pady=10)
+
+        # Header
+        ttk.Label(prefs, text="Hydra Torrent Preferences",
+                 font=self.theme_manager.get_font(12, bold=True)).pack(pady=10)
+
+        # Create notebook for tabs
+        pref_notebook = ttk.Notebook(prefs)
+        pref_notebook.pack(fill='both', expand=True, padx=10, pady=10)
+
+        # Downloads Tab
+        downloads_tab = ttk.Frame(pref_notebook)
+        pref_notebook.add(downloads_tab, text="Downloads")
+
+        config = load_config()
+
+        # Auto-move setting
+        ttk.Label(downloads_tab, text="Media Organization",
+                 font=self.theme_manager.get_font(10, bold=True)).pack(anchor='w', pady=(10, 5), padx=10)
+
+        auto_move_var = tk.BooleanVar(value=config.get('auto_move_to_plex', True))
+        ttk.Checkbutton(downloads_tab,
+                       text="Automatically organize completed downloads into Plex media folders",
+                       variable=auto_move_var).pack(anchor='w', padx=20, pady=5)
+
+        ttk.Label(downloads_tab,
+                 text="When enabled, movies and TV shows will be automatically\n"
+                      "categorized and moved to the appropriate Plex folders.",
+                 foreground='gray').pack(anchor='w', padx=40, pady=(0, 10))
+
+        # Directory settings
+        ttk.Label(downloads_tab, text="Download Directories",
+                 font=self.theme_manager.get_font(10, bold=True)).pack(anchor='w', pady=(10, 5), padx=10)
+
+        dir_frame = ttk.Frame(downloads_tab)
+        dir_frame.pack(fill='x', padx=20, pady=5)
+
+        ttk.Label(dir_frame, text="Incomplete Downloads:").grid(row=0, column=0, sticky='w', pady=5)
+        ttk.Label(dir_frame, text=DOWNLOAD_DIR_INCOMPLETE, foreground='gray').grid(row=0, column=1, sticky='w', padx=10)
+
+        ttk.Label(dir_frame, text="Complete Downloads:").grid(row=1, column=0, sticky='w', pady=5)
+        ttk.Label(dir_frame, text=DOWNLOAD_DIR_COMPLETE, foreground='gray').grid(row=1, column=1, sticky='w', padx=10)
+
+        ttk.Label(dir_frame, text="Movies:").grid(row=2, column=0, sticky='w', pady=5)
+        ttk.Label(dir_frame, text=MEDIA_DIR_MOVIES, foreground='gray').grid(row=2, column=1, sticky='w', padx=10)
+
+        ttk.Label(dir_frame, text="TV Shows:").grid(row=3, column=0, sticky='w', pady=5)
+        ttk.Label(dir_frame, text=MEDIA_DIR_TV, foreground='gray').grid(row=3, column=1, sticky='w', padx=10)
+
+        # Plex Integration Tab
+        plex_tab = ttk.Frame(pref_notebook)
+        pref_notebook.add(plex_tab, text="Plex Integration")
+
+        ttk.Label(plex_tab, text="Plex Server Settings",
+                 font=self.theme_manager.get_font(10, bold=True)).pack(anchor='w', pady=(10, 5), padx=10)
+
+        ttk.Label(plex_tab,
+                 text="Configure Plex server to enable automatic library updates",
+                 foreground='gray').pack(anchor='w', padx=20, pady=(0, 10))
+
+        plex_frame = ttk.Frame(plex_tab)
+        plex_frame.pack(fill='x', padx=20, pady=10)
+
+        ttk.Label(plex_frame, text="Plex URL:").grid(row=0, column=0, sticky='w', pady=5)
+        plex_url_var = tk.StringVar(value=config.get('plex_url', 'http://localhost:32400'))
+        plex_url_entry = ttk.Entry(plex_frame, textvariable=plex_url_var, width=40)
+        plex_url_entry.grid(row=0, column=1, sticky='w', padx=10, pady=5)
+
+        ttk.Label(plex_frame, text="Plex Token:").grid(row=1, column=0, sticky='w', pady=5)
+        plex_token_var = tk.StringVar(value=config.get('plex_token', ''))
+        plex_token_entry = ttk.Entry(plex_frame, textvariable=plex_token_var, width=40, show='*')
+        plex_token_entry.grid(row=1, column=1, sticky='w', padx=10, pady=5)
+
+        ttk.Label(plex_tab,
+                 text="How to find your Plex token:\n"
+                      "1. Open Plex Web App\n"
+                      "2. Play any media file\n"
+                      "3. Click the ⓘ icon → View XML\n"
+                      "4. Look for X-Plex-Token in the URL",
+                 foreground='gray', justify='left').pack(anchor='w', padx=20, pady=10)
+
+        # Save button
+        def save_preferences():
+            save_config('auto_move_to_plex', auto_move_var.get())
+            save_config('plex_url', plex_url_var.get().strip())
+            save_config('plex_token', plex_token_var.get().strip())
+            messagebox.showinfo("Saved", "Preferences saved successfully!")
+            prefs.destroy()
+
+        button_frame = ttk.Frame(prefs)
+        button_frame.pack(fill='x', padx=10, pady=10)
+        ttk.Button(button_frame, text="Save", command=save_preferences,
+                  style="Success.TButton").pack(side='right', padx=5)
+        ttk.Button(button_frame, text="Cancel", command=prefs.destroy,
+                  style="Danger.TButton").pack(side='right', padx=5)
 
     def clear_completed_transfers(self):
         with self.transfer_manager.lock:
@@ -673,9 +807,12 @@ class FileSharingApp:
         with self.transfer_manager.lock:
             for filename, t in list(self.transfer_manager.transfers.items()):
                 if t['status'] == 'Seeding' and 'magnet' in t and 'resume_data' in t:
+                    # Use Plex path if file was moved, otherwise use incomplete dir
+                    save_path = t.get('plex_path', DOWNLOAD_DIR_INCOMPLETE)
+
                     params = {
                         'url': t['magnet'],
-                        'save_path': DOWNLOAD_DIR,
+                        'save_path': save_path,
                         'storage_mode': lt.storage_mode_t(2),
                     }
                     handle = lt.add_magnet_uri(self.ses, t['magnet'], params)
@@ -829,7 +966,7 @@ class FileSharingApp:
         logger.info(f"Starting torrent download for {filename} via magnet: {magnet_uri}")
         params = {
             'url': magnet_uri,
-            'save_path': DOWNLOAD_DIR,
+            'save_path': DOWNLOAD_DIR_INCOMPLETE,
             'storage_mode': lt.storage_mode_t(2),
         }
         handle = lt.add_magnet_uri(self.ses, magnet_uri, params)
@@ -859,6 +996,11 @@ class FileSharingApp:
         transfer_manager.transfers[real_name]['prev_bytes'] = 0
         transfer_manager.transfers[real_name]['prev_time'] = time.time()
         trackers = [
+            # HTTP/HTTPS trackers (more reliable, harder to block)
+            "https://tracker.gbitt.info:443/announce",
+            "https://tracker.tamersunion.org:443/announce",
+            "http://tracker.opentrackr.org:1337/announce",
+            # UDP trackers
             "udp://tracker.opentrackr.org:1337/announce",
             "udp://open.tracker.cl:1337/announce",
             "udp://tracker.openbittorrent.com:6969/announce",
@@ -867,8 +1009,6 @@ class FileSharingApp:
             "udp://tracker.torrent.eu.org:451/announce",
             "udp://exodus.desync.com:6969/announce",
             "udp://bt1.archive.org:6969/announce",
-            "udp://tracker.dler.org:6969/announce",
-            "udp://tracker.tiny-vps.com:6969/announce",
         ]
         for tracker in trackers:
             handle.add_tracker({'url': tracker})
@@ -950,6 +1090,40 @@ class FileSharingApp:
         t['prev_bytes'] = s.total_upload
         t['prev_time'] = time.time()
 
+        # Auto-move to Plex if enabled
+        config = load_config()
+        auto_move_enabled = config.get('auto_move_to_plex', True)  # Default enabled
+
+        if auto_move_enabled:
+            status_text.insert(tk.END, f" \u21b3 Auto-organizing media file...\n")
+            status_text.see(tk.END)
+
+            # Get the actual file path from the torrent
+            ti = handle.get_torrent_info()
+            files = ti.files()
+
+            # Process each file in the torrent
+            for file_info in files:
+                file_path = os.path.join(DOWNLOAD_DIR_INCOMPLETE, file_info.path)
+
+                if os.path.exists(file_path):
+                    success, dest_path, error = auto_move_completed_download(
+                        os.path.basename(file_path),
+                        file_path
+                    )
+
+                    if success:
+                        # Store the new location for resume
+                        t['moved_to_plex'] = True
+                        t['plex_path'] = os.path.dirname(dest_path)
+                        status_text.insert(tk.END,
+                            f" \u2705 Moved to Plex: {dest_path}\n", "success")
+                    elif error and "Not a video file" not in error:
+                        status_text.insert(tk.END,
+                            f" \u26a0 Could not move: {error}\n", "error")
+
+            status_text.see(tk.END)
+
         threading.Thread(target=self.monitor_seeding, args=(real_name,), daemon=True).start()
         logger.info(f"Now seeding: {real_name}")
 
@@ -1027,17 +1201,24 @@ class FileSharingApp:
                     country_str = country if country != 'Unknown' else 'Unknown'
                     if code:
                         flag_key = code.lower()
-                        if flag_key not in self.flag_cache:
-                            try:
-                                flag_url = f"https://flagcdn.com/16x12/{flag_key}.png"
-                                resp = requests.get(flag_url, timeout=3)
-                                if resp.status_code == 200:
-                                    img_data = resp.content
-                                    img = Image.open(io.BytesIO(img_data))
-                                    self.flag_cache[flag_key] = ImageTk.PhotoImage(img)
-                            except Exception as e:
-                                logger.debug(f"Flag load failed for {flag_key}: {e}")
-                        flag_img = self.flag_cache.get(flag_key)
+                        # Use cached flag if available
+                        if flag_key in self.flag_cache:
+                            flag_img = self.flag_cache[flag_key]
+                        else:
+                            # Download flag asynchronously in background (non-blocking)
+                            def download_flag(fkey):
+                                try:
+                                    flag_url = f"https://flagcdn.com/16x12/{fkey}.png"
+                                    resp = requests.get(flag_url, timeout=1)
+                                    if resp.status_code == 200:
+                                        img = Image.open(io.BytesIO(resp.content))
+                                        self.flag_cache[fkey] = ImageTk.PhotoImage(img)
+                                except Exception:
+                                    pass  # Silently fail for flags
+
+                            # Start download in background, don't wait for it
+                            threading.Thread(target=download_flag, args=(flag_key,), daemon=True).start()
+                            flag_img = None  # Will show on next refresh
                     if flag_img:
                         self.image_refs.append(flag_img)
                     self.peers_tree.insert('', 'end', image=flag_img, values=(country_str, ip, down, up, client))
@@ -1488,7 +1669,6 @@ class FileSharingApp:
 
     def start_file_watcher(self):
         threading.Thread(target=self.watch_shared_folder, daemon=True).start()
-        self.root.after(4000, self.refresh_library)
 
     def watch_shared_folder(self):
         last_state = {}
@@ -1559,7 +1739,7 @@ class FileSharingApp:
         self.search_tree.delete(*self.search_tree.get_children())
         self.item_data = {}
         self.download_btn.config(state='disabled')
-        self.search_loading.pack(fill='x', padx=10, pady=5)
+        self.search_loading.pack(fill='x', padx=10, pady=5, before=self.search_tree_frame)
         self.search_loading.start(15)
         mode_label = "online" if mode == "online" else "local network"
         self.status.insert(tk.END, f"Searching {mode_label} for '{kw}'...\n")
