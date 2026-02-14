@@ -5,5 +5,26 @@ certs/
 transfers.json
 hydra_config.json
 downloads/
+downloads_incomplete/
+downloads_complete/
 shared_files/
+flags/
 GeoLite2-Country.mmdb
+
+# Screenshots and images
+*.png
+*.jpg
+
+# Build/install artifacts
+miniconda3/
+nul
+
+# Reports and temp files
+plex_cleanup_report.txt
+ascii-art.txt
+
+# Production copies
+production_peer.pyw
+
+# IDE/Editor
+.claude/
