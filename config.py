@@ -17,11 +17,27 @@ FULLCHAIN_PATH = os.path.join(CERTS_DIR, 'fullchain.pem')
 PRIVKEY_PATH = os.path.join(CERTS_DIR, 'privkey.pem')
 CHAIN_PATH = os.path.join(CERTS_DIR, 'chain.pem')
 SHARED_DIR = os.path.join(BASE_DIR, 'shared_files')
-DOWNLOAD_DIR = os.path.join(BASE_DIR, 'downloads')
+
+# Download directories (local - fast and reliable for libtorrent)
+DOWNLOAD_DIR_INCOMPLETE = os.path.join(BASE_DIR, 'downloads_incomplete')
+DOWNLOAD_DIR_COMPLETE = os.path.join(BASE_DIR, 'downloads_complete')
+
+# Plex media directories - same location as your Linux laptop NFS mount
+# Windows (SMB): \\192.168.20.4\Plex = TrueNAS:/mnt/MainPool/Plex
+# Linux (NFS): /mnt/plex = TrueNAS:/mnt/MainPool/Plex
+# Plex sees: /mnt/media = TrueNAS:/mnt/MainPool/Plex (via NFS)
+MEDIA_DIR_MOVIES = r'\\192.168.20.4\Plex\movies'
+MEDIA_DIR_TV = r'\\192.168.20.4\Plex\tv'
+
+# Legacy support
+DOWNLOAD_DIR = DOWNLOAD_DIR_INCOMPLETE
+
 CONFIG_FILE = os.path.join(BASE_DIR, 'hydra_config.json')
 
 os.makedirs(SHARED_DIR, exist_ok=True)
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+os.makedirs(DOWNLOAD_DIR_INCOMPLETE, exist_ok=True)
+os.makedirs(DOWNLOAD_DIR_COMPLETE, exist_ok=True)
+# Don't auto-create network share directories (they already exist on TrueNAS)
 
 # ----------------------------------------------------------------------
 # Network constants
@@ -35,7 +51,7 @@ CHUNK_SIZE = 4 * 1024 * 1024  # 4 MiB pieces
 # Logging
 # ----------------------------------------------------------------------
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger('hydra_torrent')
