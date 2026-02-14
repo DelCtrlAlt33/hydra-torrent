@@ -16,6 +16,16 @@ import warnings
 import io
 import ctypes
 
+# PyInstaller resource path helper
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from ttkbootstrap.widgets.scrolled import ScrolledText
@@ -182,7 +192,7 @@ class FileSharingApp:
         self.root = root
         self.theme_manager = ThemeManager(self.root)
         try:
-            self.root.iconbitmap("image8.ico")
+            self.root.iconbitmap(resource_path("image8.ico"))
         except Exception as e:
             print(f"Could not load icon: {e}")
         self.root.title(f"Hydra Torrent v0.1 - ({MY_PUBLIC_IP}:{PEER_PORT})")
@@ -559,14 +569,14 @@ class FileSharingApp:
         self.image_refs = []
         self.geo_reader = None
         try:
-            self.geo_reader = maxminddb.open_database('GeoLite2-Country.mmdb')
+            self.geo_reader = maxminddb.open_database(resource_path('GeoLite2-Country.mmdb'))
         except Exception as e:
             logger.error(f"GeoIP DB load failed: {e} - Flags disabled")
 
     def _style_toplevel(self, win):
         """Apply icon and dark title bar to a child Toplevel window."""
         try:
-            win.iconbitmap("image8.ico")
+            win.iconbitmap(resource_path("image8.ico"))
         except Exception:
             pass
         if os.name == 'nt':
@@ -1602,7 +1612,7 @@ class FileSharingApp:
 
         # Logo at top
         try:
-            logo_img = Image.open("image8.ico")
+            logo_img = Image.open(resource_path("image8.ico"))
             logo_img = logo_img.resize((64, 64), Image.Resampling.LANCZOS)
             logo_photo = ImageTk.PhotoImage(logo_img)
             logo_label = ttk.Label(about, image=logo_photo)

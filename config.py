@@ -5,9 +5,21 @@ import ctypes
 import logging
 
 # ----------------------------------------------------------------------
-# Base directory (where peer.pyw lives)
+# Base directory - handle both script and PyInstaller exe
 # ----------------------------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+def get_base_dir():
+    """Get the correct base directory for data files"""
+    # Check if running as PyInstaller bundle
+    if getattr(sys, 'frozen', False):
+        # Running as compiled .exe - use AppData
+        app_data = os.path.join(os.environ['LOCALAPPDATA'], 'HydraTorrent')
+        os.makedirs(app_data, exist_ok=True)
+        return app_data
+    else:
+        # Running as script - use script directory
+        return os.path.dirname(os.path.abspath(__file__))
+
+BASE_DIR = get_base_dir()
 
 # ----------------------------------------------------------------------
 # Paths
