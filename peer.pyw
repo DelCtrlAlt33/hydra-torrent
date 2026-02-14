@@ -21,7 +21,7 @@ from ttkbootstrap.constants import *
 from ttkbootstrap.widgets.scrolled import ScrolledText
 from ttkbootstrap.widgets.scrolled import ScrolledFrame
 import tkinter as tk
-from tkinter import messagebox, simpledialog, filedialog
+from tkinter import messagebox, filedialog
 import tkinter.ttk as standard_ttk
 import libtorrent as lt
 import maxminddb
@@ -595,10 +595,9 @@ class FileSharingApp:
         self.trans_tree.after(50, self.transfer_manager.update_progress_positions)
 
     def prompt_add_magnet(self):
-        magnet = simpledialog.askstring(
+        magnet = self.custom_askstring(
             "Add Magnet Link",
-            "Paste the magnet link here:",
-            parent=self.root
+            "Paste the magnet link here:"
         )
         if magnet and magnet.strip().startswith("magnet:?"):
             filename_guess = "unnamed_torrent"
@@ -1593,7 +1592,60 @@ class FileSharingApp:
             save_config('jackett_api_key', self.jackett_api_key)
 
     def show_about(self):
-        messagebox.showinfo("About", "Hydra Torrent v0.1\nBuilt by [Your Name]")
+        about = ttk.Toplevel(self.root)
+        about.title("About Hydra Torrent")
+        about.geometry("520x680")
+        about.transient(self.root)
+        about.grab_set()
+        about.resizable(False, False)
+        self._style_toplevel(about)
+
+        # Logo at top
+        try:
+            logo_img = Image.open("image8.ico")
+            logo_img = logo_img.resize((64, 64), Image.Resampling.LANCZOS)
+            logo_photo = ImageTk.PhotoImage(logo_img)
+            logo_label = ttk.Label(about, image=logo_photo)
+            logo_label.image = logo_photo  # Keep reference
+            logo_label.pack(pady=(15, 10))
+        except Exception:
+            # Fallback if icon not found
+            ttk.Label(about, text="⚡", font=("Segoe UI", 48)).pack(pady=(15, 10))
+
+        ttk.Label(about, text="Hydra Torrent",
+                 font=self.theme_manager.get_font(18, bold=True)).pack()
+        ttk.Label(about, text="v0.1",
+                 font=self.theme_manager.get_font(10)).pack(pady=5)
+
+        ttk.Separator(about, orient='horizontal').pack(fill='x', padx=20, pady=15)
+
+        # Scrollable text area
+        text_frame = ttk.Frame(about)
+        text_frame.pack(fill='both', expand=True, padx=20)
+
+        about_text = ScrolledText(text_frame, height=22, wrap='word', relief='flat',
+                                 borderwidth=0, highlightthickness=0)
+        about_text.pack(fill='both', expand=True)
+
+        # The message
+        message = """Look, we're all tired of the same story. You "buy" a movie on some streaming service and six months later it's just... gone. License expired, they say. Region locked. Not available in your country. Sorry, we removed it from your library.
+
+That's not how ownership works. When you buy something, it's yours. You get to keep it, watch it whenever you want, share it with your friends. That's what Hydra Torrent is about.
+
+This is a BitTorrent client that actually respects you. Download what you want, and it'll automatically organize everything for your Plex server. Movies go to movies, TV shows go to TV shows. You can see peers connecting from all over the world in real-time, resume your downloads if something crashes, search across multiple sites without opening fifteen browser tabs.
+
+We built this because subscriptions keep going up while content keeps disappearing. This is for the people who remember when you could actually own your media collection, the archivists keeping culture alive, anyone who's tired of being told what they're allowed to watch.
+
+The whole thing runs on Python and libtorrent doing the heavy lifting under the hood. We used ttkbootstrap to make it look decent instead of like something from Windows XP, and tkinter for the GUI. Plex handles our media libraries, MaxMind GeoLite2 shows us where our peers are connecting from around the globe. Huge thanks to the qBittorrent team for proving what a torrent client should look like and how it should work.
+
+This is free software. No tracking, no ads, no premium tier, no bullshit. Fork it if you want, share it with everyone you know, make it better. The code's right there."""
+
+        about_text.insert('1.0', message)
+        about_text.configure(state='disabled')
+
+        # OK button
+        ttk.Button(about, text="OK", style="Accent.TButton",
+                  command=about.destroy, width=15).pack(pady=15)
 
     def ping_peer(self, ip, port):
         start = time.time()
@@ -1627,11 +1679,10 @@ class FileSharingApp:
             api_key = self.jackett_api_key
 
             if not api_key:
-                api_key = simpledialog.askstring(
+                api_key = self.custom_askstring(
                     "Jackett API Key",
                     "Paste your Jackett API key here:\n\n"
                     "(open http://127.0.0.1:9117 in your browser \u2192 look at top right corner)",
-                    parent=self.root
                 )
                 if api_key:
                     self.jackett_api_key = api_key
