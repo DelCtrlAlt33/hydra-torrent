@@ -329,6 +329,35 @@ class FileSharingApp:
                 pass
         root.after(100, _position_mode_frame)
         root.bind("<Configure>", _position_mode_frame)
+
+        # VPN status label — floats in the tab bar just right of the Transfers tab
+        vpn_text, vpn_color = self._vpn_label_text(self.vpn_ip)
+        self.vpn_status_label = ttk.Label(root, text=vpn_text, foreground=vpn_color)
+
+        def _position_vpn_label(event=None):
+            try:
+                nb = self.notebook
+                # Scan right-to-left to find the rightmost pixel of the Transfers tab
+                right_x = 0
+                for x in range(nb.winfo_width() - 1, 0, -2):
+                    tab_at = nb.identify_tab(x, 10)
+                    if str(tab_at) == '2':
+                        right_x = x
+                        break
+                if right_x > 0:
+                    nb_screen_x = nb.winfo_rootx()
+                    root_screen_x = self.root.winfo_rootx()
+                    nb_screen_y = nb.winfo_rooty()
+                    root_screen_y = self.root.winfo_rooty()
+                    lx = (nb_screen_x - root_screen_x) + right_x + 10
+                    ly = (nb_screen_y - root_screen_y) + 5
+                    self.vpn_status_label.place(x=lx, y=ly, anchor='nw')
+            except Exception:
+                pass
+
+        root.after(200, _position_vpn_label)
+        root.bind("<Configure>", lambda e: (_position_mode_frame(), _position_vpn_label()))
+
         # Library Tab
         lib = ttk.Frame(self.notebook)
         self.notebook.add(lib, text='Library')
@@ -391,7 +420,7 @@ class FileSharingApp:
         # Transfers Tab
         self.trans_tab = ttk.Frame(self.notebook)
         trans = self.trans_tab
-        self.notebook.add(trans, text=self._transfers_tab_text(self.vpn_ip))
+        self.notebook.add(trans, text='Transfers')
         trans_frame = standard_ttk.Frame(trans)
         trans_frame.pack(fill='both', expand=True)
         self.trans_tree = ttk.Treeview(
@@ -705,7 +734,8 @@ class FileSharingApp:
                             pass
 
             self.vpn_ip = None
-            self.notebook.tab(self.trans_tab, text=self._transfers_tab_text(None))
+            text, color = self._vpn_label_text(None)
+            self.vpn_status_label.config(text=text, foreground=color)
             self.root.title("Hydra Torrent v0.1 — NO VPN")
             self.status.insert(tk.END, "⚠ VPN DISCONNECTED — all downloads paused\n", "warning")
             self.status.see(tk.END)
@@ -727,7 +757,8 @@ class FileSharingApp:
                         except Exception:
                             pass
 
-            self.notebook.tab(self.trans_tab, text=self._transfers_tab_text(ip))
+            text, color = self._vpn_label_text(ip)
+            self.vpn_status_label.config(text=text, foreground=color)
             self.root.title("Hydra Torrent v0.1")
             self.status.insert(tk.END, f"✓ VPN reconnected ({ip}) — downloads resumed\n", "success")
             self.status.see(tk.END)
