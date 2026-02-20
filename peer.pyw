@@ -54,6 +54,7 @@ from download import download_from_peer
 from transfer_manager import TransferManager, PiecesBar
 from theme_manager import ThemeManager
 from media_organizer import auto_move_completed_download
+from vpn_guard import VPNGuard
 
 hide_console()
 
@@ -195,7 +196,7 @@ class FileSharingApp:
             self.root.iconbitmap(resource_path("image8.ico"))
         except Exception as e:
             print(f"Could not load icon: {e}")
-        self.root.title(f"Hydra Torrent v0.1 - ({MY_PUBLIC_IP}:{PEER_PORT})")
+        self.root.title("Hydra Torrent v0.1")
         self.status_visible_var = tk.BooleanVar(value=True)
         # ====================
         # CUSTOM MENU BAR (frame-based for full theme control)
@@ -517,14 +518,30 @@ class FileSharingApp:
         self.peers_tree.pack(fill='both', expand=True)
         # Bind selection and start recurring update
         self.trans_tree.bind("<<TreeviewSelect>>", self.update_bottom_status)
-        # Global libtorrent session for all torrents
+
+        # ── VPN pre-flight check ──────────────────────────────────────────
+        self.vpn_guard = VPNGuard(check_interval=30)
+        vpn_connected, vpn_iface, vpn_ip = self.vpn_guard.get_status()
+        self.vpn_ip = vpn_ip if vpn_connected else None
+
+        if not vpn_connected:
+            self.root.update_idletasks()  # Ensure root window is drawn before dialog
+            self._show_vpn_warning_dialog()
+            # Re-check after dialog (user may have connected PIA and hit "Check Again")
+            vpn_connected, vpn_iface, vpn_ip = self.vpn_guard.get_status()
+            self.vpn_ip = vpn_ip if vpn_connected else None
+
+        # ── Global libtorrent session ─────────────────────────────────────
+        # Bind to VPN interface IP so traffic never leaks on real NIC
+        listen_ip = self.vpn_ip if self.vpn_ip else '0.0.0.0'
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="libtorrent")
         self.ses = lt.session({
-            'listen_interfaces': '0.0.0.0:' + str(PEER_PORT),
+            'listen_interfaces': f'{listen_ip}:{PEER_PORT}',
             'enable_dht': True,
-            'enable_lsd': True,
-            'enable_upnp': True,
-            'enable_natpmp': True,
+            'enable_lsd': False,       # Disable LAN broadcast — not needed
+            'enable_upnp': False,      # Disable — would expose real IP to router
+            'enable_natpmp': False,    # Disable — same as UPnP
+            'anonymous_mode': True,    # Hide client fingerprint from peers
             'connections_limit': 200,
             'download_rate_limit': 0,
             'upload_rate_limit': 0,
@@ -546,15 +563,28 @@ class FileSharingApp:
         self.theme_manager.register_status_text(self.status)
         # Apply saved theme now that all widgets are registered
         self.theme_manager.apply_theme(self.theme_manager.load_saved_theme())
+        footer_frame = ttk.Frame(root)
+        footer_frame.pack(fill='x', pady=(0, 5))
+
         about_label = ttk.Label(
-            root,
+            footer_frame,
             text="Hydra Torrent v0.1 \u2013 Built with \u2764\ufe0f",
             foreground=self.theme_manager.current.accent,
             justify="center",
             cursor="hand2"
         )
-        about_label.pack(pady=(0, 5))
+        about_label.pack(side='left', padx=(10, 0))
         about_label.bind("<Button-1>", lambda e: self.show_about())
+
+        # VPN status indicator
+        vpn_text, vpn_color = self._vpn_label_text(self.vpn_ip)
+        self.vpn_status_label = ttk.Label(
+            footer_frame,
+            text=vpn_text,
+            foreground=vpn_color,
+            justify="right",
+        )
+        self.vpn_status_label.pack(side='right', padx=(0, 10))
 
         def run_peer_server():
             import asyncio
@@ -563,6 +593,13 @@ class FileSharingApp:
         self.root.after(1000, self.start_file_watcher)
         self.root.after(4000, self.refresh_library)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        # Start VPN monitoring — marshal callback to main thread via root.after
+        self.vpn_guard.start(
+            lambda connected, iface, ip: self.root.after(
+                0, self.on_vpn_status_change, connected, iface, ip
+            )
+        )
         self.check_port_open()
 
         self.flag_cache = {}
@@ -589,6 +626,119 @@ class FileSharingApp:
                 )
             except Exception:
                 pass
+
+    # ── VPN helpers ───────────────────────────────────────────────────────
+
+    def _vpn_label_text(self, vpn_ip):
+        """Return (label_text, color) for the VPN status indicator."""
+        if vpn_ip:
+            return f"  VPN: Protected ({vpn_ip})", "#2ecc71"
+        return "  VPN: EXPOSED", "#e74c3c"
+
+    def _show_vpn_warning_dialog(self):
+        """
+        Blocking dialog shown at startup when PIA is not detected.
+        User can check again, continue unprotected, or exit.
+        """
+        dialog = tk.Toplevel(self.root)
+        dialog.title("No VPN Detected")
+        dialog.resizable(False, False)
+        dialog.grab_set()
+        self._style_toplevel(dialog)
+
+        tk.Label(
+            dialog,
+            text="  PIA VPN is not connected  ",
+            font=("Segoe UI", 13, "bold"),
+            fg="#e74c3c",
+            pady=12,
+        ).pack()
+        tk.Label(
+            dialog,
+            text="Downloading without a VPN exposes your real IP\n"
+                 "to torrent peers and trackers.",
+            justify="center",
+            pady=4,
+        ).pack()
+
+        result = {"choice": "exit"}
+
+        def check_again():
+            result["choice"] = "retry"
+            dialog.destroy()
+
+        def continue_unprotected():
+            result["choice"] = "continue"
+            dialog.destroy()
+
+        def do_exit():
+            result["choice"] = "exit"
+            dialog.destroy()
+
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=14)
+        ttk.Button(btn_frame, text="Check Again", style="Accent.TButton",
+                   command=check_again).pack(side='left', padx=6)
+        ttk.Button(btn_frame, text="Continue Without VPN", style="Warning.TButton",
+                   command=continue_unprotected).pack(side='left', padx=6)
+        ttk.Button(btn_frame, text="Exit", style="Danger.TButton",
+                   command=do_exit).pack(side='left', padx=6)
+
+        dialog.wait_window()
+
+        if result["choice"] == "exit":
+            self.root.destroy()
+            raise SystemExit(0)
+
+    def on_vpn_status_change(self, connected, iface, ip):
+        """Called by VPNGuard monitor whenever VPN connects or disconnects."""
+        if not connected:
+            # Kill switch: bind session to loopback and pause all active torrents
+            try:
+                self.ses.apply_settings({'listen_interfaces': f'127.0.0.1:{PEER_PORT}'})
+            except Exception as e:
+                logger.error(f"Failed to update listen_interfaces on VPN drop: {e}")
+
+            with self.transfer_manager.lock:
+                for t in self.transfer_manager.transfers.values():
+                    handle = t.get('handle')
+                    if handle and not t.get('intended_pause', False):
+                        try:
+                            handle.pause()
+                            t['_vpn_paused'] = True
+                        except Exception:
+                            pass
+
+            self.vpn_ip = None
+            text, color = self._vpn_label_text(None)
+            self.vpn_status_label.config(text=text, foreground=color)
+            self.root.title("Hydra Torrent v0.1 — NO VPN")
+            self.status.insert(tk.END, "⚠ VPN DISCONNECTED — all downloads paused\n", "warning")
+            self.status.see(tk.END)
+            logger.warning("VPN disconnected — kill switch activated")
+        else:
+            # VPN reconnected — update binding and auto-resume paused torrents
+            self.vpn_ip = ip
+            try:
+                self.ses.apply_settings({'listen_interfaces': f'{ip}:{PEER_PORT}'})
+            except Exception as e:
+                logger.error(f"Failed to update listen_interfaces on VPN reconnect: {e}")
+
+            with self.transfer_manager.lock:
+                for t in self.transfer_manager.transfers.values():
+                    handle = t.get('handle')
+                    if handle and t.pop('_vpn_paused', False):
+                        try:
+                            handle.resume()
+                        except Exception:
+                            pass
+
+            text, color = self._vpn_label_text(ip)
+            self.vpn_status_label.config(text=text, foreground=color)
+            self.root.title("Hydra Torrent v0.1")
+            self.status.insert(tk.END, f"✓ VPN reconnected ({ip}) — downloads resumed\n", "success")
+            self.status.see(tk.END)
+            logger.info(f"VPN reconnected ({ip}) — kill switch deactivated")
 
     def _on_mode_change(self):
         mode = self.search_mode.get()
