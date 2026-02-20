@@ -91,12 +91,19 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             logger.debug(f"Legacy plain filename request from {addr}")
             range_info = {}
 
-        if not filename:
+        if not filename or '..' in filename or filename.startswith('/') or filename.startswith('\\'):
             writer.write(b"Invalid request")
             await writer.drain()
             return
 
-        file_path = os.path.join(SHARED_DIR, filename)
+        safe_shared = os.path.realpath(SHARED_DIR)
+        file_path = os.path.realpath(os.path.join(SHARED_DIR, filename))
+        if not file_path.startswith(safe_shared + os.sep) and file_path != safe_shared:
+            logger.warning(f"Path traversal attempt blocked: {filename} from {addr}")
+            writer.write(json.dumps({"status": "error", "message": "Invalid path"}).encode() + b'\n')
+            await writer.drain()
+            return
+
         if not os.path.exists(file_path):
             logger.warning(f"File not found: {filename} requested by {addr}")
             writer.write(b"File not found")
