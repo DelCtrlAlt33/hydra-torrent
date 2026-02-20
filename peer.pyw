@@ -197,6 +197,7 @@ class FileSharingApp:
         except Exception as e:
             print(f"Could not load icon: {e}")
         self.root.title("Hydra Torrent v0.1")
+        self.vpn_ip = None  # Set properly during VPN pre-flight check below
         self.status_visible_var = tk.BooleanVar(value=True)
         # ====================
         # CUSTOM MENU BAR (frame-based for full theme control)
