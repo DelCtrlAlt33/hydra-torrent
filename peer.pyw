@@ -388,8 +388,9 @@ class FileSharingApp:
         self.download_btn = ttk.Button(search, text="Download", style="Success.TButton", command=self.download, state='disabled')
         self.download_btn.pack(pady=5)
         # Transfers Tab
-        trans = ttk.Frame(self.notebook)
-        self.notebook.add(trans, text='Transfers')
+        self.trans_tab = ttk.Frame(self.notebook)
+        trans = self.trans_tab
+        self.notebook.add(trans, text=self._transfers_tab_text(self.vpn_ip))
         trans_frame = standard_ttk.Frame(trans)
         trans_frame.pack(fill='both', expand=True)
         self.trans_tree = ttk.Treeview(
@@ -563,28 +564,15 @@ class FileSharingApp:
         self.theme_manager.register_status_text(self.status)
         # Apply saved theme now that all widgets are registered
         self.theme_manager.apply_theme(self.theme_manager.load_saved_theme())
-        footer_frame = ttk.Frame(root)
-        footer_frame.pack(fill='x', pady=(0, 5))
-
         about_label = ttk.Label(
-            footer_frame,
+            root,
             text="Hydra Torrent v0.1 \u2013 Built with \u2764\ufe0f",
             foreground=self.theme_manager.current.accent,
             justify="center",
             cursor="hand2"
         )
-        about_label.pack(side='left', padx=(10, 0))
+        about_label.pack(pady=(0, 5))
         about_label.bind("<Button-1>", lambda e: self.show_about())
-
-        # VPN status indicator
-        vpn_text, vpn_color = self._vpn_label_text(self.vpn_ip)
-        self.vpn_status_label = ttk.Label(
-            footer_frame,
-            text=vpn_text,
-            foreground=vpn_color,
-            justify="right",
-        )
-        self.vpn_status_label.pack(side='right', padx=(0, 10))
 
         def run_peer_server():
             import asyncio
@@ -634,6 +622,12 @@ class FileSharingApp:
         if vpn_ip:
             return f"  VPN: Protected ({vpn_ip})", "#2ecc71"
         return "  VPN: EXPOSED", "#e74c3c"
+
+    def _transfers_tab_text(self, vpn_ip):
+        """Return the Transfers tab label including VPN status."""
+        if vpn_ip:
+            return "Transfers  \u2713 VPN"
+        return "Transfers  \u26a0 NO VPN"
 
     def _show_vpn_warning_dialog(self):
         """
@@ -710,8 +704,7 @@ class FileSharingApp:
                             pass
 
             self.vpn_ip = None
-            text, color = self._vpn_label_text(None)
-            self.vpn_status_label.config(text=text, foreground=color)
+            self.notebook.tab(self.trans_tab, text=self._transfers_tab_text(None))
             self.root.title("Hydra Torrent v0.1 — NO VPN")
             self.status.insert(tk.END, "⚠ VPN DISCONNECTED — all downloads paused\n", "warning")
             self.status.see(tk.END)
@@ -733,8 +726,7 @@ class FileSharingApp:
                         except Exception:
                             pass
 
-            text, color = self._vpn_label_text(ip)
-            self.vpn_status_label.config(text=text, foreground=color)
+            self.notebook.tab(self.trans_tab, text=self._transfers_tab_text(ip))
             self.root.title("Hydra Torrent v0.1")
             self.status.insert(tk.END, f"✓ VPN reconnected ({ip}) — downloads resumed\n", "success")
             self.status.see(tk.END)
