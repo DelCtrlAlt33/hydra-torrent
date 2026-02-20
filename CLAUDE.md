@@ -8,9 +8,10 @@ Hydra Torrent is a custom BitTorrent client with a GUI built in Python using tki
 - Two-stage download process (incomplete → complete → Plex)
 - Magnet link support
 - Resume/seeding functionality
-- **NEW**: Standalone Windows installer for multi-user deployment
+- Standalone Windows installer for multi-user deployment
+- **NEW**: PIA VPN kill switch with automatic IP leak prevention
 
-## Current State (2026-02-14 Evening)
+## Current State (2026-02-21)
 
 ### Working Features
 - ✅ Download torrents via magnet links
@@ -22,12 +23,14 @@ Hydra Torrent is a custom BitTorrent client with a GUI built in Python using tki
 - ✅ File icons and progress tracking
 - ✅ Custom About dialog with Hydra logo and mission statement
 - ✅ All dialogs use dark title bars and custom icon
-- ✅ **Standalone .exe installer package for girlfriend's computer**
+- ✅ Standalone .exe installer package for girlfriend's computer
+- ✅ **PIA VPN kill switch — binds to VPN interface, pauses on disconnect, auto-resumes**
 
 ### Architecture (Current)
 ```
 Main Desktop (192.168.20.2) - Port 6001
 ├── Hydra Torrent GUI (peer.pyw)
+├── libtorrent bound to: wgpia0 (10.237.x.x) — VPN interface only
 ├── Downloads to: C:\Users\Matth\hydra_torrent\downloads_incomplete (LOCAL)
 ├── Auto-moves to: \\192.168.20.4\Plex\movies or \tv (TrueNAS SMB)
 └── Jackett: http://127.0.0.1:9117 (shared via ENABLE_JACKETT_SHARING.bat)
@@ -48,7 +51,93 @@ R710 Proxmox (192.168.20.33)
     └── Mounts TrueNAS via SMB at /mnt/smb-media
 ```
 
+---
+
 ## Recent Work Completed
+
+### Session 2026-02-21: Security Hardening
+
+**Goal**: Prevent IP leaks, add PIA kill switch, harden libtorrent settings.
+
+#### 1. VPN Kill Switch (`vpn_guard.py` — new file)
+
+Detects PIA's WireGuard adapter (`wgpia0`) using `psutil`. Monitors every 30 seconds in a
+background daemon thread. Fires a callback when VPN connects or disconnects.
+
+```python
+from vpn_guard import VPNGuard
+
+guard = VPNGuard(check_interval=30)
+connected, iface, ip = guard.get_status()  # → (True, 'wgpia0', '10.237.x.x')
+guard.start(on_change_callback)            # starts background monitor
+```
+
+Detection logic: find interface with "wgpia" or "pia" in name, `isup=True`, valid IPv4.
+
+#### 2. libtorrent Bound to VPN Interface (`peer.pyw`)
+
+**Before**: `listen_interfaces: '0.0.0.0:6001'` — all interfaces, real IP exposed if VPN drops.
+
+**After**: `listen_interfaces: '10.237.x.x:6001'` — VPN IP only. Traffic cannot reach real NIC.
+
+```python
+# Detect VPN at startup, bind to its IP
+listen_ip = self.vpn_ip if self.vpn_ip else '0.0.0.0'
+self.ses = lt.session({
+    'listen_interfaces': f'{listen_ip}:{PEER_PORT}',
+    'enable_dht': True,
+    'enable_lsd': False,       # LAN broadcast disabled
+    'enable_upnp': False,      # UPnP disabled — was exposing real IP to router
+    'enable_natpmp': False,    # NAT-PMP disabled
+    'anonymous_mode': True,    # Hides client fingerprint from peers
+    ...
+})
+```
+
+#### 3. Startup Pre-Flight Dialog
+
+If PIA is not connected when Hydra launches, a blocking dialog appears:
+- **Check Again** — re-runs detection (connect PIA first, then click this)
+- **Continue Without VPN** — proceeds, binds to `0.0.0.0`, shows red indicator
+- **Exit** — closes the application
+
+#### 4. Kill Switch on VPN Disconnect
+
+When VPNGuard detects `wgpia0` going down:
+1. `ses.apply_settings({'listen_interfaces': '127.0.0.1:PORT'})` — cuts all peer connections
+2. All active torrent handles are paused (tagged `_vpn_paused`)
+3. Footer indicator → red `VPN: EXPOSED`
+4. Window title → `Hydra Torrent v0.1 — NO VPN`
+5. Status log → `⚠ VPN DISCONNECTED — all downloads paused`
+
+When VPN reconnects:
+1. `ses.apply_settings({'listen_interfaces': 'NEW_IP:PORT'})` — rebinds to new VPN IP
+2. All `_vpn_paused` torrents auto-resume
+3. Footer indicator → green `VPN: Protected (10.x.x.x)`
+
+#### 5. VPN Status Indicator (Footer)
+
+Added to the bottom footer, right side:
+- Green: `VPN: Protected (10.237.x.x)` — PIA connected, traffic is protected
+- Red: `VPN: EXPOSED` — no VPN, all traffic goes over real IP
+
+#### 6. Path Traversal Fix (`network.py`)
+
+**Bug**: `file_path = os.path.join(SHARED_DIR, filename)` — a filename like `../../Windows/System32/SAM`
+could escape SHARED_DIR and serve arbitrary files.
+
+**Fix**:
+```python
+if not filename or '..' in filename or filename.startswith('/') or filename.startswith('\\'):
+    # reject
+
+safe_shared = os.path.realpath(SHARED_DIR)
+file_path = os.path.realpath(os.path.join(SHARED_DIR, filename))
+if not file_path.startswith(safe_shared + os.sep):
+    # reject with "Invalid path"
+```
+
+---
 
 ### Session 2026-02-14 Evening: Installer Package Creation
 
@@ -60,150 +149,58 @@ R710 Proxmox (192.168.20.33)
 - Bundles: libtorrent, ttkbootstrap, tkinter, PIL, maxminddb, all Python modules
 
 #### 2. Fixed Resource Path Issues
-**Problem**: PyInstaller .exe couldn't find bundled resources (icons, GeoIP database)
-
 **Solution**: Added `resource_path()` helper function in peer.pyw:
 ```python
 def resource_path(relative_path):
-    """Get absolute path to resource, works for dev and for PyInstaller"""
     try:
-        base_path = sys._MEIPASS  # PyInstaller temp folder
+        base_path = sys._MEIPASS
     except Exception:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 ```
 
-Updated all resource loads:
-- `image8.ico` → `resource_path("image8.ico")`
-- `GeoLite2-Country.mmdb` → `resource_path("GeoLite2-Country.mmdb")`
-
 #### 3. Fixed Working Directory Issues
-**Problem**: When running as .exe, files (transfers.json, config, etc.) were being created on desktop instead of app directory.
-
-**Solution**: Updated config.py to detect PyInstaller and use AppData:
+Updated config.py to detect PyInstaller and use AppData:
 ```python
 def get_base_dir():
-    """Get the correct base directory for data files"""
     if getattr(sys, 'frozen', False):
-        # Running as compiled .exe - use AppData
         app_data = os.path.join(os.environ['LOCALAPPDATA'], 'HydraTorrent')
         os.makedirs(app_data, exist_ok=True)
         return app_data
     else:
-        # Running as script - use script directory
         return os.path.dirname(os.path.abspath(__file__))
-
-BASE_DIR = get_base_dir()
 ```
 
-Now all files go to: `%LOCALAPPDATA%\HydraTorrent\`
+#### 4. Created Complete Installer Package (`installer_package/`)
+1. **HydraTorrent.exe** (46MB) — standalone, no Python needed
+2. **INSTALL.bat** — prompts for Jackett key + TrueNAS creds, maps drives, creates shortcut
+3. **CLEANUP_OLD_INSTALL.bat** — removes old install
+4. **TEST_PLEX_CONNECTION.bat** — verifies Plex API token and connectivity
+5. **README.txt** — installation instructions and troubleshooting
 
-#### 4. Created Complete Installer Package
+#### 5. Jackett Network Sharing
+`ENABLE_JACKETT_SHARING.bat` — opens port 9117, sets `AllowExternal: true`, restarts Jackett.
 
-**Contents of `installer_package/` folder (55MB):**
-
-1. **HydraTorrent.exe** (46MB)
-   - Standalone executable
-   - Includes all dependencies
-   - Works on any Windows 10/11 machine
-
-2. **INSTALL.bat**
-   - Complete automated installer
-   - Prompts for Jackett API key
-   - Prompts for TrueNAS credentials
-   - Maps network drives
-   - Adds Windows Firewall rules (ports 6002, 6881)
-   - Creates desktop shortcut
-   - Pre-configures port 6002 (won't conflict with main instance on 6001)
-
-3. **CLEANUP_OLD_INSTALL.bat**
-   - Removes old installation
-   - Cleans up stray files on desktop
-   - Prepares for fresh install
-
-4. **TEST_PLEX_CONNECTION.bat**
-   - Tests Plex server connectivity
-   - Verifies API token works
-   - Tests library scan trigger
-   - Diagnoses auto-scan issues
-
-5. **README.txt**
-   - Complete installation instructions
-   - Troubleshooting guide
-   - Manual configuration examples
-   - Correct JSON format for config
-
-6. **image8.ico** - Hydra logo (401KB)
-7. **GeoLite2-Country.mmdb** - GeoIP database (9.2MB)
-
-#### 5. Improved UI Consistency
-- Replaced all `messagebox` and `simpledialog` with custom styled dialogs
-- All popups now have dark title bar and Hydra icon
-- Created comprehensive About dialog with mission statement
-- Removed unused `simpledialog` import
-
-#### 6. Enhanced Plex Auto-Scan
-**Improved error logging in media_organizer.py:**
-- ✓ "Plex library scan triggered successfully"
-- ✗ "Invalid token" (401 error)
-- ✗ "Connection timeout"
-- ✗ "Cannot connect to Plex server"
-
-Now provides actionable error messages when auto-scan fails.
-
-#### 7. Jackett Network Sharing
-Created `ENABLE_JACKETT_SHARING.bat` for main computer:
-- Opens port 9117 in Windows Firewall
-- Configures Jackett to allow external access (`AllowExternal: true`)
-- Restarts Jackett service
-- Allows girlfriend's computer to use main Jackett instance at http://192.168.20.2:9117
-
-### Installation Process (What User Does)
-
-**On Main Computer (192.168.20.2):**
-```
-1. Right-click ENABLE_JACKETT_SHARING.bat → Run as Administrator
-   (Allows girlfriend to use your Jackett)
-```
-
-**On Girlfriend's Computer:**
-```
-1. Copy entire installer_package folder
-2. Right-click CLEANUP_OLD_INSTALL.bat → Run (if reinstalling)
-3. Right-click INSTALL.bat → Run as Administrator
-4. Enter Jackett API key when prompted (from http://192.168.20.2:9117)
-5. Enter TrueNAS credentials (mediauser / password)
-6. Done! Desktop shortcut appears
-```
-
-**Testing:**
-```
-Run TEST_PLEX_CONNECTION.bat to verify Plex auto-scan will work
-```
+---
 
 ## File Structure
 
 ### Core Application
 - `peer.pyw` - Main GUI application (tkinter)
+- `vpn_guard.py` - PIA VPN detection and kill switch monitor
 - `config.py` - Configuration (paths, logging, network settings, PyInstaller detection)
 - `media_organizer.py` - Automatic categorization (movies vs TV) + Plex API
 - `theme_manager.py` - Dark/light theme system
 - `transfer_manager.py` - Download progress tracking
 - `search.py` - Jackett/public torrent search
 - `download.py` - Download handling
+- `network.py` - Async peer file server (TLS)
 - `certs.py` - SSL certificate handling
 
 ### Installer Files
 - `build_installer.py` - PyInstaller build script
-- `installer_package/` - Complete installer package
-  - `HydraTorrent.exe`
-  - `INSTALL.bat`
-  - `CLEANUP_OLD_INSTALL.bat`
-  - `TEST_PLEX_CONNECTION.bat`
-  - `README.txt`
-  - `image8.ico`
-  - `GeoLite2-Country.mmdb`
-- `ENABLE_JACKETT_SHARING.bat` - Enable Jackett network access
+- `installer_package/` - Complete installer package (excluded from git)
+- `ENABLE_JACKETT_SHARING.bat` - Enable Jackett network access on main computer
 
 ### Plex Utilities (One-time cleanup scripts)
 - `plex_smart_cleanup.py` - Comprehensive movie cleanup
@@ -215,42 +212,32 @@ Run TEST_PLEX_CONNECTION.bat to verify Plex auto-scan will work
 - `hydra_config.json` - Plex URL, API token, Jackett settings
 - `transfers.json` - Active/completed transfers state
 
-### Data Directories (in AppData when running as .exe)
-- `downloads_incomplete/` - Active downloads
-- `downloads_complete/` - Completed before Plex move
-- `flags/` - Cached country flag images
+---
 
 ## Important Configuration
 
-### config.py Settings (Auto-detected)
-```python
-# BASE_DIR changes based on environment:
-# - Development: C:\Users\Matth\hydra_torrent
-# - Installed .exe: C:\Users\[User]\AppData\Local\HydraTorrent
-
-# Download directories (local - fast and reliable for libtorrent)
-DOWNLOAD_DIR_INCOMPLETE = os.path.join(BASE_DIR, 'downloads_incomplete')
-DOWNLOAD_DIR_COMPLETE = os.path.join(BASE_DIR, 'downloads_complete')
-
-# Plex media directories - map to TrueNAS Plex library via SMB
-MEDIA_DIR_MOVIES = r'\\192.168.20.4\Plex\movies'
-MEDIA_DIR_TV = r'\\192.168.20.4\Plex\tv'
-
-# Network settings
-PEER_PORT = 6001  # Main instance
-# Girlfriend's instance uses 6002 (set in her hydra_config.json)
-```
-
-### libtorrent Session Config
+### libtorrent Session Config (Current — post security hardening)
 ```python
 self.ses = lt.session({
-    'listen_interfaces': '0.0.0.0:6001',  # MUST be 0.0.0.0, not specific IP
+    'listen_interfaces': f'{vpn_ip}:{PEER_PORT}',  # VPN IP, not 0.0.0.0
     'enable_dht': True,
-    'enable_lsd': True,
-    'enable_upnp': True,
-    'enable_natpmp': True,
+    'enable_lsd': False,       # disabled
+    'enable_upnp': False,      # disabled
+    'enable_natpmp': False,    # disabled
+    'anonymous_mode': True,    # enabled
+    'connections_limit': 200,
+    'download_rate_limit': 0,
+    'upload_rate_limit': 0,
 })
 ```
+
+**Note**: If PIA is not connected at startup and user clicks "Continue Without VPN",
+`listen_ip` falls back to `0.0.0.0`. This is intentional — the user explicitly acknowledged the risk.
+
+### PIA VPN Adapter (Confirmed)
+- Adapter name: `wgpia0` (WireGuard Tunnel)
+- IP range: `10.237.x.x` (varies per session/server)
+- Detection: `psutil.net_if_addrs()` — look for interface with "wgpia"/"pia" in name, `isup=True`
 
 ### Girlfriend's Config (Auto-created by INSTALL.bat)
 ```json
@@ -259,75 +246,62 @@ self.ses = lt.session({
   "jackett_url": "http://192.168.20.2:9117",
   "jackett_api_key": "[entered during install]",
   "plex_url": "http://192.168.20.33:32400",
-  "plex_token": "8Jkzcq8frQYqxELDQV3K",
+  "plex_token": "[token]",
   "auto_move_to_plex": true,
   "search_mode": "jackett"
 }
 ```
 
-### TrueNAS Credentials (Needed for Install)
-```
-Username: mediauser
-Password: [actual password]
-```
-
 ### TrueNAS Permissions
 ```bash
-# On TrueNAS
 chown -R mediauser:mediauser /mnt/MainPool/Plex
 chmod -R 775 /mnt/MainPool/Plex
 ```
 
+---
+
 ## Known Issues & Solutions
 
+### Issue: Downloads slow / no peers after VPN hardening
+**Cause**: libtorrent is now bound to VPN interface only. If PIA is slow or routes change, fewer peers connect.
+**Fix**: This is expected and correct behavior. Try a different PIA server location.
+
+### Issue: "No VPN Detected" dialog on startup even though PIA is connected
+**Cause**: PIA may still be initializing the `wgpia0` adapter.
+**Fix**: Click "Check Again" after a few seconds.
+
+### Issue: Downloads don't auto-resume after VPN reconnect
+**Cause**: The `_vpn_paused` flag is only set on torrents active at disconnect time.
+**Fix**: Manually resume from the transfers list.
+
 ### Issue: Files Appearing on Desktop
-**Status**: ✅ FIXED
-- **Was**: PyInstaller .exe created files on desktop
-- **Fix**: Updated config.py to use `%LOCALAPPDATA%\HydraTorrent\` when running as .exe
+**Status**: ✅ FIXED — config.py uses `%LOCALAPPDATA%\HydraTorrent\` when running as .exe
 
 ### Issue: Icons Not Loading in .exe
-**Status**: ✅ FIXED
-- **Was**: image8.ico and GeoLite2-Country.mmdb not found
-- **Fix**: Added `resource_path()` helper for PyInstaller resource loading
+**Status**: ✅ FIXED — `resource_path()` helper handles PyInstaller paths
 
 ### Issue: Desktop Shortcut Blank/Not Working
-**Status**: ⚠️ PARTIAL FIX
-- **Workaround**: Manual shortcut creation documented in README.txt
-- May need to create shortcut manually: Right-click Desktop → New → Shortcut → Browse to `%LOCALAPPDATA%\HydraTorrent\HydraTorrent.exe`
+**Status**: ⚠️ PARTIAL FIX — create manually if needed:
+Right-click Desktop → New → Shortcut → `%LOCALAPPDATA%\HydraTorrent\HydraTorrent.exe`
 
 ### Issue: Jackett Search Not Working
-**Causes**:
-1. API key not in config
-2. Can't reach Jackett at http://192.168.20.2:9117
-3. Jackett not configured for external access
-
-**Fix**:
 1. Run `ENABLE_JACKETT_SHARING.bat` on main computer
 2. Add API key to hydra_config.json
 3. Restart Hydra Torrent
 
-### Issue: Can't Access TrueNAS Share
-**Error**: `[WinError 1326] The user name or password is incorrect`
-
-**Fix**:
-- Run INSTALL.bat again and enter correct credentials
-- Or manually: `net use \\192.168.20.4\Plex /user:mediauser PASSWORD /persistent:yes`
-
 ### Issue: Plex Not Auto-Scanning
-**Diagnosis**: Run `TEST_PLEX_CONNECTION.bat`
+Run `TEST_PLEX_CONNECTION.bat` — check plex_token, connectivity to 192.168.20.33:32400, firewall port 32400.
 
-**Common causes**:
-1. plex_token not in config
-2. Can't reach Plex server at 192.168.20.33:32400
-3. Firewall blocking port 32400
-4. Token expired/invalid
-
-**Fix**: Check logs for detailed error messages (now includes ✓/✗ indicators)
+---
 
 ## Troubleshooting
 
-### Downloads Not Working
-- Check `listen_interfaces` is `0.0.0.0:[port]` (not a specific IP)
+### Downloads Not Working After Security Hardening
+- Verify PIA is connected — check footer for green `VPN: Protected` label
+- If red label: connect PIA, Hydra will auto-resume within 30 seconds
+- Check libtorrent is binding to VPN IP in logs: `TLS Peer server listening on 10.237.x.x:6001`
+
+### Downloads Not Working (General)
 - Verify downloads are to LOCAL disk, not SMB share
 - Check firewall: port open (6001 for main, 6002 for girlfriend)
 - Check tracker response in logs
@@ -335,107 +309,84 @@ chmod -R 775 /mnt/MainPool/Plex
 ### Completed Torrents Re-download on Restart
 - Verify `plex_path` is saved in transfers.json
 - Check resume logic uses `plex_path` for save_path
-- Look for "Resuming download..." in logs
-
-### UI Freezing When Clicking Transfers
-- ✅ FIXED: Flag downloads are now async
-- If still freezing, clear flag cache
 
 ### Permission Denied Moving to Plex
 - Check TrueNAS ownership: `chown -R mediauser:mediauser /mnt/MainPool/Plex`
-- Check permissions: `chmod -R 775 /mnt/MainPool/Plex`
 - Verify network drive is mapped with credentials
+
+---
 
 ## Development Notes
 
-### PyInstaller Build Process
-```bash
-# Build the installer
-cd C:\Users\Matth\hydra_torrent
-python build_installer.py
+### VPN Guard Module
+```python
+# vpn_guard.py — standalone, no GUI imports
+from vpn_guard import VPNGuard, detect_pia_interface
 
-# Output: installer_package/ folder with all files
+iface, ip = detect_pia_interface()  # ('wgpia0', '10.237.x.x') or (None, None)
+
+guard = VPNGuard(check_interval=30)
+connected, iface, ip = guard.get_status()
+guard.start(lambda c, i, ip: callback(c, i, ip))  # fires on status change
+guard.stop()
 ```
 
-### Rebuilding After Code Changes
+### PyInstaller Build — Add vpn_guard.py
+`vpn_guard.py` will be bundled automatically by PyInstaller since it's a local import.
+psutil must be added as a hidden import if not auto-detected:
 ```bash
-rm -rf build dist
-pyinstaller --name=HydraTorrent --windowed --onefile --icon=image8.ico \
-  --add-data="image8.ico;." --add-data="GeoLite2-Country.mmdb;." \
-  --hidden-import=ttkbootstrap --hidden-import=libtorrent \
-  --hidden-import=maxminddb --hidden-import=PIL \
-  --collect-all=ttkbootstrap peer.pyw
-
-cp dist/HydraTorrent.exe installer_package/
+pyinstaller ... --hidden-import=psutil peer.pyw
 ```
+
+### Why libtorrent is Bound to VPN IP, Not 0.0.0.0
+Binding to `0.0.0.0` means libtorrent uses whichever interface the OS picks — usually the fastest,
+which is the real Ethernet NIC. If PIA drops, the OS silently falls back to the real NIC and your
+IP is exposed to every peer in the swarm. Binding to the VPN IP means libtorrent literally cannot
+reach peers if the VPN interface goes away.
 
 ### Why Local Downloads Then Move?
-libtorrent has issues with SMB/network shares:
-- Unreliable file locking
-- Poor performance
-- Tracker timeout issues
-
-Downloading to local disk first, then moving when complete is the workaround.
-
-### Resource Path Helper (PyInstaller)
-```python
-def resource_path(relative_path):
-    """Get absolute path to resource, works for dev and for PyInstaller"""
-    try:
-        base_path = sys._MEIPASS  # PyInstaller extracts here
-    except Exception:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
-
-# Usage:
-logo_img = Image.open(resource_path("image8.ico"))
-geo_reader = maxminddb.open_database(resource_path('GeoLite2-Country.mmdb'))
-```
+libtorrent has issues with SMB/network shares (unreliable file locking, poor performance, tracker
+timeouts). Download to local disk first, move to TrueNAS when complete.
 
 ### Detecting PyInstaller Environment
 ```python
 if getattr(sys, 'frozen', False):
-    # Running as .exe
     app_data = os.path.join(os.environ['LOCALAPPDATA'], 'HydraTorrent')
 else:
-    # Running as script
     script_dir = os.path.dirname(os.path.abspath(__file__))
 ```
 
+---
+
 ## Next Steps
 
-### IMMEDIATE: Test Installer on Girlfriend's Computer
-1. Copy `installer_package` folder to her computer
-2. Run `ENABLE_JACKETT_SHARING.bat` on main computer first
-3. Run `CLEANUP_OLD_INSTALL.bat` (if needed)
-4. Run `INSTALL.bat` as Administrator
-5. Enter Jackett API key and TrueNAS credentials
-6. Run `TEST_PLEX_CONNECTION.bat` to verify setup
-7. Test downloading a torrent
-8. Verify it moves to Plex and Plex auto-scans
+### IMMEDIATE
+1. Test VPN kill switch: start a download → disconnect PIA → verify downloads pause within 30s
+2. Test auto-resume: reconnect PIA → verify downloads resume automatically
+3. Test startup dialog: close PIA → launch Hydra → verify dialog appears
 
 ### TODO: Future Improvements
+- Rebuild installer .exe to include security hardening (need to re-run PyInstaller)
+- Add VPN kill switch to girlfriend's installer config (she'll need PIA too, or bypass)
 - Fix desktop shortcut creation (currently requires manual creation sometimes)
 - Add logging viewer in GUI for troubleshooting
-- Add network connectivity tests in GUI
 - Create uninstaller script
-- Add update mechanism for installed .exe
 - Consider signed executable to avoid Windows Defender warnings
 
 ### FUTURE: Migrate to R710 Server (Long-term)
-See original migration plan in "Next Steps" section of previous version.
+Server-side torrent downloading removes the need for per-client VPN enforcement entirely.
+
+---
 
 ## Git Status
 - Clean working tree (all changes committed)
-- Ready for deployment
-- installer_package/ folder excluded from git (.gitignore)
+- Latest commit: `a406c22` — VPN kill switch + security hardening
 
 ## Questions to Ask When Returning
-1. "Did the installer work on girlfriend's computer?"
-2. "Any issues with Jackett search or Plex auto-scan?"
-3. "Are downloads and auto-organization working correctly?"
+1. "Did the VPN kill switch work correctly? Did downloads pause when PIA disconnected?"
+2. "Did the installer work on girlfriend's computer? Does she have PIA?"
+3. "Any issues with Jackett search or Plex auto-scan?"
 4. "Any Windows Firewall warnings or issues?"
-5. "Does the desktop shortcut work properly?"
 
 ---
-Last updated: 2026-02-14 Evening
+Last updated: 2026-02-21
