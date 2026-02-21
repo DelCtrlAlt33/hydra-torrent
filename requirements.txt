@@ -7,3 +7,9 @@ libtorrent
 maxminddb
 Pillow
 cryptography
+fastapi
+uvicorn[standard]
+pydantic>=2.0
+websockets
+psutil
+pystray
