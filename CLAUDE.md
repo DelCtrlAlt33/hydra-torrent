@@ -9,7 +9,8 @@ Hydra Torrent is a custom BitTorrent client with a GUI built in Python using tki
 - Magnet link support
 - Resume/seeding functionality
 - Standalone Windows installer for multi-user deployment
-- **NEW**: PIA VPN kill switch with automatic IP leak prevention
+- PIA VPN kill switch with automatic IP leak prevention
+- **NEW**: Headless daemon mode (FastAPI REST + WebSocket) with Windows system tray
 
 ## Current State (2026-02-21)
 
@@ -24,13 +25,19 @@ Hydra Torrent is a custom BitTorrent client with a GUI built in Python using tki
 - ✅ Custom About dialog with Hydra logo and mission statement
 - ✅ All dialogs use dark title bars and custom icon
 - ✅ Standalone .exe installer package for girlfriend's computer
-- ✅ **PIA VPN kill switch — binds to VPN interface, pauses on disconnect, auto-resumes**
+- ✅ PIA VPN kill switch — binds to VPN interface, pauses on disconnect, auto-resumes
+- ✅ **Headless daemon (`hydra_daemon.py`) — FastAPI REST API + WebSocket streaming**
+- ✅ **System tray icon (`hydra_tray.py`) — spawns daemon, live VPN status dot, right-click menu**
 
 ### Architecture (Current)
 ```
 Main Desktop (192.168.20.2) - Port 6001
-├── Hydra Torrent GUI (peer.pyw)
-├── libtorrent bound to: wgpia0 (10.237.x.x) — VPN interface only
+├── hydra_tray.py  ← Windows system tray (spawns daemon on login)
+│   └── hydra_daemon.py  ← headless libtorrent engine + FastAPI on :8765
+│       ├── REST API: http://127.0.0.1:8765  (auth: X-API-Key header)
+│       ├── WebSocket: ws://127.0.0.1:8765/ws  (real-time transfer snapshots)
+│       └── libtorrent bound to: wgpia0 (10.237.x.x) — VPN interface only
+├── peer.pyw  ← original tkinter GUI (still works standalone)
 ├── Downloads to: C:\Users\Matth\hydra_torrent\downloads_incomplete (LOCAL)
 ├── Auto-moves to: \\192.168.20.4\Plex\movies or \tv (TrueNAS SMB)
 └── Jackett: http://127.0.0.1:9117 (shared via ENABLE_JACKETT_SHARING.bat)
@@ -55,7 +62,127 @@ R710 Proxmox (192.168.20.33)
 
 ## Recent Work Completed
 
-### Session 2026-02-21: Security Hardening
+### Session 2026-02-21 (Evening): System Tray + Daemon
+
+**Goal**: Run Hydra headlessly on startup with a system tray icon, no console window.
+
+#### 1. Headless Daemon (`hydra_daemon.py` — new file)
+
+Full libtorrent engine extracted from `peer.pyw`, wrapped in FastAPI. No tkinter dependency.
+Runs independently; `peer.pyw` is unchanged and still works as a standalone GUI.
+
+**Key design:**
+- `DaemonStore` — thread-safe transfer state dict; strips internal fields before API responses
+- `TorrentEngine` — libtorrent session, VPN kill switch, download/seeding monitors
+- FastAPI app with lifespan startup/shutdown
+- WebSocket broadcaster: drains `store.ws_queue`, pushes snapshots ≤10×/sec to all clients
+- API key auto-generated on first run, saved to `hydra_config.json` as `daemon_api_key`
+
+**REST endpoints (all require `X-API-Key` header):**
+```
+GET  /status                        → DaemonStatus (VPN, rates, torrent count)
+GET  /vpn                           → VPNStatus
+GET  /transfers                     → list of TransferState
+GET  /transfers/{name}              → single TransferState
+POST /transfers                     → add magnet (202, metadata fetch in background)
+POST /transfers/{name}/pause        → pause
+POST /transfers/{name}/resume       → resume
+DEL  /transfers/{name}              → remove (?delete_files=true to wipe files)
+POST /search                        → search (mode: online/jackett/local)
+WS   /ws                            → real-time stream (send {"auth":"<key>"} within 5s)
+GET  /docs                          → Swagger UI
+```
+
+**WebSocket auth protocol:**
+1. Client connects to `ws://127.0.0.1:8765/ws`
+2. Client sends `{"auth": "<api-key>"}` within 5 seconds
+3. Server sends current snapshot immediately, then streams updates
+
+**Pydantic models (`daemon_models.py` — new file):**
+- `TransferState`, `AddMagnetRequest`, `SearchRequest`, `SearchResult`
+- `VPNStatus`, `DaemonStatus`
+- No imports from other hydra modules — safe to import anywhere
+
+**Run the daemon:**
+```bash
+python hydra_daemon.py
+# Listening on: http://127.0.0.1:8765
+# API key:      <key>
+# API docs:     http://127.0.0.1:8765/docs
+```
+
+#### 2. System Tray (`hydra_tray.py` — new file)
+
+Thin wrapper: hides console, spawns `hydra_daemon.py`, shows tray icon with live status dot.
+
+**Startup sequence:**
+1. `_hide_console()` — hides console via `ctypes.windll` before any other code runs
+2. Reads API key from `hydra_config.json` (may be empty on first run)
+3. `_find_daemon_python()` — finds the Python interpreter that has `libtorrent` + `fastapi`
+   (searches `sys.executable` first, then common `C:\Program Files\Python3xx\python.exe` paths)
+4. Spawns `hydra_daemon.py` with `CREATE_NO_WINDOW` flag
+5. Writes/refreshes Windows startup registry entry using `pythonw.exe` (no console on login)
+6. Polls `GET /status` every 0.5s for up to 10s; re-reads API key after daemon writes it
+7. Creates `pystray.Icon` and starts it on the main thread
+8. Background thread polls `GET /status` every 5s → updates icon dot colour + VPN menu text
+
+**Icon dot colours:**
+| Colour | Meaning |
+|---|---|
+| Orange | Daemon starting up (first 10s) |
+| Green | Daemon up + VPN connected |
+| Red | VPN disconnected, or daemon offline / not responding |
+
+**Right-click menu:**
+```
+● VPN: Protected (10.237.x.x)    ← dynamic, non-clickable (callable text, always fresh)
+─────────────────────────────
+  Open Web UI                    → opens http://127.0.0.1:8765/docs in browser
+  Pause All                      → GET /transfers, POST /pause each active one
+  Resume All                     → GET /transfers, POST /resume each paused one
+─────────────────────────────
+  Enable/Disable startup         → toggle Windows startup registry entry
+─────────────────────────────
+  Exit                           → terminate daemon subprocess, stop pystray
+```
+
+**Windows startup registry:**
+```
+HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
+"HydraTorrent" = '"C:\Program Files\Python311\pythonw.exe" "C:\...\hydra_tray.py"'
+```
+Uses `pythonw.exe` so no console window appears on login.
+Entry is always refreshed on launch — corrects itself if previously written by wrong interpreter.
+
+**Launch:**
+```bash
+# Normal launch (brief console flash):
+python hydra_tray.py
+
+# No console at all:
+pythonw hydra_tray.py
+
+# After first launch, auto-starts on Windows login via registry.
+```
+
+**Key implementation notes:**
+- Menu item text is a callable (`lambda item: self._get_vpn_text()`) so it's always fresh on open
+  without needing to call `update_menu()` manually
+- `_find_daemon_python()` probe: `subprocess.run([exe, "-c", "import libtorrent, fastapi"])` — picks
+  first interpreter that exits 0. Falls back to `sys.executable` if none found.
+- Transfer name URL-encoding uses `urllib.parse.quote(name, safe='')` for pause/resume API calls
+- Startup entry always uses the daemon Python's `pythonw.exe`, not necessarily `sys.executable`
+
+#### 3. Dependency Added
+`pystray` added to `requirements.txt`. Install in the Python that runs the tray:
+```bash
+python -m pip install pystray
+```
+(`Pillow` and `requests` were already present.)
+
+---
+
+### Session 2026-02-21 (Daytime): Security Hardening
 
 **Goal**: Prevent IP leaks, add PIA kill switch, harden libtorrent settings.
 
@@ -81,7 +208,6 @@ Detection logic: find interface with "wgpia" or "pia" in name, `isup=True`, vali
 **After**: `listen_interfaces: '10.237.x.x:6001'` — VPN IP only. Traffic cannot reach real NIC.
 
 ```python
-# Detect VPN at startup, bind to its IP
 listen_ip = self.vpn_ip if self.vpn_ip else '0.0.0.0'
 self.ses = lt.session({
     'listen_interfaces': f'{listen_ip}:{PEER_PORT}',
@@ -186,35 +312,48 @@ def get_base_dir():
 ## File Structure
 
 ### Core Application
-- `peer.pyw` - Main GUI application (tkinter)
-- `vpn_guard.py` - PIA VPN detection and kill switch monitor
-- `config.py` - Configuration (paths, logging, network settings, PyInstaller detection)
-- `media_organizer.py` - Automatic categorization (movies vs TV) + Plex API
-- `theme_manager.py` - Dark/light theme system
-- `transfer_manager.py` - Download progress tracking
-- `search.py` - Jackett/public torrent search
-- `download.py` - Download handling
-- `network.py` - Async peer file server (TLS)
-- `certs.py` - SSL certificate handling
+- `peer.pyw` — Original tkinter GUI (standalone, still works)
+- `hydra_daemon.py` — Headless libtorrent engine + FastAPI REST + WebSocket
+- `hydra_tray.py` — Windows system tray wrapper (spawns daemon, live status icon)
+- `daemon_models.py` — Pydantic v2 models for daemon REST API (no hydra deps)
+- `vpn_guard.py` — PIA VPN detection and kill switch monitor
+- `config.py` — Configuration (paths, logging, network settings, PyInstaller detection)
+- `media_organizer.py` — Automatic categorization (movies vs TV) + Plex API
+- `theme_manager.py` — Dark/light theme system
+- `transfer_manager.py` — Download progress tracking (used by peer.pyw)
+- `search.py` — Jackett/public torrent search
+- `download.py` — Download handling
+- `network.py` — Async peer file server (TLS)
+- `certs.py` — SSL certificate handling
 
 ### Installer Files
-- `build_installer.py` - PyInstaller build script
-- `installer_package/` - Complete installer package (excluded from git)
-- `ENABLE_JACKETT_SHARING.bat` - Enable Jackett network access on main computer
+- `build_installer.py` — PyInstaller build script
+- `installer_package/` — Complete installer package (excluded from git)
+- `ENABLE_JACKETT_SHARING.bat` — Enable Jackett network access on main computer
 
 ### Plex Utilities (One-time cleanup scripts)
-- `plex_smart_cleanup.py` - Comprehensive movie cleanup
-- `plex_tv_cleanup.py` - TV show organization
-- `plex_quick_fixes.py` - Targeted manual fixes
-- `split_trilogies.py` - Split trilogy packs
+- `plex_smart_cleanup.py` — Comprehensive movie cleanup
+- `plex_tv_cleanup.py` — TV show organization
+- `plex_quick_fixes.py` — Targeted manual fixes
+- `split_trilogies.py` — Split trilogy packs
 
 ### Configuration Files (in AppData when running as .exe)
-- `hydra_config.json` - Plex URL, API token, Jackett settings
-- `transfers.json` - Active/completed transfers state
+- `hydra_config.json` — Plex URL, API token, Jackett settings, `daemon_api_key`
+- `transfers.json` — Active/completed transfers state
 
 ---
 
 ## Important Configuration
+
+### Daemon Config (`hydra_config.json` fields)
+```json
+{
+  "daemon_host": "127.0.0.1",
+  "daemon_port": 8765,
+  "daemon_api_key": "<auto-generated on first run>"
+}
+```
+To allow LAN access to the daemon API: set `"daemon_host": "0.0.0.0"`.
 
 ### libtorrent Session Config (Current — post security hardening)
 ```python
@@ -262,6 +401,13 @@ chmod -R 775 /mnt/MainPool/Plex
 
 ## Known Issues & Solutions
 
+### Issue: Tray spawns daemon with wrong Python interpreter
+**Cause**: `_find_daemon_python()` searches a fixed candidate list. If Python 3.11 is installed
+elsewhere, it may fall back to `sys.executable` which might not have `libtorrent`.
+**Fix**: The tray still works if the daemon is already running — `_wait_for_daemon()` will find it.
+For cold-start, launch `hydra_tray.py` with the Python that has all deps:
+`"C:\Program Files\Python311\python.exe" hydra_tray.py`
+
 ### Issue: Downloads slow / no peers after VPN hardening
 **Cause**: libtorrent is now bound to VPN interface only. If PIA is slow or routes change, fewer peers connect.
 **Fix**: This is expected and correct behavior. Try a different PIA server location.
@@ -296,9 +442,23 @@ Run `TEST_PLEX_CONNECTION.bat` — check plex_token, connectivity to 192.168.20.
 
 ## Troubleshooting
 
+### Tray Icon Not Appearing
+1. Check if `hydra_tray.py` is running: Task Manager → python.exe processes
+2. Check if `pystray` is installed: `python -m pip show pystray`
+3. Run with console: `python hydra_tray.py` to see startup output
+4. If daemon failed to spawn: launch daemon manually (`python hydra_daemon.py`), then tray will find it
+
+### Daemon Not Responding
+```bash
+# Check if daemon is running
+python -c "import requests, json; cfg=json.load(open('hydra_config.json')); print(requests.get('http://127.0.0.1:8765/status', headers={'X-API-Key': cfg['daemon_api_key']}, timeout=3).json())"
+# If not running, start manually:
+python hydra_daemon.py
+```
+
 ### Downloads Not Working After Security Hardening
-- Verify PIA is connected — check footer for green `VPN: Protected` label
-- If red label: connect PIA, Hydra will auto-resume within 30 seconds
+- Verify PIA is connected — check tray icon (green dot) or footer for green `VPN: Protected` label
+- If red dot/label: connect PIA, Hydra will auto-resume within 30 seconds
 - Check libtorrent is binding to VPN IP in logs: `TLS Peer server listening on 10.237.x.x:6001`
 
 ### Downloads Not Working (General)
@@ -331,11 +491,17 @@ guard.start(lambda c, i, ip: callback(c, i, ip))  # fires on status change
 guard.stop()
 ```
 
-### PyInstaller Build — Add vpn_guard.py
-`vpn_guard.py` will be bundled automatically by PyInstaller since it's a local import.
-psutil must be added as a hidden import if not auto-detected:
+### Daemon API Key Flow
+1. `hydra_daemon.py` starts → `_get_or_create_api_key()` reads `hydra_config.json`
+2. If `daemon_api_key` absent: generates `secrets.token_urlsafe(32)`, saves to config
+3. `hydra_tray.py` reads the key from config after daemon has started
+4. All API calls include `X-API-Key: <key>` header
+
+### PyInstaller Build — Add new files
+`hydra_daemon.py`, `hydra_tray.py`, `daemon_models.py` will be bundled automatically.
+`pystray` and `psutil` may need hidden imports:
 ```bash
-pyinstaller ... --hidden-import=psutil peer.pyw
+pyinstaller ... --hidden-import=psutil --hidden-import=pystray peer.pyw
 ```
 
 ### Why libtorrent is Bound to VPN IP, Not 0.0.0.0
@@ -361,32 +527,40 @@ else:
 ## Next Steps
 
 ### IMMEDIATE
-1. Test VPN kill switch: start a download → disconnect PIA → verify downloads pause within 30s
-2. Test auto-resume: reconnect PIA → verify downloads resume automatically
-3. Test startup dialog: close PIA → launch Hydra → verify dialog appears
+1. Test tray right-click menu: Pause All / Resume All / Open Web UI
+2. Test tray VPN dot: disconnect PIA → icon should turn red within 5s; reconnect → green
+3. Test cold-start: log out and back in → tray icon should appear automatically
 
 ### TODO: Future Improvements
-- Rebuild installer .exe to include security hardening (need to re-run PyInstaller)
+- Build a simple web UI (React or plain HTML) that talks to the daemon REST/WebSocket API
+- Rebuild installer .exe to include daemon + tray (`hydra_tray.exe` as the entry point)
 - Add VPN kill switch to girlfriend's installer config (she'll need PIA too, or bypass)
 - Fix desktop shortcut creation (currently requires manual creation sometimes)
 - Add logging viewer in GUI for troubleshooting
-- Create uninstaller script
+- Create uninstaller script (remove registry entry + AppData)
 - Consider signed executable to avoid Windows Defender warnings
 
 ### FUTURE: Migrate to R710 Server (Long-term)
-Server-side torrent downloading removes the need for per-client VPN enforcement entirely.
+Run `hydra_daemon.py` on the R710 with `daemon_host: "0.0.0.0"` — any device on the LAN
+can control downloads via the REST API or web UI. Removes per-client VPN enforcement entirely.
 
 ---
 
 ## Git Status
-- Clean working tree (all changes committed)
-- Latest commit: `a406c22` — VPN kill switch + security hardening
+- Uncommitted changes: `hydra_tray.py` (new), `daemon_models.py` (new), `hydra_daemon.py` (new),
+  `requirements.txt` (+pystray), `peer.pyw` (VPN label fixes)
+- Latest commits:
+  - `3479b85` — Reposition VPN label to float in tab bar after Transfers tab
+  - `5c996d1` — Fix AttributeError: init vpn_ip before tab creation
+  - `99eaf14` — Update CLAUDE.md for 2026-02-21 security hardening session
+  - `a406c22` — Add PIA VPN kill switch and security hardening
 
 ## Questions to Ask When Returning
-1. "Did the VPN kill switch work correctly? Did downloads pause when PIA disconnected?"
-2. "Did the installer work on girlfriend's computer? Does she have PIA?"
-3. "Any issues with Jackett search or Plex auto-scan?"
-4. "Any Windows Firewall warnings or issues?"
+1. "Is the tray icon working? Green dot when PIA is connected?"
+2. "Does the icon turn red when PIA disconnects, and green when it reconnects?"
+3. "Does the tray auto-start after logging out and back in?"
+4. "Did the installer work on girlfriend's computer? Does she have PIA?"
+5. "Any issues with Jackett search or Plex auto-scan?"
 
 ---
 Last updated: 2026-02-21
