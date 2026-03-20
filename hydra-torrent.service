@@ -1,0 +1,20 @@
+[Unit]
+Description=Hydra Torrent Daemon
+After=network-online.target remote-fs.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hydra
+Group=hydra
+WorkingDirectory=/opt/hydra
+Environment=HYDRA_BASE=/opt/hydra
+ExecStart=/usr/bin/python3 /opt/hydra/hydra_daemon.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hydra-torrent
+
+[Install]
+WantedBy=multi-user.target

@@ -15,9 +15,11 @@ def get_base_dir():
         app_data = os.path.join(os.environ['LOCALAPPDATA'], 'HydraTorrent')
         os.makedirs(app_data, exist_ok=True)
         return app_data
-    else:
-        # Running as script - use script directory
-        return os.path.dirname(os.path.abspath(__file__))
+    # Allow explicit override via env var (useful for systemd on Linux LXC)
+    if 'HYDRA_BASE' in os.environ:
+        return os.environ['HYDRA_BASE']
+    # Running as script - use script directory
+    return os.path.dirname(os.path.abspath(__file__))
 
 BASE_DIR = get_base_dir()
 
@@ -30,21 +32,20 @@ PRIVKEY_PATH = os.path.join(CERTS_DIR, 'privkey.pem')
 CHAIN_PATH = os.path.join(CERTS_DIR, 'chain.pem')
 SHARED_DIR = os.path.join(BASE_DIR, 'shared_files')
 
-# Download directories (local - fast and reliable for libtorrent)
-DOWNLOAD_DIR_INCOMPLETE = os.path.join(BASE_DIR, 'downloads_incomplete')
-DOWNLOAD_DIR_COMPLETE = os.path.join(BASE_DIR, 'downloads_complete')
+# Download directories — configurable via hydra_config.json
+# Set "download_dir_incomplete" to an NFS path (e.g. /mnt/plex/incomplete) to avoid
+# saturating the local HDD with random I/O from multi-file torrent season packs.
+# When download_dir_incomplete is on the same NFS mount as media_dir_tv/movies,
+# the post-download Plex move becomes an instant os.rename() instead of a full copy.
+CONFIG_FILE = os.path.join(BASE_DIR, 'hydra_config.json')
 
-# Plex media directories - same location as your Linux laptop NFS mount
-# Windows (SMB): \\192.168.20.4\Plex = TrueNAS:/mnt/MainPool/Plex
-# Linux (NFS): /mnt/plex = TrueNAS:/mnt/MainPool/Plex
-# Plex sees: /mnt/media = TrueNAS:/mnt/MainPool/Plex (via NFS)
-MEDIA_DIR_MOVIES = r'\\192.168.20.4\Plex\movies'
-MEDIA_DIR_TV = r'\\192.168.20.4\Plex\tv'
+_cfg_dirs = json.load(open(CONFIG_FILE)) if os.path.exists(CONFIG_FILE) else {}
+DOWNLOAD_DIR_INCOMPLETE = _cfg_dirs.get(
+    'download_dir_incomplete', os.path.join(BASE_DIR, 'downloads_incomplete'))
+DOWNLOAD_DIR_COMPLETE = os.path.join(BASE_DIR, 'downloads_complete')
 
 # Legacy support
 DOWNLOAD_DIR = DOWNLOAD_DIR_INCOMPLETE
-
-CONFIG_FILE = os.path.join(BASE_DIR, 'hydra_config.json')
 
 os.makedirs(SHARED_DIR, exist_ok=True)
 os.makedirs(DOWNLOAD_DIR_INCOMPLETE, exist_ok=True)
@@ -98,3 +99,11 @@ def save_config(key, value):
     config[key] = value
     with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
         json.dump(config, f)
+
+
+# Plex media directories — configurable via hydra_config.json
+# Windows default: SMB share on TrueNAS
+# Linux LXC:  set "media_dir_movies": "/mnt/plex/movies" in hydra_config.json
+_cfg_media = load_config()
+MEDIA_DIR_MOVIES = _cfg_media.get('media_dir_movies', r'\\192.168.20.4\Plex\movies')
+MEDIA_DIR_TV     = _cfg_media.get('media_dir_tv',     r'\\192.168.20.4\Plex\tv')

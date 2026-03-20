@@ -4,6 +4,7 @@ certs/
 *.part
 transfers.json
 hydra_config.json
+rss_rules.json
 downloads/
 downloads_incomplete/
 downloads_complete/
@@ -11,13 +12,23 @@ shared_files/
 flags/
 GeoLite2-Country.mmdb
 
-# Screenshots and images
+# Screenshots and images (except static assets and README screenshots)
 *.png
 *.jpg
+!static/logo.png
+!screenshots/*.png
 
 # Build/install artifacts
+build/
+dist/
+*.spec
+*.exe
 miniconda3/
 nul
+installer_package/
+
+# Base64 text blobs
+*_b64.txt
 
 # Reports and temp files
 plex_cleanup_report.txt
@@ -25,6 +36,15 @@ ascii-art.txt
 
 # Production copies
 production_peer.pyw
+
+# Non-project files
+L2TP_Presentation.pptx
+ENABLE_JACKETT_SHARING.bat
+test_icon.html
+test_daemon.ps1
+
+# Project-specific docs with secrets/IPs
+CLAUDE.md
 
 # IDE/Editor
 .claude/

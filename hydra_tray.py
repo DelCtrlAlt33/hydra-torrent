@@ -2,9 +2,8 @@
 """
 Hydra Torrent System Tray
 
-Thin wrapper around hydra_daemon.py that:
+Remote monitor for the Hydra daemon running on R710 LXC (192.168.20.33).
 - Hides the console window immediately on launch
-- Spawns hydra_daemon.py as a child subprocess (no console)
 - Shows a Hydra icon in the Windows system tray with a colour-coded status dot
 - Polls GET /status every 5 s to update the icon and VPN menu text
 - Provides a right-click menu: VPN status, Open Web UI, Pause/Resume All, Exit
@@ -18,7 +17,6 @@ Usage:
 import ctypes
 import json
 import os
-import subprocess
 import sys
 import threading
 import time
@@ -31,6 +29,13 @@ import pystray
 import requests
 from PIL import Image, ImageDraw
 from pystray import MenuItem as Item, Menu
+
+# Suppress InsecureRequestWarning — we use self-signed cert with verify=False
+try:
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+except Exception:
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -64,37 +69,8 @@ def resource_path(name: str) -> str:
     return os.path.join(base, name)
 
 
-_CONFIG_FILE = os.path.join(_SCRIPT_DIR, 'hydra_config.json')
-_DAEMON_SCRIPT = os.path.join(_SCRIPT_DIR, 'hydra_daemon.py')
-_DAEMON_URL_BASE = "http://127.0.0.1:8765"
-
-# Python interpreter to use when spawning the daemon.
-# The daemon requires libtorrent, fastapi, uvicorn, etc., which may only be
-# present in a specific Python installation.  We look for the interpreter that
-# can actually import libtorrent; fall back to sys.executable if none found.
-def _find_daemon_python() -> str:
-    candidates = [
-        sys.executable,
-        # Common Windows installation paths
-        r"C:\Program Files\Python311\python.exe",
-        r"C:\Program Files\Python312\python.exe",
-        r"C:\Program Files\Python310\python.exe",
-        r"C:\Users\Matth\AppData\Local\Programs\Python\Python311\python.exe",
-        r"C:\Users\Matth\AppData\Local\Programs\Python\Python312\python.exe",
-    ]
-    for exe in candidates:
-        if not os.path.exists(exe):
-            continue
-        try:
-            result = subprocess.run(
-                [exe, "-c", "import libtorrent, fastapi"],
-                capture_output=True, timeout=5,
-            )
-            if result.returncode == 0:
-                return exe
-        except Exception:
-            pass
-    return sys.executable  # last resort
+_CONFIG_FILE     = os.path.join(_SCRIPT_DIR, 'hydra_config.json')
+_DAEMON_URL_BASE = "https://192.168.20.33:8765"   # R710 LXC
 
 _STARTUP_REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 _STARTUP_REG_VALUE = "HydraTorrent"
@@ -183,8 +159,10 @@ def _startup_enabled() -> bool:
 
 def _enable_startup() -> None:
     """Write startup registry entry using pythonw.exe (no console on login)."""
-    # Use the daemon Python (has all deps) so the tray can cold-start the daemon
-    python_exe = _find_daemon_python()
+    # sys.executable is always the interpreter that is actually running right now
+    # and has all required dependencies — use it directly rather than searching.
+    python_exe = sys.executable
+    # Prefer pythonw.exe (same dir) so no console flashes on login.
     pythonw = os.path.join(os.path.dirname(python_exe), 'pythonw.exe')
     if not os.path.exists(pythonw):
         pythonw = python_exe
@@ -219,54 +197,75 @@ class HydraTray:
 
     def __init__(self) -> None:
         self._api_key: str = ''
-        self._daemon_proc: Optional[subprocess.Popen] = None
         self._icon: Optional[pystray.Icon] = None
         self._status: str = _STATUS_STARTING
         self._vpn_text: str = 'VPN: Checking...'
         self._lock = threading.Lock()
-
-    # ── Daemon lifecycle ──────────────────────────────────────────────────────
-
-    def _spawn_daemon(self) -> None:
-        """Start hydra_daemon.py as a hidden child process."""
-        python = _find_daemon_python()
-        print(f"[tray] Using Python: {python}")
-        flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-        self._daemon_proc = subprocess.Popen(
-            [python, _DAEMON_SCRIPT],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=flags,
-        )
-        print(f"[tray] Daemon PID: {self._daemon_proc.pid}")
-
-    def _wait_for_daemon(self, timeout: float = 10.0) -> bool:
-        """Poll GET /status until the daemon responds or the timeout expires."""
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            key = self._api_key or _get_api_key()
-            if key:
-                try:
-                    r = requests.get(
-                        f"{_DAEMON_URL_BASE}/status",
-                        headers={"X-API-Key": key},
-                        timeout=2,
-                    )
-                    if r.status_code == 200:
-                        self._api_key = key
-                        return True
-                except Exception:
-                    pass
-            time.sleep(0.5)
-        return False
+        # Completion tracking — None means first poll hasn't happened yet
+        # (so we don't spam notifications for already-finished torrents on startup)
+        self._notified: Optional[set] = None
 
     # ── Status polling ────────────────────────────────────────────────────────
 
     def _poll_loop(self) -> None:
-        """Background thread: refresh every 5 s."""
+        """Background thread: refresh status + check for completed downloads every 5 s."""
         while True:
             self._refresh_status()
+            transfers = self._fetch_transfers()
+            if transfers is not None:
+                self._check_completions(transfers)
             time.sleep(5)
+
+    def _fetch_transfers(self) -> Optional[list]:
+        """Fetch current transfer list from daemon. Returns None on failure."""
+        try:
+            r = requests.get(
+                f"{_DAEMON_URL_BASE}/transfers",
+                headers={"X-API-Key": self._api_key},
+                timeout=3,
+                verify=False,
+            )
+            if r.status_code == 200:
+                return r.json()
+        except Exception:
+            pass
+        return None
+
+    def _check_completions(self, transfers: list) -> None:
+        """Fire a Windows toast for any transfer that just finished downloading."""
+        if self._notified is None:
+            # First successful poll: record already-finished torrents silently
+            self._notified = {
+                t['name'] for t in transfers
+                if t.get('status') in ('Seeding', 'Finished') or t.get('progress', 0) >= 100
+            }
+            return
+
+        current_names = {t['name'] for t in transfers}
+        for t in transfers:
+            name = t['name']
+            if name in self._notified:
+                continue
+            if t.get('status') in ('Seeding', 'Finished') or t.get('progress', 0) >= 100:
+                self._fire_notification(name, t)
+                self._notified.add(name)
+
+        # Prune names that were removed (allow re-notification if same torrent re-added)
+        self._notified.intersection_update(current_names)
+
+    def _fire_notification(self, name: str, transfer: dict) -> None:
+        """Show a Windows toast notification for a completed download."""
+        try:
+            plex_path = transfer.get('plex_path')
+            if plex_path:
+                dest = 'TV' if ('/tv' in plex_path or '\\tv' in plex_path) else 'Movies'
+                msg = f"Moved to Plex {dest}"
+            else:
+                msg = "Download finished"
+            if self._icon:
+                self._icon.notify(msg, title=name[:64])
+        except Exception as e:
+            print(f"[tray] Notification error: {e}", file=sys.stderr)
 
     def _refresh_status(self) -> None:
         # Re-read key in case daemon just generated it
@@ -279,6 +278,7 @@ class HydraTray:
                 f"{_DAEMON_URL_BASE}/status",
                 headers={"X-API-Key": self._api_key},
                 timeout=3,
+                verify=False,
             )
             if r.status_code == 200:
                 data = r.json()
@@ -295,7 +295,7 @@ class HydraTray:
                 new_vpn_text = "VPN: Unknown (daemon error)"
         except Exception:
             new_status = _STATUS_DEAD
-            new_vpn_text = "VPN: Daemon offline"
+            new_vpn_text = "VPN: Unknown (daemon unreachable)"
 
         with self._lock:
             changed = (new_status != self._status or new_vpn_text != self._vpn_text)
@@ -304,6 +304,12 @@ class HydraTray:
 
         if changed and self._icon:
             self._icon.icon = _make_icon(new_status)
+            self._icon.title = {
+                _STATUS_HEALTHY:  "Hydra Torrent (R710) — OK",
+                _STATUS_NO_VPN:   "Hydra Torrent (R710) — VPN DOWN",
+                _STATUS_DEAD:     "Hydra Torrent (R710) — DAEMON UNREACHABLE",
+                _STATUS_STARTING: "Hydra Torrent (R710) — Connecting...",
+            }.get(new_status, "Hydra Torrent (R710)")
             self._icon.update_menu()
 
     def _get_vpn_text(self) -> str:
@@ -313,7 +319,7 @@ class HydraTray:
     # ── Menu actions ──────────────────────────────────────────────────────────
 
     def _action_open_web_ui(self, icon, item) -> None:
-        webbrowser.open(f"{_DAEMON_URL_BASE}/docs")
+        webbrowser.open(f"{_DAEMON_URL_BASE}/ui")  # browser shows self-signed cert warning on first visit
 
     def _action_pause_all(self, icon, item) -> None:
         try:
@@ -321,6 +327,7 @@ class HydraTray:
                 f"{_DAEMON_URL_BASE}/transfers",
                 headers={"X-API-Key": self._api_key},
                 timeout=3,
+                verify=False,
             )
             if r.status_code != 200:
                 return
@@ -331,6 +338,7 @@ class HydraTray:
                         f"{_DAEMON_URL_BASE}/transfers/{url_quote(name, safe='')}/pause",
                         headers={"X-API-Key": self._api_key},
                         timeout=3,
+                        verify=False,
                     )
         except Exception as e:
             print(f"[tray] Pause all error: {e}", file=sys.stderr)
@@ -341,6 +349,7 @@ class HydraTray:
                 f"{_DAEMON_URL_BASE}/transfers",
                 headers={"X-API-Key": self._api_key},
                 timeout=3,
+                verify=False,
             )
             if r.status_code != 200:
                 return
@@ -351,6 +360,7 @@ class HydraTray:
                         f"{_DAEMON_URL_BASE}/transfers/{url_quote(name, safe='')}/resume",
                         headers={"X-API-Key": self._api_key},
                         timeout=3,
+                        verify=False,
                     )
         except Exception as e:
             print(f"[tray] Resume all error: {e}", file=sys.stderr)
@@ -364,13 +374,7 @@ class HydraTray:
             self._icon.update_menu()
 
     def _action_exit(self, icon, item) -> None:
-        print("[tray] Exit — terminating daemon")
-        if self._daemon_proc and self._daemon_proc.poll() is None:
-            self._daemon_proc.terminate()
-            try:
-                self._daemon_proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._daemon_proc.kill()
+        print("[tray] Exit")
         if self._icon:
             self._icon.stop()
 
@@ -402,49 +406,29 @@ class HydraTray:
     # ── Entry point ────────────────────────────────────────────────────────────
 
     def run(self) -> None:
-        # 1. Try to read existing API key (may be empty if daemon hasn't run yet)
+        # 1. Load API key from local config
         self._api_key = _get_api_key()
+        print(f"[tray] Connecting to R710 daemon at {_DAEMON_URL_BASE}")
 
-        # 2. Spawn the daemon subprocess
-        print("[tray] Spawning hydra_daemon...")
-        self._spawn_daemon()
-
-        # 3. Always write/refresh the startup entry so it uses the current Python.
-        # This ensures the registry is correct even if the tray was previously
-        # launched with a different Python interpreter (e.g. miniconda vs system).
+        # 2. Refresh startup registry entry
         _enable_startup()
-            print("[tray] Added to Windows startup")
 
-        # 4. Wait for daemon to come up (it also writes the API key to config)
-        print("[tray] Waiting for daemon to respond...")
-        ready = self._wait_for_daemon(timeout=10.0)
-
-        # Re-read API key now that the daemon has had a chance to write it
-        self._api_key = _get_api_key()
-
-        if ready:
-            print("[tray] Daemon is up")
-            self._status = _STATUS_HEALTHY
-        else:
-            print("[tray] Daemon did not respond within 10 s — showing orange dot", file=sys.stderr)
-            self._status = _STATUS_STARTING
-
-        # 5. Create and show the tray icon
+        # 3. Create and show the tray icon
         self._icon = pystray.Icon(
             name="HydraTorrent",
             icon=_make_icon(self._status),
-            title="Hydra Torrent",
+            title="Hydra Torrent (R710)",
             menu=self._build_menu(),
         )
 
-        # 6. Start background status poll thread
+        # 4. Start background status poll thread
         threading.Thread(
             target=self._poll_loop,
             daemon=True,
             name="tray-poll",
         ).start()
 
-        # 7. Run pystray on the main thread (blocks until icon.stop() is called)
+        # 5. Run pystray on the main thread (blocks until icon.stop() is called)
         self._icon.run()
 
 

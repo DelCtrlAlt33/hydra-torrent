@@ -1,0 +1,1894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hydra Torrent</title>
+  <link rel="icon" type="image/png" href="data:image/png;base64,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">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #060606;
+      --card:       #111111;
+      --border:     #282828;
+      --accent:     #2a9fd6;
+      --accent-dim: #1a6a8a;
+      --green:      #77b300;
+      --red:        #cc0000;
+      --orange:     #ff8800;
+      --blue:       #2a9fd6;
+      --yellow:     #ff8800;
+      --text:       #adafae;
+      --muted:      #666868;
+      --bar-bg:     #282828;
+      --input-bg:   #060606;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────────────── */
+    header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      height: 52px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .logo .brand { color: var(--accent); }
+    .logo .sub   { color: var(--muted); font-weight: 400; }
+
+    .header-rates {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .header-rates b { color: var(--text); }
+
+    .spacer { flex: 1; }
+
+    .vpn-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      border: 1px solid transparent;
+      transition: background 0.3s, color 0.3s;
+    }
+
+    .vpn-badge.protected {
+      background: rgba(0, 204, 68, 0.15);
+      color: var(--green);
+      border-color: rgba(0, 204, 68, 0.3);
+    }
+
+    .vpn-badge.exposed {
+      background: rgba(255, 51, 51, 0.15);
+      color: var(--red);
+      border-color: rgba(255, 51, 51, 0.3);
+    }
+
+    .vpn-badge.checking {
+      background: rgba(255, 165, 0, 0.15);
+      color: var(--orange);
+      border-color: rgba(255, 165, 0, 0.3);
+    }
+
+    .vpn-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    /* ── Tabs ──────────────────────────────────────────────────────────── */
+    .tabs {
+      display: flex;
+      gap: 0;
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 0 20px;
+    }
+
+    .tab {
+      padding: 10px 20px;
+      cursor: pointer;
+      font-weight: 500;
+      color: var(--muted);
+      border-bottom: 2px solid transparent;
+      transition: color 0.2s, border-color 0.2s;
+      user-select: none;
+    }
+
+    .tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .tab:hover:not(.active) { color: var(--text); }
+
+    /* ── Main content ───────────────────────────────────────────────────── */
+    .pane {
+      display: none;
+      padding: 20px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .pane.active { display: block; }
+
+    /* ── Magnet input ───────────────────────────────────────────────────── */
+    .add-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+
+    .add-row input {
+      flex: 1;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 9px 12px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .add-row input:focus { border-color: var(--accent); }
+    .add-row input::placeholder { color: var(--muted); }
+
+    /* ── Buttons ────────────────────────────────────────────────────────── */
+    .btn {
+      padding: 8px 14px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: background 0.15s, opacity 0.15s;
+      white-space: nowrap;
+    }
+
+    .btn:active { opacity: 0.75; }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover { background: #9060e0; }
+
+    .btn-sm {
+      padding: 5px 10px;
+      font-size: 12px;
+    }
+
+    .btn-pause  { background: #333348; color: var(--text); }
+    .btn-pause:hover  { background: #3e3e58; }
+
+    .btn-resume { background: rgba(0, 204, 68, 0.2); color: var(--green); border: 1px solid rgba(0,204,68,0.4); }
+    .btn-resume:hover { background: rgba(0, 204, 68, 0.3); }
+
+    .btn-remove { background: rgba(255, 51, 51, 0.15); color: var(--red); border: 1px solid rgba(255,51,51,0.3); }
+    .btn-remove:hover { background: rgba(255, 51, 51, 0.25); }
+
+    .btn-add { background: rgba(124, 77, 204, 0.2); color: var(--accent); border: 1px solid rgba(124,77,204,0.4); }
+    .btn-add:hover { background: rgba(124, 77, 204, 0.35); }
+
+    /* ── Transfer cards ─────────────────────────────────────────────────── */
+    #transfers-list { display: flex; flex-direction: column; gap: 10px; }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      transition: border-color 0.2s;
+    }
+
+    .card:hover { border-color: #3a3a4e; }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .card-name {
+      font-weight: 600;
+      font-size: 13px;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .badge {
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+      letter-spacing: 0.3px;
+    }
+
+    .badge-downloading { background: rgba(51, 153, 255, 0.15); color: var(--blue); border: 1px solid rgba(51,153,255,0.3); }
+    .badge-seeding     { background: rgba(0, 204, 68, 0.15);  color: var(--green); border: 1px solid rgba(0,204,68,0.3); }
+    .badge-paused      { background: rgba(204, 170, 0, 0.15); color: var(--yellow); border: 1px solid rgba(204,170,0,0.3); }
+    .badge-vpnpaused   { background: rgba(255, 165, 0, 0.15); color: var(--orange); border: 1px solid rgba(255,165,0,0.3); }
+    .badge-failed      { background: rgba(255, 51, 51, 0.15); color: var(--red); border: 1px solid rgba(255,51,51,0.3); }
+    .badge-other       { background: rgba(136, 136, 152, 0.15); color: var(--muted); border: 1px solid rgba(136,136,152,0.3); }
+
+    /* ── Progress bar ───────────────────────────────────────────────────── */
+    .progress-wrap {
+      background: var(--bar-bg);
+      border-radius: 4px;
+      height: 6px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+
+    .progress-bar {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.5s ease;
+    }
+
+    .progress-bar.downloading { background: linear-gradient(90deg, #3a4dcc, #7c4dcc); }
+    .progress-bar.seeding     { background: linear-gradient(90deg, #00aa33, #00cc44); }
+    .progress-bar.paused      { background: #ccaa00; }
+    .progress-bar.vpnpaused   { background: var(--orange); }
+    .progress-bar.other       { background: var(--muted); }
+
+    /* ── Card stats row ─────────────────────────────────────────────────── */
+    .card-stats {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .stat { display: flex; align-items: center; gap: 4px; }
+    .stat .val { color: var(--text); font-weight: 500; }
+    .stat .lbl { font-size: 11px; }
+
+    .card-actions { margin-left: auto; display: flex; gap: 6px; }
+
+    .plex-path {
+      font-size: 11px;
+      color: var(--green);
+      margin-top: 6px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .plex-path::before { content: "→ Plex:"; color: var(--muted); }
+
+    /* ── Empty state ────────────────────────────────────────────────────── */
+    .empty {
+      text-align: center;
+      color: var(--muted);
+      padding: 40px 20px;
+      font-size: 15px;
+    }
+
+    .empty small { display: block; margin-top: 6px; font-size: 12px; }
+
+    .ascii-hero {
+      font-family: Consolas, 'Courier New', monospace;
+      font-size: 9px;
+      line-height: 1.2;
+      color: var(--accent);
+      opacity: 0.7;
+      white-space: pre;
+      margin-bottom: 12px;
+      display: inline-block;
+      text-align: left;
+    }
+
+    .ascii-title {
+      font-size: 11px;
+      letter-spacing: 4px;
+      color: var(--accent);
+      opacity: 0.5;
+      margin-bottom: 16px;
+    }
+
+    .empty .hint {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 0;
+    }
+
+    /* ── HTTP warning banner ────────────────────────────────────────────── */
+    .http-warning {
+      display: none;
+      background: rgba(255, 51, 51, 0.1);
+      border: 1px solid rgba(255, 51, 51, 0.3);
+      color: var(--red);
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+
+    .http-warning.visible { display: block; }
+
+    /* ── Torrent file upload row ─────────────────────────────────────────── */
+    .upload-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+      align-items: center;
+    }
+
+    .upload-row input[type="file"] {
+      flex: 1;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      padding: 8px 12px;
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .upload-row input[type="file"]::-webkit-file-upload-button {
+      background: var(--accent-dim);
+      color: var(--text);
+      border: none;
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+
+    /* ── WS status banner ───────────────────────────────────────────────── */
+    .ws-banner {
+      display: none;
+      background: rgba(255, 165, 0, 0.1);
+      border: 1px solid rgba(255, 165, 0, 0.3);
+      color: var(--orange);
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .ws-banner.visible { display: block; }
+
+    /* ── Search tab ─────────────────────────────────────────────────────── */
+    .search-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+
+    .search-row input {
+      flex: 1;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 9px 12px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .search-row input:focus { border-color: var(--accent); }
+    .search-row input::placeholder { color: var(--muted); }
+
+    .search-row select {
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 9px 10px;
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .search-row select:focus { border-color: var(--accent); }
+
+    /* ── Results table ──────────────────────────────────────────────────── */
+    .results-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .results-table th {
+      text-align: left;
+      padding: 8px 10px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .results-table td {
+      padding: 10px;
+      border-bottom: 1px solid #1e1e28;
+      font-size: 13px;
+      vertical-align: middle;
+    }
+
+    .results-table tr:last-child td { border-bottom: none; }
+    .results-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .result-name {
+      max-width: 380px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .seeds-count { color: var(--green); font-weight: 600; }
+    .engine-badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 11px;
+      background: rgba(124,77,204,0.15);
+      color: var(--accent);
+      border: 1px solid rgba(124,77,204,0.3);
+    }
+
+    .search-loading {
+      text-align: center;
+      color: var(--muted);
+      padding: 40px;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 18px; height: 18px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── File list panel ─────────────────────────────────────────────────── */
+    .file-list-panel {
+      border-top: 1px solid var(--border);
+      margin-top: 10px;
+      padding-top: 6px;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+
+    .file-toggle-btn {
+      margin-top: 8px;
+      font-size: 11px;
+      padding: 3px 10px;
+      color: var(--muted);
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .file-toggle-btn:hover { color: var(--text); border-color: #3a3a4e; }
+
+    .file-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 3px 2px;
+      cursor: pointer;
+      font-size: 12px;
+      border-radius: 3px;
+    }
+
+    .file-item:hover { background: rgba(255,255,255,0.03); }
+
+    .file-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text);
+    }
+
+    .file-size {
+      color: var(--muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+      font-size: 11px;
+    }
+
+    /* Hide number input spinners */
+    input[type=number]::-webkit-outer-spin-button,
+    input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+
+    /* ── Settings tab ───────────────────────────────────────────────────── */
+    .settings-section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 16px;
+    }
+
+    .settings-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+
+    .settings-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .settings-row:last-child { margin-bottom: 0; }
+
+    .settings-row > label:first-child {
+      width: 130px;
+      flex-shrink: 0;
+      font-size: 13px;
+      color: var(--muted);
+      text-align: right;
+    }
+
+    .settings-row input[type="text"],
+    .settings-row input[type="password"] {
+      flex: 1;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 8px 12px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+      font-family: inherit;
+    }
+
+    .settings-row input:focus { border-color: var(--accent); }
+    .settings-row input[readonly] { color: var(--muted); cursor: default; }
+
+    .secret-row {
+      flex: 1;
+      display: flex;
+      gap: 8px;
+    }
+
+    .secret-row input { flex: 1; }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+      width: 15px;
+      height: 15px;
+      cursor: pointer;
+      accent-color: var(--accent);
+    }
+
+    /* ── Theme picker ──────────────────────────────────────────────────── */
+    .theme-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 10px;
+    }
+
+    .theme-card {
+      background: var(--input-bg);
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      cursor: pointer;
+      transition: border-color 0.2s, transform 0.15s;
+    }
+
+    .theme-card:hover { transform: translateY(-2px); }
+    .theme-card.active { border-color: var(--accent); }
+
+    .theme-card .theme-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 6px;
+      text-align: center;
+    }
+
+    .theme-card .theme-preview {
+      display: flex;
+      height: 24px;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 4px;
+    }
+
+    .theme-card .theme-preview div { flex: 1; }
+
+    .theme-card .theme-desc {
+      font-size: 10px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    /* ── Toast notifications ────────────────────────────────────────────── */
+    #toast-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 9999;
+    }
+
+    .toast {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 13px;
+      max-width: 320px;
+      animation: slideIn 0.2s ease;
+      transition: opacity 0.3s;
+    }
+
+    .toast.ok     { border-left: 3px solid var(--green); }
+    .toast.err    { border-left: 3px solid var(--red); }
+    .toast.info   { border-left: 3px solid var(--accent); }
+
+    @keyframes slideIn {
+      from { transform: translateX(20px); opacity: 0; }
+      to   { transform: translateX(0);    opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- Header                                                                   -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<header>
+  <div class="logo"><span class="brand">HYDRA</span> <span class="sub">TORRENT</span></div>
+  <div class="header-rates" id="header-rates"></div>
+  <div class="spacer"></div>
+  <div class="vpn-badge checking" id="vpn-badge">
+    <div class="vpn-dot"></div>
+    <span id="vpn-text">Checking...</span>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- Tabs                                                                      -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div class="tabs">
+  <div class="tab active" data-tab="transfers">Transfers</div>
+  <div class="tab" data-tab="search">Search</div>
+  <div class="tab" data-tab="autodl">Auto-DL</div>
+  <div class="tab" data-tab="settings">Settings</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- Transfers Pane                                                            -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div class="pane active" id="pane-transfers">
+  <div class="http-warning" id="http-warning"></div>
+  <div class="add-row">
+    <input type="text" id="magnet-input" placeholder="magnet:?xt=urn:btih:...">
+    <button class="btn btn-primary" onclick="addMagnet()">Add ↓</button>
+  </div>
+  <div class="upload-row">
+    <input type="file" id="torrent-file" accept=".torrent">
+    <button class="btn btn-primary" onclick="uploadTorrent()">Upload .torrent</button>
+  </div>
+  <div class="ws-banner" id="ws-banner">⚡ Reconnecting to live feed...</div>
+  <div id="transfers-list">
+    <div class="empty">
+<div class="ascii-hero">                  ++++
+           +##++#%@%########+++
+       +++%@@%%%%%#++%%%%%%###++
+      #@%%%%%%%%%%++#%###%%%%####++
+    #%@%%%%%%%%##+%%%#++#%#+++####++
+  +%@%%%%%%%%%%++#%%##%%%#+ +++++##+
+  %%%%%%%@%##+#%%%++ #%##++  ++++++#+
+  #%%%%%%% ## %%%%#+###+++     ++++ ++
+ +%%%%%%#+###%###+++++++#++     +++ ++
+#%%##%%%####++#  +++++#+         +++ +
+##%####+++ +  +++##++++           +
++##+++%  + + #+++++
+ +++  + + +++
+   ++++++++       +      ++
+    +++++               +
+               +++++++++
+             +#+++++++  ++
+             #+++++++  +
+           #++++++++  +
+          +#+++++++
+          +++##++++
+         ++ +++++++</div>
+<div class="ascii-title">H Y D R A &nbsp; T O R R E N T</div>
+<span class="hint">Paste a magnet link or upload a .torrent to get started</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- Search Pane                                                               -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div class="pane" id="pane-search">
+  <div class="search-row">
+    <input type="text" id="search-input" placeholder="Movie name, show, etc..." onkeydown="if(event.key==='Enter')doSearch()">
+    <select id="search-mode">
+      <option value="jackett">Jackett</option>
+      <option value="online">Public</option>
+      <option value="local">Local</option>
+    </select>
+    <button class="btn btn-primary" onclick="doSearch()">Search</button>
+  </div>
+  <div id="search-results"></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- Auto-DL Pane                                                              -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div class="pane" id="pane-autodl">
+  <div class="settings-section">
+    <div class="settings-section-title">Watch a Show or Movie</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <input id="autodl-input" placeholder="Show or movie name…"
+             style="flex:1;min-width:180px;background:var(--input-bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:9px 12px;font-size:13px;outline:none;"
+             onkeydown="if(event.key==='Enter')addRssRule()">
+      <input id="autodl-season" type="number" min="1" placeholder="Season #"
+             title="Leave blank for all seasons"
+             style="width:96px;background:var(--input-bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:9px 12px;font-size:13px;outline:none;">
+      <input id="autodl-start-ep" type="number" min="1" placeholder="From ep #"
+             title="Episodes mode: only add episodes from this number onwards (useful if you already have earlier episodes)"
+             style="width:96px;background:var(--input-bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:9px 12px;font-size:13px;outline:none;display:none">
+      <select id="autodl-mode"
+              onchange="document.getElementById('autodl-start-ep').style.display=this.value==='episodes'?'':'none'"
+              title="Season pack = grab full season at once. Episodes = grab individual episodes as they appear."
+              style="width:150px;background:var(--input-bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:9px 10px;font-size:13px;outline:none;">
+        <option value="pack" selected>Season pack</option>
+        <option value="episodes">Episodes</option>
+        <option value="any">Any</option>
+      </select>
+      <select id="autodl-quality"
+              style="width:110px;background:var(--input-bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:9px 10px;font-size:13px;outline:none;">
+        <option value="1080p" selected>1080p</option>
+        <option value="720p">720p</option>
+        <option value="4K">4K</option>
+        <option value="Any">Any quality</option>
+      </select>
+      <button class="btn btn-primary" onclick="addRssRule()">Watch</button>
+    </div>
+    <div style="font-size:11px;color:var(--muted)">
+      <b>Season pack</b> — grab the whole season at once (catching up on a finished show) &nbsp;·&nbsp;
+      <b>Episodes</b> — add each new episode as it appears (currently airing)
+    </div>
+  </div>
+  <div id="autodl-rules" style="margin-top:4px"></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- Settings Pane                                                             -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div class="pane" id="pane-settings">
+
+  <div class="settings-section">
+    <div class="settings-section-title">Plex</div>
+    <div class="settings-row">
+      <label>Plex URL</label>
+      <input type="text" id="cfg-plex-url" placeholder="http://localhost:32400">
+    </div>
+    <div class="settings-row">
+      <label>Plex Token</label>
+      <div class="secret-row">
+        <input type="password" id="cfg-plex-token" placeholder="your-plex-token">
+        <button class="btn btn-sm btn-pause" onclick="toggleSecret('cfg-plex-token', this)">Show</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-section-title">Indexer</div>
+    <div class="settings-row">
+      <label>Indexer URL</label>
+      <input type="text" id="cfg-indexer-url" placeholder="http://192.168.20.2:9117">
+    </div>
+    <div class="settings-row">
+      <label>Jackett API Key</label>
+      <div class="secret-row">
+        <input type="password" id="cfg-jackett-key" placeholder="jackett-api-key">
+        <button class="btn btn-sm btn-pause" onclick="toggleSecret('cfg-jackett-key', this)">Show</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-section-title">Downloads</div>
+    <div class="settings-row">
+      <label>Movies path</label>
+      <input type="text" id="cfg-movies-path" placeholder="/mnt/plex/movies">
+    </div>
+    <div class="settings-row">
+      <label>TV path</label>
+      <input type="text" id="cfg-tv-path" placeholder="/mnt/plex/tv">
+    </div>
+    <div class="settings-row">
+      <label>Seed ratio</label>
+      <input type="text" id="cfg-seed-ratio" placeholder="0 = seed forever  (e.g. 2.0)">
+    </div>
+    <div class="settings-row">
+      <label></label>
+      <label class="checkbox-label">
+        <input type="checkbox" id="cfg-auto-move">
+        Auto-move to Plex when complete
+      </label>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-section-title">API</div>
+    <div class="settings-row">
+      <label>API Key</label>
+      <div class="secret-row">
+        <input type="text" id="cfg-api-key" readonly placeholder="loading...">
+        <button class="btn btn-sm btn-pause" onclick="copyApiKey()">Copy</button>
+      </div>
+    </div>
+    <div style="padding-left: 142px; font-size: 11px; color: var(--muted); margin-top: 6px;">
+      Read-only. Used in tray config and curl commands.
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-section-title">Tray App</div>
+    <div class="settings-row">
+      <label>Windows Tray</label>
+      <div>
+        <a class="btn btn-primary" href="/download/tray" download="HydraTray.zip">&#8595; Download Tray App</a>
+        <div style="font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.8;">
+          Extract <strong>HydraTray.zip</strong> anywhere and run <code>hydra_tray.exe</code>.<br>
+          The API key is pre-configured. Adds itself to Windows startup automatically.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-section-title">Theme</div>
+    <div class="theme-grid" id="theme-grid"></div>
+  </div>
+
+  <div style="margin-top: 8px;">
+    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- Toast container                                                           -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div id="toast-container"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// Constants — API_KEY is substituted server-side
+// ═══════════════════════════════════════════════════════════════════════════
+const API_KEY = '__HYDRA_API_KEY__';
+const BASE    = window.location.origin;
+const HEADERS = { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Themes — mapped from theme_manager.py presets to CSS variables
+// ═══════════════════════════════════════════════════════════════════════════
+const THEMES = {
+  cyberpunk_neon: {
+    name: 'Cyberpunk Neon', desc: 'Neon-soaked night city',
+    '--bg':'#0d0221','--card':'#1a0533','--border':'#2e1055','--accent':'#ff2a6d','--accent-dim':'#cc2258',
+    '--green':'#05d9e8','--red':'#ff2a6d','--orange':'#f5a623','--blue':'#05d9e8','--yellow':'#f5a623',
+    '--text':'#e0e0ff','--muted':'#8888aa','--bar-bg':'#1a0533','--input-bg':'#0d0221',
+  },
+  matrix: {
+    name: 'Matrix', desc: 'Wake up, Neo...',
+    '--bg':'#0a0a0a','--card':'#0f1a0f','--border':'#1a331a','--accent':'#00ff41','--accent-dim':'#008f11',
+    '--green':'#39ff14','--red':'#ff0000','--orange':'#ccff00','--blue':'#00ff41','--yellow':'#ccff00',
+    '--text':'#00ff41','--muted':'#008f11','--bar-bg':'#0f1a0f','--input-bg':'#0a0a0a',
+  },
+  tron: {
+    name: 'Tron Legacy', desc: 'The Grid awaits',
+    '--bg':'#000000','--card':'#0c141f','--border':'#1a2a3a','--accent':'#6fc3df','--accent-dim':'#3a7ca5',
+    '--green':'#6fc3df','--red':'#df740c','--orange':'#df740c','--blue':'#6fc3df','--yellow':'#f5e642',
+    '--text':'#6fc3df','--muted':'#3a7ca5','--bar-bg':'#0c141f','--input-bg':'#000000',
+  },
+  synthwave: {
+    name: 'Synthwave', desc: 'Retro-futuristic sunset',
+    '--bg':'#2b213a','--card':'#1e1528','--border':'#3a2a50','--accent':'#ff6ac1','--accent-dim':'#a855f7',
+    '--green':'#ff6ac1','--red':'#ff4444','--orange':'#f5a623','--blue':'#a855f7','--yellow':'#f5a623',
+    '--text':'#f4eeff','--muted':'#c4b7d5','--bar-bg':'#1e1528','--input-bg':'#2b213a',
+  },
+  deep_ocean: {
+    name: 'Deep Ocean', desc: 'Abyssal depths',
+    '--bg':'#0a1628','--card':'#0f2035','--border':'#1a3048','--accent':'#00d2d3','--accent-dim':'#0abde3',
+    '--green':'#00d2d3','--red':'#ee5a24','--orange':'#feca57','--blue':'#0abde3','--yellow':'#feca57',
+    '--text':'#c8d6e5','--muted':'#576574','--bar-bg':'#0f2035','--input-bg':'#0a1628',
+  },
+  blood_moon: {
+    name: 'Blood Moon', desc: 'Crimson eclipse',
+    '--bg':'#1a0000','--card':'#2d0a0a','--border':'#441515','--accent':'#dc143c','--accent-dim':'#8b0000',
+    '--green':'#ff6b6b','--red':'#dc143c','--orange':'#ff8c42','--blue':'#ff6b6b','--yellow':'#ff8c42',
+    '--text':'#e8c4c4','--muted':'#8b5e5e','--bar-bg':'#2d0a0a','--input-bg':'#1a0000',
+  },
+  hacker_terminal: {
+    name: 'Hacker Terminal', desc: 'Old-school amber CRT',
+    '--bg':'#0a0a00','--card':'#141400','--border':'#2a2a00','--accent':'#ffb000','--accent-dim':'#996600',
+    '--green':'#ffb000','--red':'#ff4444','--orange':'#ffdd00','--blue':'#ffb000','--yellow':'#ffdd00',
+    '--text':'#ffb000','--muted':'#996600','--bar-bg':'#141400','--input-bg':'#0a0a00',
+  },
+  arctic: {
+    name: 'Arctic', desc: 'Frozen digital tundra',
+    '--bg':'#1b2838','--card':'#1e3246','--border':'#2a475e','--accent':'#66c0f4','--accent-dim':'#4fc3f7',
+    '--green':'#66c0f4','--red':'#e74c3c','--orange':'#f39c12','--blue':'#66c0f4','--yellow':'#f39c12',
+    '--text':'#c7d5e0','--muted':'#8496a9','--bar-bg':'#1e3246','--input-bg':'#1b2838',
+  },
+  neon_tokyo: {
+    name: 'Neon Tokyo', desc: 'Electric Akihabara nights',
+    '--bg':'#121212','--card':'#1e1e1e','--border':'#333333','--accent':'#fe019a','--accent-dim':'#cc0080',
+    '--green':'#00ff87','--red':'#fe019a','--orange':'#fdff00','--blue':'#fe019a','--yellow':'#fdff00',
+    '--text':'#f0f0f0','--muted':'#888888','--bar-bg':'#1e1e1e','--input-bg':'#121212',
+  },
+  void: {
+    name: 'Void', desc: 'Embrace the emptiness',
+    '--bg':'#0e0e0e','--card':'#181818','--border':'#2a2a2a','--accent':'#ffffff','--accent-dim':'#888888',
+    '--green':'#a0a0a0','--red':'#ff4444','--orange':'#cccccc','--blue':'#ffffff','--yellow':'#cccccc',
+    '--text':'#a0a0a0','--muted':'#555555','--bar-bg':'#181818','--input-bg':'#0e0e0e',
+  },
+  solar_flare: {
+    name: 'Solar Flare', desc: 'Surface of the sun',
+    '--bg':'#1a1100','--card':'#2d1f00','--border':'#443300','--accent':'#cb4b16','--accent-dim':'#dc322f',
+    '--green':'#859900','--red':'#dc322f','--orange':'#b58900','--blue':'#cb4b16','--yellow':'#b58900',
+    '--text':'#fdf6e3','--muted':'#b58900','--bar-bg':'#2d1f00','--input-bg':'#1a1100',
+  },
+  phantom: {
+    name: 'Phantom', desc: 'Ghostly purple haze',
+    '--bg':'#16101e','--card':'#201830','--border':'#302848','--accent':'#bd93f9','--accent-dim':'#ff79c6',
+    '--green':'#50fa7b','--red':'#ff5555','--orange':'#f1fa8c','--blue':'#bd93f9','--yellow':'#f1fa8c',
+    '--text':'#d4c5f9','--muted':'#7e6ba4','--bar-bg':'#201830','--input-bg':'#16101e',
+  },
+  hydra_default: {
+    name: 'Hydra Default', desc: 'Classic Hydra look',
+    '--bg':'#1a1a2e','--card':'#2c0a3a','--border':'#3a1a50','--accent':'#6c5ce7','--accent-dim':'#a29bfe',
+    '--green':'#00ff00','--red':'#ff4444','--orange':'#ffa500','--blue':'#6c5ce7','--yellow':'#ffa500',
+    '--text':'#ffffff','--muted':'#aaaaaa','--bar-bg':'#2c0a3a','--input-bg':'#1a1a2e',
+  },
+  emerald_shadow: {
+    name: 'Emerald Shadow', desc: 'Deep forest canopy',
+    '--bg':'#0a1f0a','--card':'#0f2e0f','--border':'#1a441a','--accent':'#2ecc71','--accent-dim':'#27ae60',
+    '--green':'#2ecc71','--red':'#e74c3c','--orange':'#f1c40f','--blue':'#2ecc71','--yellow':'#f1c40f',
+    '--text':'#b8e6b8','--muted':'#5a8a5a','--bar-bg':'#0f2e0f','--input-bg':'#0a1f0a',
+  },
+  midnight_steel: {
+    name: 'Midnight Steel', desc: 'Cold precision engineering',
+    '--bg':'#1c1e26','--card':'#232530','--border':'#33354a','--accent':'#5294e2','--accent-dim':'#3d84c6',
+    '--green':'#5294e2','--red':'#e06c75','--orange':'#e5c07b','--blue':'#5294e2','--yellow':'#e5c07b',
+    '--text':'#c8ccd4','--muted':'#636d83','--bar-bg':'#232530','--input-bg':'#1c1e26',
+  },
+};
+
+function applyTheme(key) {
+  const t = THEMES[key];
+  if (!t) return;
+  const root = document.documentElement;
+  for (const [prop, val] of Object.entries(t)) {
+    if (prop.startsWith('--')) root.style.setProperty(prop, val);
+  }
+  localStorage.setItem('hydra-theme', key);
+  // Update active state on theme cards
+  document.querySelectorAll('.theme-card').forEach(c => {
+    c.classList.toggle('active', c.dataset.theme === key);
+  });
+}
+
+function renderThemeGrid() {
+  const grid = document.getElementById('theme-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  const current = localStorage.getItem('hydra-theme') || '';
+  for (const [key, t] of Object.entries(THEMES)) {
+    const card = document.createElement('div');
+    card.className = 'theme-card' + (key === current ? ' active' : '');
+    card.dataset.theme = key;
+    card.onclick = () => applyTheme(key);
+    card.innerHTML = `
+      <div class="theme-preview">
+        <div style="background:${t['--bg']}"></div>
+        <div style="background:${t['--card']}"></div>
+        <div style="background:${t['--accent']}"></div>
+        <div style="background:${t['--green']}"></div>
+        <div style="background:${t['--red']}"></div>
+      </div>
+      <div class="theme-name">${t.name}</div>
+      <div class="theme-desc">${t.desc}</div>
+    `;
+    grid.appendChild(card);
+  }
+}
+
+// Apply saved theme on load
+(function() {
+  const saved = localStorage.getItem('hydra-theme');
+  if (saved && THEMES[saved]) applyTheme(saved);
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tabs
+// ═══════════════════════════════════════════════════════════════════════════
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('pane-' + tab.dataset.tab).classList.add('active');
+    if (tab.dataset.tab === 'settings') { loadSettings(); renderThemeGrid(); }
+    if (tab.dataset.tab === 'autodl') loadRssRules();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Formatting helpers
+// ═══════════════════════════════════════════════════════════════════════════
+function fmtBytes(n) {
+  if (!n || n <= 0) return '0 B';
+  const units = ['B','KB','MB','GB','TB'];
+  const i = Math.floor(Math.log(n) / Math.log(1024));
+  return (n / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+}
+
+function fmtSpeed(bps) {
+  if (!bps || bps < 100) return '—';
+  return fmtBytes(bps) + '/s';
+}
+
+function fmtPct(p) {
+  if (p === null || p === undefined) return '0%';
+  return Math.round(p) + '%';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Status badge + progress bar class
+// ═══════════════════════════════════════════════════════════════════════════
+function statusInfo(t) {
+  if (t.vpn_paused) {
+    return { label: '🟠 VPN Paused', cls: 'badge-vpnpaused', barCls: 'vpnpaused' };
+  }
+  if (t.status === 'Failed') {
+    return { label: '🔴 Failed', cls: 'badge-failed', barCls: 'other' };
+  }
+  if (t.paused || t.status === 'Paused') {
+    return { label: '🟡 Paused', cls: 'badge-paused', barCls: 'paused' };
+  }
+  if (t.status === 'Seeding' || t.status === 'Finished') {
+    return { label: '🟢 Seeding', cls: 'badge-seeding', barCls: 'seeding' };
+  }
+  if (t.status === 'Downloading') {
+    return { label: '🔵 Downloading', cls: 'badge-downloading', barCls: 'downloading' };
+  }
+  // Queued, Checking, DL Metadata, Allocating, Resuming, etc.
+  return { label: '⚪ ' + (t.status || 'Unknown'), cls: 'badge-other', barCls: 'other' };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Build a single transfer card's HTML
+// ═══════════════════════════════════════════════════════════════════════════
+function buildCard(t) {
+  const si = statusInfo(t);
+  const pct = Math.min(100, Math.max(0, t.progress || 0));
+  const eid = CSS.escape(t.name);
+
+  // Action buttons
+  let actions = '';
+  if (t.vpn_paused) {
+    // auto-resumes when VPN returns; only allow remove
+    actions = `<button class="btn btn-sm btn-remove" onclick="removeTransfer(${escHtml(JSON.stringify(t.name))})">✕ Remove</button>`;
+  } else if (t.status === 'Failed') {
+    actions = `<button class="btn btn-sm btn-remove" onclick="removeTransfer(${escHtml(JSON.stringify(t.name))})">✕ Remove</button>`;
+  } else if (t.paused || t.status === 'Paused') {
+    actions = `
+      <button class="btn btn-sm btn-resume" onclick="resumeTransfer(${escHtml(JSON.stringify(t.name))})">▶ Resume</button>
+      <button class="btn btn-sm btn-remove" onclick="removeTransfer(${escHtml(JSON.stringify(t.name))})">✕ Remove</button>`;
+  } else if (t.status === 'Seeding' || t.status === 'Finished') {
+    actions = `<button class="btn btn-sm btn-remove" onclick="removeTransfer(${escHtml(JSON.stringify(t.name))})">✕ Remove</button>`;
+  } else {
+    // Downloading, Queued, Checking, etc. — show Pause
+    actions = `
+      <button class="btn btn-sm btn-pause" onclick="pauseTransfer(${escHtml(JSON.stringify(t.name))})">⏸ Pause</button>
+      <button class="btn btn-sm btn-remove" onclick="removeTransfer(${escHtml(JSON.stringify(t.name))})">✕ Remove</button>`;
+  }
+
+  // Stats row
+  const dlSpeed  = fmtSpeed(t.speed_down);
+  const ulSpeed  = fmtSpeed(t.speed_up);
+  const eta      = (t.eta && t.eta !== 'N/A' && t.eta !== 'Seeding') ? t.eta : '';
+  const peers    = (t.peers != null) ? t.peers : '?';
+  const sizeStr  = t.size ? fmtBytes(t.size) : '';
+
+  let statsHtml = `
+    <div class="stat"><span class="val">${fmtPct(pct)}</span></div>`;
+
+  if (dlSpeed !== '—') {
+    statsHtml += `<div class="stat"><span class="val">${dlSpeed}</span><span class="lbl">↓</span></div>`;
+  }
+  if (ulSpeed !== '—') {
+    statsHtml += `<div class="stat"><span class="val">${ulSpeed}</span><span class="lbl">↑</span></div>`;
+  }
+  if (eta) {
+    statsHtml += `<div class="stat"><span class="lbl">ETA</span><span class="val">${eta}</span></div>`;
+  }
+  if (t.peers != null) {
+    statsHtml += `<div class="stat"><span class="val">${peers}</span><span class="lbl">peers</span></div>`;
+  }
+  if ((t.status === 'Seeding' || t.status === 'Finished') && t.ratio > 0) {
+    statsHtml += `<div class="stat"><span class="lbl">ratio</span><span class="val">${t.ratio.toFixed(2)}</span></div>`;
+  }
+  if (sizeStr) {
+    statsHtml += `<div class="stat"><span class="val">${sizeStr}</span></div>`;
+  }
+
+  // Plex path
+  const plexHtml = (t.moved_to_plex && t.plex_path)
+    ? `<div class="plex-path">${escHtml(t.plex_path)}</div>`
+    : '';
+
+  const filesOpen = _expandedCards.has(t.name);
+  const filesBtn = `<button class="file-toggle-btn" onclick="toggleFileList(${escHtml(JSON.stringify(t.name))})">${filesOpen ? '▼' : '▶'} Files</button>`;
+
+  return `
+    <div class="card" data-name="${escHtml(t.name)}">
+      <div class="card-header">
+        <div class="card-name" title="${escHtml(t.name)}">${escHtml(t.name)}</div>
+        <span class="badge ${si.cls}">${si.label}</span>
+      </div>
+      <div class="progress-wrap">
+        <div class="progress-bar ${si.barCls}" style="width:${pct}%"></div>
+      </div>
+      <div class="card-stats">
+        ${statsHtml}
+        <div class="card-actions">${actions}</div>
+      </div>
+      ${plexHtml}
+      ${filesBtn}
+    </div>`;
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Render transfers list (diff-friendly: update existing cards in place)
+// ═══════════════════════════════════════════════════════════════════════════
+let _lastTransfers = [];
+const _expandedCards = new Set();   // names of cards with file list open
+const _fileData = {};               // name → [{index, path, size, priority}]
+
+function renderTransfers(list) {
+  _lastTransfers = list;
+  const container = document.getElementById('transfers-list');
+  if (!list || list.length === 0) {
+    container.innerHTML = `<div class="empty">
+<div class="ascii-hero">                  ++++
+           +##++#%@%########+++
+       +++%@@%%%%%#++%%%%%%###++
+      #@%%%%%%%%%%++#%###%%%%####++
+    #%@%%%%%%%%##+%%%#++#%#+++####++
+  +%@%%%%%%%%%%++#%%##%%%#+ +++++##+
+  %%%%%%%@%##+#%%%++ #%##++  ++++++#+
+  #%%%%%%% ## %%%%#+###+++     ++++ ++
+ +%%%%%%#+###%###+++++++#++     +++ ++
+#%%##%%%####++#  +++++#+         +++ +
+##%####+++ +  +++##++++           +
++##+++%  + + #+++++
+ +++  + + +++
+   ++++++++       +      ++
+    +++++               +
+               +++++++++
+             +#+++++++  ++
+             #+++++++  +
+           #++++++++  +
+          +#+++++++
+          +++##++++
+         ++ +++++++</div>
+<div class="ascii-title">H Y D R A &nbsp; T O R R E N T</div>
+<span class="hint">Paste a magnet link or upload a .torrent to get started</span>
+</div>`;
+    return;
+  }
+
+  // Clear the empty-state placeholder if present
+  container.querySelectorAll('.empty').forEach(el => el.remove());
+
+  // Build a map of existing cards
+  const existing = {};
+  container.querySelectorAll('.card[data-name]').forEach(el => {
+    existing[el.dataset.name] = el;
+  });
+
+  const names = list.map(t => t.name);
+
+  // Remove cards no longer in list
+  Object.keys(existing).forEach(name => {
+    if (!names.includes(name)) existing[name].remove();
+  });
+
+  // Update or insert cards in correct order
+  list.forEach((t, idx) => {
+    const newHtml = buildCard(t);
+    const current = existing[t.name];
+    if (current) {
+      // Update in-place by replacing innerHTML
+      const tmp = document.createElement('div');
+      tmp.innerHTML = newHtml;
+      const newCard = tmp.firstElementChild;
+      current.replaceWith(newCard);
+    } else {
+      // Insert at correct position
+      const tmp = document.createElement('div');
+      tmp.innerHTML = newHtml;
+      const newCard = tmp.firstElementChild;
+      const cards = container.querySelectorAll('.card[data-name]');
+      if (idx < cards.length) {
+        container.insertBefore(newCard, cards[idx]);
+      } else {
+        container.appendChild(newCard);
+      }
+    }
+
+    // Re-inject file list panel if this card was expanded (uses cached data)
+    if (_expandedCards.has(t.name) && _fileData[t.name]) {
+      const placedCard = container.querySelector(`.card[data-name="${CSS.escape(t.name)}"]`);
+      if (placedCard) _injectFilePanel(placedCard, t.name, _fileData[t.name]);
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WebSocket — live transfer updates
+// ═══════════════════════════════════════════════════════════════════════════
+let _ws = null;
+let _wsReconnectTimer = null;
+
+function connectWebSocket() {
+  if (_wsReconnectTimer) { clearTimeout(_wsReconnectTimer); _wsReconnectTimer = null; }
+
+  const wsUrl = BASE.replace(/^http/, 'ws') + '/ws';
+  const banner = document.getElementById('ws-banner');
+
+  try {
+    _ws = new WebSocket(wsUrl);
+  } catch (e) {
+    banner.classList.add('visible');
+    _wsReconnectTimer = setTimeout(connectWebSocket, 4000);
+    return;
+  }
+
+  _ws.onopen = () => {
+    _ws.send(JSON.stringify({ auth: API_KEY }));
+  };
+
+  _ws.onmessage = (ev) => {
+    banner.classList.remove('visible');
+    try {
+      const data = JSON.parse(ev.data);
+      if (Array.isArray(data)) renderTransfers(data);
+    } catch (e) {}
+  };
+
+  _ws.onclose = () => {
+    banner.classList.add('visible');
+    _wsReconnectTimer = setTimeout(connectWebSocket, 3000);
+  };
+
+  _ws.onerror = () => {
+    banner.classList.add('visible');
+    _ws.close();
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VPN + rate polling
+// ═══════════════════════════════════════════════════════════════════════════
+async function pollStatus() {
+  try {
+    const r = await fetch(BASE + '/status', { headers: HEADERS });
+    if (!r.ok) throw new Error('status ' + r.status);
+    const data = await r.json();
+
+    const vpn = data.vpn || {};
+    const badge = document.getElementById('vpn-badge');
+    const vpnTxt = document.getElementById('vpn-text');
+
+    badge.classList.remove('protected', 'exposed', 'checking');
+    if (vpn.connected && vpn.vpn_ip) {
+      badge.classList.add('protected');
+      vpnTxt.textContent = 'Protected (' + vpn.vpn_ip + ')';
+    } else {
+      badge.classList.add('exposed');
+      vpnTxt.textContent = 'EXPOSED — No VPN';
+    }
+
+    const dlRate = data.total_download_rate || 0;
+    const ulRate = data.total_upload_rate || 0;
+    const ratesEl = document.getElementById('header-rates');
+    if (dlRate > 100 || ulRate > 100) {
+      ratesEl.innerHTML = `<b>${fmtSpeed(dlRate)}</b> ↓ &nbsp; <b>${fmtSpeed(ulRate)}</b> ↑`;
+    } else {
+      ratesEl.textContent = '';
+    }
+  } catch (e) {
+    // daemon may be starting; leave badge as-is
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Add magnet
+// ═══════════════════════════════════════════════════════════════════════════
+async function addMagnet() {
+  const input = document.getElementById('magnet-input');
+  const magnet = input.value.trim();
+  if (!magnet.startsWith('magnet:?')) {
+    toast('Magnet link must start with magnet:?', 'err');
+    return;
+  }
+  try {
+    const r = await fetch(BASE + '/transfers', {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ magnet }),
+    });
+    if (r.status === 202) {
+      toast('Magnet accepted — fetching metadata…', 'ok');
+      input.value = '';
+    } else {
+      const d = await r.json();
+      toast('Error: ' + (d.detail || r.status), 'err');
+    }
+  } catch (e) {
+    toast('Request failed: ' + e.message, 'err');
+  }
+}
+
+// Hook up Enter key on magnet input
+document.getElementById('magnet-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') addMagnet();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Upload .torrent file
+// ═══════════════════════════════════════════════════════════════════════════
+async function uploadTorrent() {
+  const fileInput = document.getElementById('torrent-file');
+  const file = fileInput.files[0];
+  if (!file) {
+    toast('Select a .torrent file first', 'err');
+    return;
+  }
+  if (!file.name.toLowerCase().endsWith('.torrent')) {
+    toast('Only .torrent files are accepted', 'err');
+    return;
+  }
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    // Do NOT set Content-Type — browser must set it to include the multipart boundary
+    const r = await fetch(BASE + '/transfers/file', {
+      method: 'POST',
+      headers: { 'X-API-Key': API_KEY },
+      body: formData,
+    });
+    if (r.status === 202) {
+      toast('Torrent file accepted — loading…', 'ok');
+      fileInput.value = '';
+    } else {
+      const d = await r.json();
+      toast('Error: ' + (d.detail || r.status), 'err');
+    }
+  } catch (e) {
+    toast('Upload failed: ' + e.message, 'err');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Pause / Resume / Remove
+// ═══════════════════════════════════════════════════════════════════════════
+async function pauseTransfer(name) {
+  const encoded = encodeURIComponent(name);
+  try {
+    const r = await fetch(`${BASE}/transfers/${encoded}/pause`, { method: 'POST', headers: HEADERS });
+    if (!r.ok) toast('Pause failed: ' + r.status, 'err');
+  } catch (e) {
+    toast('Pause failed: ' + e.message, 'err');
+  }
+}
+
+async function resumeTransfer(name) {
+  const encoded = encodeURIComponent(name);
+  try {
+    const r = await fetch(`${BASE}/transfers/${encoded}/resume`, { method: 'POST', headers: HEADERS });
+    if (!r.ok) toast('Resume failed: ' + r.status, 'err');
+  } catch (e) {
+    toast('Resume failed: ' + e.message, 'err');
+  }
+}
+
+async function removeTransfer(name) {
+  if (!confirm(`Remove "${name}"?\n\nClick OK to remove (files kept on disk).`)) return;
+  const encoded = encodeURIComponent(name);
+  try {
+    const r = await fetch(`${BASE}/transfers/${encoded}`, { method: 'DELETE', headers: HEADERS });
+    if (!r.ok) toast('Remove failed: ' + r.status, 'err');
+  } catch (e) {
+    toast('Remove failed: ' + e.message, 'err');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Search
+// ═══════════════════════════════════════════════════════════════════════════
+async function doSearch() {
+  const query = document.getElementById('search-input').value.trim();
+  const mode  = document.getElementById('search-mode').value;
+  const container = document.getElementById('search-results');
+
+  if (!query) { toast('Enter a search query', 'info'); return; }
+
+  container.innerHTML = '<div class="search-loading"><span class="spinner"></span>Searching…</div>';
+
+  try {
+    const r = await fetch(BASE + '/search', {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ query, mode }),
+    });
+    if (!r.ok) {
+      const d = await r.json();
+      container.innerHTML = `<div class="empty">Search error: ${escHtml(d.detail || String(r.status))}</div>`;
+      return;
+    }
+    const results = await r.json();
+    renderResults(results);
+  } catch (e) {
+    container.innerHTML = `<div class="empty">Search failed: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderResults(list) {
+  const container = document.getElementById('search-results');
+  if (!list || list.length === 0) {
+    container.innerHTML = '<div class="empty">No results found</div>';
+    return;
+  }
+
+  const rows = list.map(r => {
+    const sizeStr   = r.size ? fmtBytes(r.size) : '?';
+    const seeders   = r.seeders != null ? r.seeders : '?';
+    const engine    = r.engine || '?';
+    const hasmagnet = !!r.magnet;
+    const addBtn    = hasmagnet
+      ? `<button class="btn btn-sm btn-add" onclick="addFromSearch(${escHtml(JSON.stringify(r.magnet))})">+ Add</button>`
+      : `<span style="color:var(--muted);font-size:11px">No magnet</span>`;
+
+    return `<tr>
+      <td class="result-name" title="${escHtml(r.name)}">${escHtml(r.name)}</td>
+      <td style="white-space:nowrap">${sizeStr}</td>
+      <td class="seeds-count">${seeders}</td>
+      <td><span class="engine-badge">${escHtml(engine)}</span></td>
+      <td>${addBtn}</td>
+    </tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Size</th>
+          <th>Seeds</th>
+          <th>Engine</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function addFromSearch(magnet) {
+  try {
+    const r = await fetch(BASE + '/transfers', {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ magnet }),
+    });
+    if (r.status === 202) {
+      toast('Added — switching to Transfers', 'ok');
+      // Switch to Transfers tab
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+      document.querySelector('[data-tab="transfers"]').classList.add('active');
+      document.getElementById('pane-transfers').classList.add('active');
+    } else {
+      const d = await r.json();
+      toast('Error: ' + (d.detail || r.status), 'err');
+    }
+  } catch (e) {
+    toast('Request failed: ' + e.message, 'err');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Toast notifications
+// ═══════════════════════════════════════════════════════════════════════════
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => {
+    el.style.opacity = '0';
+    setTimeout(() => el.remove(), 350);
+  }, 3500);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Settings
+// ═══════════════════════════════════════════════════════════════════════════
+async function loadSettings() {
+  try {
+    const r = await fetch(BASE + '/config', { headers: HEADERS });
+    if (!r.ok) { toast('Failed to load settings: ' + r.status, 'err'); return; }
+    const cfg = await r.json();
+    document.getElementById('cfg-plex-url').value    = cfg.plex_url          || '';
+    document.getElementById('cfg-plex-token').value  = cfg.plex_token        || '';
+    document.getElementById('cfg-indexer-url').value = cfg.indexing_server   || '';
+    document.getElementById('cfg-jackett-key').value = cfg.jackett_api_key   || '';
+    document.getElementById('cfg-movies-path').value = cfg.media_dir_movies  || '';
+    document.getElementById('cfg-tv-path').value     = cfg.media_dir_tv      || '';
+    document.getElementById('cfg-auto-move').checked  = cfg.auto_move_to_plex !== false;
+    document.getElementById('cfg-seed-ratio').value   = cfg.seed_ratio > 0 ? cfg.seed_ratio : '';
+    document.getElementById('cfg-api-key').value      = cfg.daemon_api_key   || '';
+  } catch (e) {
+    toast('Settings load failed: ' + e.message, 'err');
+  }
+}
+
+async function saveSettings() {
+  const body = {
+    plex_url:         document.getElementById('cfg-plex-url').value.trim(),
+    plex_token:       document.getElementById('cfg-plex-token').value.trim(),
+    indexing_server:  document.getElementById('cfg-indexer-url').value.trim(),
+    jackett_api_key:  document.getElementById('cfg-jackett-key').value.trim(),
+    media_dir_movies: document.getElementById('cfg-movies-path').value.trim(),
+    media_dir_tv:     document.getElementById('cfg-tv-path').value.trim(),
+    auto_move_to_plex: document.getElementById('cfg-auto-move').checked,
+  };
+  // Parse seed ratio — omit if blank (don't overwrite), store 0 if explicitly cleared
+  const ratioRaw = document.getElementById('cfg-seed-ratio').value.trim();
+  if (ratioRaw !== '') {
+    const ratioVal = parseFloat(ratioRaw);
+    body.seed_ratio = (!isNaN(ratioVal) && ratioVal >= 0) ? ratioVal : 0;
+  }
+  // Don't overwrite existing values with blank strings
+  for (const k in body) {
+    if (typeof body[k] === 'string' && body[k] === '') delete body[k];
+  }
+  try {
+    const r = await fetch(BASE + '/config', {
+      method: 'PATCH',
+      headers: HEADERS,
+      body: JSON.stringify(body),
+    });
+    if (r.ok) {
+      const d = await r.json();
+      toast('Saved: ' + (d.saved.length ? d.saved.join(', ') : 'no changes'), 'ok');
+    } else {
+      const d = await r.json().catch(() => ({}));
+      toast('Save failed: ' + (d.detail || r.status), 'err');
+    }
+  } catch (e) {
+    toast('Save failed: ' + e.message, 'err');
+  }
+}
+
+function toggleSecret(id, btn) {
+  const el = document.getElementById(id);
+  const isHidden = el.type === 'password';
+  el.type = isHidden ? 'text' : 'password';
+  btn.textContent = isHidden ? 'Hide' : 'Show';
+}
+
+function copyApiKey() {
+  const key = document.getElementById('cfg-api-key').value;
+  if (!key) { toast('No API key loaded', 'err'); return; }
+  navigator.clipboard.writeText(key)
+    .then(() => toast('API key copied to clipboard', 'ok'))
+    .catch(() => toast('Copy failed — select and copy manually', 'err'));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RSS Auto-DL
+// ═══════════════════════════════════════════════════════════════════════════
+function relTime(ts) {
+  const diff = Math.floor(Date.now() / 1000 - ts);
+  if (diff < 60)    return diff + 's ago';
+  if (diff < 3600)  return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return Math.floor(diff / 86400) + 'd ago';
+}
+
+function renderRssRules(rules) {
+  const el = document.getElementById('autodl-rules');
+  if (!rules || !rules.length) {
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:32px">No watches yet — add a show or movie above</div>';
+    return;
+  }
+  const modeLabel = { pack: 'Season pack', episodes: 'Episodes', any: 'Any' };
+  el.innerHTML = rules.map(r => {
+    const checked = r.last_checked ? relTime(r.last_checked) : 'Never';
+    const dot = r.enabled ? 'var(--green)' : 'var(--muted)';
+    const seasonTag = r.season ? ` · S${String(r.season).padStart(2,'0')}` : '';
+    const startTag  = (r.start_episode && r.episode_mode === 'episodes')
+                      ? ` from E${String(r.start_episode).padStart(2,'0')}` : '';
+    const modeLbl = modeLabel[r.episode_mode] || r.episode_mode;
+    return `<div class="card" style="display:flex;align-items:center;gap:12px;padding:12px 16px;margin-bottom:8px">
+      <span style="width:8px;height:8px;border-radius:50%;background:${dot};flex-shrink:0"></span>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(r.name)}</div>
+        <div style="font-size:11px;color:var(--muted)">Last checked: ${checked} &nbsp;·&nbsp; ${r.matched_count} added</div>
+      </div>
+      <span style="font-size:11px;background:var(--card);border:1px solid var(--border);padding:2px 7px;border-radius:4px">${escHtml(r.quality)}${seasonTag}${startTag} · ${modeLbl}</span>
+      <button class="btn btn-sm btn-pause" onclick="checkNowRule('${r.id}')" title="Check now">↺</button>
+      <button class="btn btn-sm ${r.enabled ? 'btn-pause' : 'btn-resume'}" onclick="toggleRule('${r.id}', ${!r.enabled})">
+        ${r.enabled ? 'Pause' : 'Resume'}</button>
+      <button class="btn btn-sm btn-remove" onclick="deleteRule('${r.id}')">×</button>
+    </div>`;
+  }).join('');
+}
+
+async function loadRssRules() {
+  try {
+    const r = await fetch(BASE + '/rss/rules', { headers: HEADERS });
+    if (r.ok) renderRssRules(await r.json());
+    else toast('Failed to load rules: ' + r.status, 'err');
+  } catch (e) {
+    toast('Rules load failed: ' + e.message, 'err');
+  }
+}
+
+async function addRssRule() {
+  const name    = document.getElementById('autodl-input').value.trim();
+  const quality = document.getElementById('autodl-quality').value;
+  const mode    = document.getElementById('autodl-mode').value;
+  const seasonRaw  = document.getElementById('autodl-season').value.trim();
+  const startEpRaw = document.getElementById('autodl-start-ep').value.trim();
+  const season     = seasonRaw  ? parseInt(seasonRaw,  10) : null;
+  const startEp    = startEpRaw ? parseInt(startEpRaw, 10) : null;
+  if (!name) { toast('Enter a show or movie name', 'info'); return; }
+  const body = { name, quality, episode_mode: mode };
+  if (season)  body.season = season;
+  if (startEp && mode === 'episodes') body.start_episode = startEp;
+  try {
+    const r = await fetch(BASE + '/rss/rules', {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) { toast('Failed to add rule: ' + r.status, 'err'); return; }
+    document.getElementById('autodl-input').value = '';
+    document.getElementById('autodl-season').value = '';
+    document.getElementById('autodl-start-ep').value = '';
+    const modeLabel = { pack: 'Season pack', episodes: 'Episodes', any: 'Any' };
+    const seasonStr = season ? ` S${String(season).padStart(2,'0')}` : '';
+    const epStr = (startEp && mode === 'episodes') ? ` from E${String(startEp).padStart(2,'0')}` : '';
+    toast(`Watching "${name}"${seasonStr}${epStr} · ${modeLabel[mode]} · ${quality}`, 'ok');
+    loadRssRules();
+    setTimeout(loadRssRules, 8000);  // Refresh again after immediate check completes
+  } catch (e) {
+    toast('Request failed: ' + e.message, 'err');
+  }
+}
+
+async function deleteRule(id) {
+  try {
+    await fetch(BASE + '/rss/rules/' + id, { method: 'DELETE', headers: HEADERS });
+    loadRssRules();
+  } catch (e) {
+    toast('Delete failed: ' + e.message, 'err');
+  }
+}
+
+async function toggleRule(id, enabled) {
+  try {
+    await fetch(BASE + '/rss/rules/' + id, {
+      method: 'PATCH',
+      headers: HEADERS,
+      body: JSON.stringify({ enabled }),
+    });
+    loadRssRules();
+  } catch (e) {
+    toast('Update failed: ' + e.message, 'err');
+  }
+}
+
+async function checkNowRule(id) {
+  try {
+    await fetch(BASE + '/rss/rules/' + id + '/check-now', { method: 'POST', headers: HEADERS });
+    toast('Checking now…', 'info');
+    setTimeout(loadRssRules, 8000);  // Reload after 8s to show updated count/timestamp
+  } catch (e) {
+    toast('Check failed: ' + e.message, 'err');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// File prioritization
+// ═══════════════════════════════════════════════════════════════════════════
+async function toggleFileList(name) {
+  if (_expandedCards.has(name)) {
+    _expandedCards.delete(name);
+    const card = document.querySelector(`.card[data-name="${CSS.escape(name)}"]`);
+    if (card) card.querySelector('.file-list-panel')?.remove();
+    // Rebuild the toggle button label
+    const btn = card?.querySelector('.file-toggle-btn');
+    if (btn) btn.textContent = '▶ Files';
+  } else {
+    _expandedCards.add(name);
+    await fetchAndShowFiles(name);
+  }
+}
+
+async function fetchAndShowFiles(name) {
+  const card = document.querySelector(`.card[data-name="${CSS.escape(name)}"]`);
+  if (!card) return;
+
+  // Show loading placeholder
+  let panel = card.querySelector('.file-list-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.className = 'file-list-panel';
+    card.appendChild(panel);
+  }
+  panel.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:6px 0">Loading files…</div>';
+
+  try {
+    const r = await fetch(`${BASE}/transfers/${encodeURIComponent(name)}/files`, { headers: HEADERS });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      panel.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:6px 0">Files unavailable: ${escHtml(d.detail || r.status)}</div>`;
+      return;
+    }
+    const files = await r.json();
+    _fileData[name] = files;
+    _injectFilePanel(card, name, files);
+  } catch (e) {
+    panel.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:6px 0">Load failed: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function _injectFilePanel(card, name, files) {
+  let panel = card.querySelector('.file-list-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.className = 'file-list-panel';
+    card.appendChild(panel);
+  }
+
+  if (!files || files.length === 0) {
+    panel.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:6px 0">No files found</div>';
+    return;
+  }
+
+  const rows = files.map(f => {
+    const fname = f.path.replace(/\\/g, '/').split('/').pop() || f.path;
+    const checked = f.priority > 0 ? 'checked' : '';
+    return `<label class="file-item">
+      <input type="checkbox" ${checked} style="cursor:pointer;accent-color:var(--accent);flex-shrink:0"
+             onchange="setFilePriority(${escHtml(JSON.stringify(name))}, ${f.index}, this.checked ? 1 : 0)">
+      <span class="file-name" title="${escHtml(f.path)}">${escHtml(fname)}</span>
+      <span class="file-size">${fmtBytes(f.size)}</span>
+    </label>`;
+  }).join('');
+
+  panel.innerHTML = rows;
+}
+
+async function setFilePriority(name, index, priority) {
+  try {
+    await fetch(`${BASE}/transfers/${encodeURIComponent(name)}/files`, {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ files: [{ index, priority }] }),
+    });
+    // Update local cache so re-renders keep the correct checked state
+    if (_fileData[name]) {
+      const f = _fileData[name].find(x => x.index === index);
+      if (f) f.priority = priority;
+    }
+  } catch (e) {
+    toast('Priority change failed: ' + e.message, 'err');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Init
+// ═══════════════════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  // Warn if accessed over plain HTTP from a non-loopback address
+  if (location.protocol === 'http:' && !location.hostname.match(/^(127\.|localhost)/)) {
+    const warn = document.getElementById('http-warning');
+    warn.textContent = '⚠️  Unencrypted HTTP — API key is visible on your LAN. Use https:// instead.';
+    warn.classList.add('visible');
+  }
+
+  connectWebSocket();
+  pollStatus();
+  setInterval(pollStatus, 5000);
+});
+</script>
+</body>
+</html>

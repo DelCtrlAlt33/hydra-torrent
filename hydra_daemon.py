@@ -22,6 +22,7 @@ WebSocket (/ws):
     The server then streams transfer snapshots at ≤10 updates/sec.
 """
 
+import io
 import os
 import sys
 import json
@@ -32,22 +33,28 @@ import logging
 import threading
 import warnings
 import asyncio
+import zipfile
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import List, Optional, Set
 
 import libtorrent as lt
 import uvicorn
 from fastapi import (
-    BackgroundTasks, Depends, FastAPI, HTTPException, Security, WebSocket,
-    WebSocketDisconnect,
+    BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, Security,
+    UploadFile, WebSocket, WebSocketDisconnect,
 )
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse
 from fastapi.security.api_key import APIKeyHeader
 from starlette.status import HTTP_403_FORBIDDEN
 
 from config import (
     BASE_DIR,
+    CONFIG_FILE,
     DOWNLOAD_DIR_INCOMPLETE,
+    FULLCHAIN_PATH,
     PEER_PORT,
+    PRIVKEY_PATH,
     load_config,
     save_config,
     logger,
@@ -55,11 +62,20 @@ from config import (
 from vpn_guard import VPNGuard
 from media_organizer import auto_move_completed_download
 from search import search_online_public, search_jackett, search_index_server
+from rss_poller import RssPoller
 from daemon_models import (
     AddMagnetRequest,
+    AddRssRuleRequest,
+    ConfigResponse,
+    ConfigUpdate,
     DaemonStatus,
+    FilePriorityItem,
+    PatchRssRuleRequest,
+    RssRule,
     SearchRequest,
     SearchResult,
+    SetFilePrioritiesRequest,
+    TorrentFile,
     TransferState,
     VPNStatus,
 )
@@ -88,6 +104,7 @@ _INTERNAL_FIELDS = frozenset({'handle', 'prev_bytes', 'prev_time'})
 
 # Path to persisted transfer state (mirrors transfer_manager.py)
 _TRANSFERS_PATH = os.path.join(BASE_DIR, 'transfers.json')
+
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +176,8 @@ class DaemonStore:
                 'error': None,
                 'start_time': time.time(),
                 'intended_pause': False,
+                'ratio': 0.0,
+                'total_uploaded': 0,
                 'prev_bytes': 0,
                 'prev_time': time.time(),
             }
@@ -229,6 +248,8 @@ class DaemonStore:
                     v.setdefault('moved_to_plex', False)
                     v.setdefault('plex_path', None)
                     v.setdefault('error', None)
+                    v.setdefault('ratio', 0.0)
+                    v.setdefault('total_uploaded', 0)
                     self._data[k] = v
             logger.info(f"Loaded {len(data)} transfer(s) from {path}")
         except Exception as e:
@@ -293,20 +314,30 @@ class TorrentEngine:
 
     def _create_session(self, listen_ip: str) -> None:
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="libtorrent")
+        cfg = load_config()
         self.ses = lt.session({
             'listen_interfaces': f'{listen_ip}:{PEER_PORT}',
             'enable_dht': True,
             'enable_lsd': False,       # No LAN broadcast
-            'enable_upnp': False,      # Would expose real IP to router
-            'enable_natpmp': False,    # Same as UPnP
-            'anonymous_mode': True,    # Hide client fingerprint
+            'enable_upnp': True,       # Auto-forward port on home router for inbound connections
+            'enable_natpmp': True,     # Same — NAT-PMP fallback
+            'anonymous_mode': False,   # Allow full tracker/peer communication
             'connections_limit': 200,
-            'download_rate_limit': 0,
-            'upload_rate_limit': 0,
+            'download_rate_limit': int(cfg.get('download_rate_limit', 0) or 0),
+            'upload_rate_limit': int(cfg.get('upload_rate_limit', 0) or 0),
         })
         self.ses.add_dht_router("router.utorrent.com", 6881)
         self.ses.add_dht_router("router.bittorrent.com", 6881)
         self.ses.add_dht_router("dht.transmissionbt.com", 6881)
+
+    def apply_rate_limits(self, download_limit: int, upload_limit: int) -> None:
+        """Live-apply bandwidth limits to the running session (0 = unlimited)."""
+        if self.ses:
+            self.ses.apply_settings({
+                'download_rate_limit': download_limit,
+                'upload_rate_limit': upload_limit,
+            })
+            logger.info(f"Rate limits updated — DL: {download_limit} B/s, UL: {upload_limit} B/s")
 
     def get_session_status(self) -> dict:
         if not self.ses:
@@ -414,6 +445,44 @@ class TorrentEngine:
         ).start()
         return real_name
 
+    def add_torrent_file(self, data: bytes, filename: str) -> str:
+        """
+        Add a torrent from raw .torrent file bytes.
+
+        Returns the real torrent name.
+        Raises RuntimeError if the libtorrent session is not yet ready.
+        """
+        if self.ses is None:
+            raise RuntimeError("libtorrent session not ready yet — try again shortly")
+
+        try:
+            ti = lt.torrent_info(data)
+        except Exception:
+            # Older libtorrent versions require explicit bdecode first
+            ti = lt.torrent_info(lt.bdecode(data))
+
+        real_name = ti.name() or os.path.splitext(filename)[0] or "unnamed_torrent"
+        total_size = ti.total_size()
+        logger.info(f"Torrent file → '{real_name}' ({total_size:,} bytes)")
+
+        params = lt.add_torrent_params()
+        params.ti = ti
+        params.save_path = DOWNLOAD_DIR_INCOMPLETE
+        handle = self.ses.add_torrent(params)
+
+        for tracker in _TRACKERS:
+            handle.add_tracker({'url': tracker})
+        handle.force_reannounce()
+
+        self.store.add(real_name, '', total_size, handle)
+        threading.Thread(
+            target=self._monitor_download,
+            args=(real_name, handle, total_size),
+            daemon=True,
+            name=f"dl-{real_name[:24]}",
+        ).start()
+        return real_name
+
     # ── Download monitor ──────────────────────────────────────────────────────
 
     def _monitor_download(self, name: str, handle, total_size: int) -> None:
@@ -499,7 +568,12 @@ class TorrentEngine:
             if s.progress >= 1.0 or s.is_seeding or s.is_finished:
                 logger.info(f"Download complete: '{name}'")
                 self.store.update(name, status='Seeding', progress=100.0, eta='Seeding')
-                self._post_download(name, handle)
+                threading.Thread(
+                    target=self._post_download,
+                    args=(name, handle),
+                    daemon=True,
+                    name=f"plex-{name[:20]}",
+                ).start()
                 self._monitor_seeding(name, handle)
                 break
 
@@ -526,7 +600,7 @@ class TorrentEngine:
                 continue
 
             success, dest_path, error = auto_move_completed_download(
-                os.path.basename(file_path), file_path
+                os.path.basename(file_path), file_path, torrent_name=name
             )
             if success:
                 plex_dir = os.path.dirname(dest_path)
@@ -538,12 +612,22 @@ class TorrentEngine:
     # ── Seeding monitor ────────────────────────────────────────────────────────
 
     def _monitor_seeding(self, name: str, handle) -> None:
-        """Lightweight upload-stats monitor while a torrent is seeding."""
+        """Lightweight upload-stats monitor while a torrent is seeding.
+
+        Tracks cumulative upload across daemon restarts via total_uploaded offset.
+        Checks seed_ratio from config each loop; auto-removes when target is hit.
+        """
         _state_map = {
             0: 'Queued', 1: 'Checking', 2: 'DL Metadata',
             3: 'Downloading', 4: 'Finished', 5: 'Seeding',
             6: 'Allocating', 7: 'Resuming',
         }
+
+        # Snapshot state at seeding start
+        t0 = self.store.get(name)
+        total_size = t0.get('size', 0) if t0 else 0
+        # Bytes already uploaded in previous daemon sessions (persisted in transfers.json)
+        upload_offset = t0.get('total_uploaded', 0) if t0 else 0
 
         while True:
             t = self.store.get(name)
@@ -562,11 +646,16 @@ class TorrentEngine:
             delta_time = current_time - prev_time
             speed_up = delta_bytes / delta_time if delta_time > 0 else float(s.upload_rate)
 
+            # Cumulative upload = previous sessions + this session
+            all_time_upload = upload_offset + s.total_upload
+            ratio = all_time_upload / total_size if total_size > 0 else 0.0
+
             if t.get('intended_pause', False):
                 if not s.paused:
                     handle.pause()
                 self.store.update(name,
                     status='Paused', paused=True, speed_up=0.0,
+                    ratio=ratio, total_uploaded=all_time_upload,
                     prev_bytes=s.total_upload, prev_time=current_time,
                 )
             else:
@@ -578,9 +667,21 @@ class TorrentEngine:
                     peers=s.num_peers,
                     seeds=s.num_seeds,
                     paused=bool(s.paused),
+                    ratio=ratio,
+                    total_uploaded=all_time_upload,
                     prev_bytes=s.total_upload,
                     prev_time=current_time,
                 )
+
+            # Auto-remove when seed ratio target is reached
+            seed_ratio = float(load_config().get('seed_ratio', 0) or 0)
+            if seed_ratio > 0 and ratio >= seed_ratio:
+                logger.info(
+                    f"'{name}' reached seed ratio {ratio:.2f} "
+                    f"(target {seed_ratio}) — auto-removing"
+                )
+                self.remove(name, delete_files=False)
+                break
 
             time.sleep(5)
 
@@ -658,12 +759,16 @@ class TorrentEngine:
                 logger.error(f"Failed to resume '{name}': {e}")
 
 
+# RssPoller is defined in rss_poller.py (shared with peer.pyw)
+
+
 # ---------------------------------------------------------------------------
 # Global instances
 # ---------------------------------------------------------------------------
 
 store = DaemonStore()
 engine = TorrentEngine(store)
+rss_poller = RssPoller(engine.add_magnet)
 _ws_clients: Set[WebSocket] = set()
 
 
@@ -675,11 +780,13 @@ _ws_clients: Set[WebSocket] = set()
 async def lifespan(app: FastAPI):
     # Startup — engine blocks on VPN detection so run in a thread
     threading.Thread(target=engine.start, daemon=True, name="engine-start").start()
+    rss_poller.start()
     broadcaster_task = asyncio.create_task(_ws_broadcaster())
     logger.info(f"Hydra Daemon starting — API key: {API_KEY}")
     yield
     # Shutdown
     broadcaster_task.cancel()
+    rss_poller.stop()
     engine.shutdown()
 
 
@@ -692,6 +799,31 @@ app = FastAPI(
 
 
 # ---------------------------------------------------------------------------
+# Rate limiting middleware  (60 req / 60 s sliding window per IP)
+# ---------------------------------------------------------------------------
+
+_rate_window: dict = defaultdict(list)
+RATE_LIMIT = 300      # max requests per window (tray + web UI + GF tray = ~80/min, 300 gives plenty of headroom)
+RATE_WINDOW = 60.0    # window size in seconds
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    # Evict timestamps outside the window
+    _rate_window[ip] = [t for t in _rate_window[ip] if now - t < RATE_WINDOW]
+    if len(_rate_window[ip]) >= RATE_LIMIT:
+        return JSONResponse(
+            {"detail": "Rate limit exceeded"},
+            status_code=429,
+            headers={"Retry-After": "60"},
+        )
+    _rate_window[ip].append(now)
+    return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
 # WebSocket broadcaster  (sync world → async world bridge)
 # ---------------------------------------------------------------------------
 
@@ -699,7 +831,10 @@ async def _ws_broadcaster() -> None:
     """
     Drains store.ws_queue and broadcasts the latest snapshot to all clients.
     Capped at ≤10 broadcasts per second by the 0.1 s sleep.
+    Sends a heartbeat snapshot every 20 s when idle to prevent NAT from
+    dropping the connection on quiet (no active downloads) sessions.
     """
+    last_send = 0.0
     while True:
         try:
             # Drain all queued snapshots; only the latest one matters
@@ -710,7 +845,13 @@ async def _ws_broadcaster() -> None:
                 except queue.Empty:
                     break
 
+            # Heartbeat: re-send current state if nothing has been sent in 20 s
+            now = asyncio.get_event_loop().time()
+            if snapshot is None and _ws_clients and now - last_send >= 20.0:
+                snapshot = store.snapshot()
+
             if snapshot is not None and _ws_clients:
+                last_send = now
                 dead: Set[WebSocket] = set()
                 for ws in list(_ws_clients):
                     try:
@@ -837,6 +978,31 @@ def add_transfer(req: AddMagnetRequest, background_tasks: BackgroundTasks) -> di
     return {"accepted": True}
 
 
+@app.post("/transfers/file", status_code=202, dependencies=[Depends(_require_api_key)])
+async def upload_torrent_file(background_tasks: BackgroundTasks, file: UploadFile = File(...)) -> dict:
+    """
+    Add a torrent from a .torrent file upload (multipart/form-data).
+    Returns 202 immediately; the torrent is added in the background.
+    """
+    if not (file.filename or '').lower().endswith('.torrent'):
+        raise HTTPException(status_code=400, detail="Only .torrent files are accepted")
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 10 MB)")
+
+    fname = file.filename or 'upload.torrent'
+
+    def _add() -> None:
+        try:
+            name = engine.add_torrent_file(data, fname)
+            logger.info(f"Torrent file added via API: '{name}'")
+        except Exception as e:
+            logger.error(f"Failed to add torrent file '{fname}': {e}")
+
+    background_tasks.add_task(_add)
+    return {"accepted": True}
+
+
 @app.post("/transfers/{name}/pause", dependencies=[Depends(_require_api_key)])
 def pause_transfer(name: str) -> dict:
     """Pause a transfer."""
@@ -867,6 +1033,228 @@ def delete_transfer(name: str, delete_files: bool = False) -> dict:
     return {"ok": True}
 
 
+# ---------------------------------------------------------------------------
+# File priority endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/transfers/{name}/files", dependencies=[Depends(_require_api_key)])
+def get_transfer_files(name: str) -> List[TorrentFile]:
+    """
+    List all files in a torrent with their current download priority.
+    priority: 0 = skip, 1 = normal, 7 = high
+    Returns 409 if metadata is not yet available (magnet still resolving).
+    """
+    if store.get(name) is None:
+        raise HTTPException(status_code=404, detail=f"Transfer '{name}' not found")
+
+    handle = store.get_handle(name)
+    if handle is None:
+        raise HTTPException(status_code=409, detail="Torrent handle not available — metadata may still be fetching")
+
+    try:
+        ti = handle.get_torrent_info()
+    except Exception as e:
+        raise HTTPException(status_code=409, detail=f"Torrent info not available: {e}")
+
+    files_obj = ti.files()
+    num_files = files_obj.num_files()
+
+    try:
+        priorities = list(handle.file_priorities())
+    except Exception:
+        priorities = [1] * num_files
+
+    result = []
+    for i in range(num_files):
+        result.append(TorrentFile(
+            index=i,
+            path=files_obj.file_path(i),
+            size=int(files_obj.file_size(i)),
+            priority=priorities[i] if i < len(priorities) else 1,
+        ))
+
+    return result
+
+
+@app.post("/transfers/{name}/files", dependencies=[Depends(_require_api_key)])
+def set_file_priorities(name: str, req: SetFilePrioritiesRequest) -> dict:
+    """
+    Set download priority for one or more files within a torrent.
+    Send a list of {index, priority} pairs.  Priority 0 = skip, 1 = normal, 7 = high.
+    """
+    if store.get(name) is None:
+        raise HTTPException(status_code=404, detail=f"Transfer '{name}' not found")
+
+    handle = store.get_handle(name)
+    if handle is None:
+        raise HTTPException(status_code=409, detail="Torrent handle not available")
+
+    try:
+        current_priorities = list(handle.file_priorities())
+    except Exception:
+        current_priorities = []
+
+    for item in req.files:
+        idx = item.index
+        prio = max(0, min(7, item.priority))
+        while len(current_priorities) <= idx:
+            current_priorities.append(1)
+        current_priorities[idx] = prio
+
+    try:
+        handle.prioritize_files(current_priorities)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to set priorities: {e}")
+
+    return {"ok": True, "updated": len(req.files)}
+
+
+# ---------------------------------------------------------------------------
+# RSS Auto-Download endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/rss/rules", dependencies=[Depends(_require_api_key)])
+def list_rss_rules() -> List[RssRule]:
+    """List all RSS auto-download rules (matched_titles stripped from list view)."""
+    rules = rss_poller.get_all()
+    return [
+        RssRule(**{k: v for k, v in r.items() if k != 'matched_titles'}, matched_titles=[])
+        for r in rules
+    ]
+
+
+@app.post("/rss/rules", status_code=201, dependencies=[Depends(_require_api_key)])
+def add_rss_rule(req: AddRssRuleRequest) -> RssRule:
+    """Create a new RSS watch rule. Triggers an immediate background check."""
+    rule = rss_poller.add_rule(req.name, req.quality, req.query,
+                               season=req.season, episode_mode=req.episode_mode,
+                               start_episode=req.start_episode)
+    return RssRule(**rule)
+
+
+@app.patch("/rss/rules/{rule_id}", dependencies=[Depends(_require_api_key)])
+def patch_rss_rule(rule_id: str, req: PatchRssRuleRequest) -> RssRule:
+    """Enable/disable or change quality for an existing rule."""
+    rule = rss_poller.patch_rule(rule_id, enabled=req.enabled, quality=req.quality)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return RssRule(**rule)
+
+
+@app.delete("/rss/rules/{rule_id}", status_code=204, dependencies=[Depends(_require_api_key)])
+def delete_rss_rule(rule_id: str) -> None:
+    """Delete an RSS watch rule."""
+    if not rss_poller.delete_rule(rule_id):
+        raise HTTPException(status_code=404, detail="Rule not found")
+
+
+@app.post("/rss/rules/{rule_id}/check-now", status_code=202, dependencies=[Depends(_require_api_key)])
+def check_rule_now(rule_id: str) -> dict:
+    """Trigger an immediate Jackett check for this rule in the background."""
+    if not rss_poller.get_one(rule_id):
+        raise HTTPException(status_code=404, detail="Rule not found")
+    rss_poller.check_now(rule_id)
+    return {"accepted": True}
+
+
+@app.get("/static/{filename}", include_in_schema=False)
+def serve_static(filename: str) -> FileResponse:
+    """Serve static assets (logo, etc.)."""
+    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+    file_path = os.path.join(static_dir, os.path.basename(filename))
+    if not os.path.isfile(file_path) or file_path == os.path.join(static_dir, 'index.html'):
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(file_path)
+
+
+@app.get("/ui", response_class=HTMLResponse, include_in_schema=False)
+def web_ui() -> HTMLResponse:
+    """Serve the single-page Web UI with the API key embedded."""
+    ui_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'index.html')
+    try:
+        with open(ui_path, encoding='utf-8') as f:
+            html = f.read().replace('__HYDRA_API_KEY__', API_KEY)
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>Web UI not found</h1><p>static/index.html is missing.</p>", status_code=404)
+    return HTMLResponse(content=html)
+
+
+@app.get("/download/tray", include_in_schema=False)
+def download_tray() -> StreamingResponse:
+    """Serve hydra_tray.exe + pre-configured hydra_config.json as a ready-to-run zip."""
+    exe_path = os.path.join(BASE_DIR, 'hydra_tray.exe')
+    if not os.path.exists(exe_path):
+        return JSONResponse(
+            {"error": "hydra_tray.exe not found on server. Compile with PyInstaller and place in /opt/hydra/."},
+            status_code=404,
+        )
+    tray_config = json.dumps({"daemon_api_key": API_KEY}, indent=2)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.write(exe_path, 'HydraTray/hydra_tray.exe')
+        zf.writestr('HydraTray/hydra_config.json', tray_config)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type='application/zip',
+        headers={'Content-Disposition': 'attachment; filename="HydraTray.zip"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Config endpoints
+# ---------------------------------------------------------------------------
+
+_EDITABLE_CONFIG_KEYS = frozenset({
+    'plex_url', 'plex_token', 'jackett_api_key',
+    'indexing_server', 'media_dir_movies', 'media_dir_tv', 'auto_move_to_plex',
+    'seed_ratio', 'download_rate_limit', 'upload_rate_limit',
+})
+
+
+@app.get("/config", dependencies=[Depends(_require_api_key)])
+def get_config() -> ConfigResponse:
+    """Return the current daemon configuration (editable fields + API key)."""
+    cfg = load_config()
+    return ConfigResponse(
+        plex_url=cfg.get('plex_url', ''),
+        plex_token=cfg.get('plex_token', ''),
+        jackett_api_key=cfg.get('jackett_api_key', ''),
+        indexing_server=cfg.get('indexing_server', ''),
+        media_dir_movies=cfg.get('media_dir_movies', ''),
+        media_dir_tv=cfg.get('media_dir_tv', ''),
+        auto_move_to_plex=bool(cfg.get('auto_move_to_plex', True)),
+        seed_ratio=float(cfg.get('seed_ratio', 0) or 0),
+        download_rate_limit=int(cfg.get('download_rate_limit', 0) or 0),
+        upload_rate_limit=int(cfg.get('upload_rate_limit', 0) or 0),
+        daemon_api_key=API_KEY,
+    )
+
+
+@app.patch("/config", dependencies=[Depends(_require_api_key)])
+def update_config(req: ConfigUpdate) -> dict:
+    """Persist a partial config update.  Only editable keys are written."""
+    cfg = load_config()
+    updates = {k: v for k, v in req.model_dump(exclude_none=True).items()
+               if k in _EDITABLE_CONFIG_KEYS}
+    if not updates:
+        return {"saved": []}
+    cfg.update(updates)
+    try:
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(cfg, f, indent=2)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to write config: {e}")
+    logger.info(f"Config updated via API: {list(updates.keys())}")
+    # Live-apply rate limits if they were changed
+    if 'download_rate_limit' in updates or 'upload_rate_limit' in updates:
+        engine.apply_rate_limits(
+            int(cfg.get('download_rate_limit', 0) or 0),
+            int(cfg.get('upload_rate_limit', 0) or 0),
+        )
+    return {"saved": list(updates.keys())}
+
+
 @app.post("/search", dependencies=[Depends(_require_api_key)])
 def do_search(req: SearchRequest) -> List[SearchResult]:
     """
@@ -876,7 +1264,7 @@ def do_search(req: SearchRequest) -> List[SearchResult]:
     try:
         if req.mode == "jackett":
             cfg = load_config()
-            jackett_url = cfg.get('jackett_url', 'http://127.0.0.1:9117')
+            jackett_url = cfg.get('indexing_server') or cfg.get('jackett_url', 'http://127.0.0.1:9117')
             api_key = cfg.get('jackett_api_key', '')
             raw = search_jackett(jackett_url, req.query, api_key)
         elif req.mode == "local":
@@ -911,11 +1299,29 @@ if __name__ == "__main__":
     cfg = load_config()
     host = cfg.get('daemon_host', '127.0.0.1')
     port = int(cfg.get('daemon_port', 8765))
+    use_ssl = cfg.get('daemon_use_ssl', True)
 
+    ssl_kwargs: dict = {}
+    if use_ssl:
+        from certs import ensure_certificates
+        ensure_certificates()
+        ssl_kwargs = {
+            'ssl_keyfile':  str(PRIVKEY_PATH),
+            'ssl_certfile': str(FULLCHAIN_PATH),
+        }
+
+    scheme = 'https' if use_ssl else 'http'
     print(f"Hydra Daemon v0.1")
-    print(f"Listening on:  http://{host}:{port}")
+    print(f"Listening on:  {scheme}://{host}:{port}")
     print(f"API key:       {API_KEY}")
-    print(f"API docs:      http://{host}:{port}/docs")
+    print(f"API docs:      {scheme}://{host}:{port}/docs")
+    if use_ssl:
+        print(f"SSL cert:      {FULLCHAIN_PATH}")
     print()
 
-    uvicorn.run("hydra_daemon:app", host=host, port=port, reload=False, log_level="info")
+    uvicorn.run(
+        "hydra_daemon:app",
+        host=host, port=port,
+        reload=False, log_level="info",
+        **ssl_kwargs,
+    )
