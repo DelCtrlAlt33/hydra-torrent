@@ -55,6 +55,7 @@ from transfer_manager import TransferManager, PiecesBar
 from theme_manager import ThemeManager
 from media_organizer import auto_move_completed_download
 from vpn_guard import VPNGuard, get_public_ip
+from rss_poller import RssPoller
 
 hide_console()
 
@@ -423,6 +424,10 @@ class FileSharingApp:
         self.transfer_manager = TransferManager(self.trans_tree, self.root)
         self.transfer_manager.load_transfers()
         self.transfer_manager.show_piecesbar = True
+        # Auto-DL Tab
+        self._auto_dl_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self._auto_dl_tab, text='Auto-DL')
+        self._build_auto_dl_tab(self._auto_dl_tab)
         # Bottom status panel
         self.bottom_notebook = ttk.Notebook(self.main_pane)
         self.main_pane.add(self.bottom_notebook, minsize=80, stretch='never')
@@ -556,6 +561,10 @@ class FileSharingApp:
         # Resume persisted torrents
         self.resume_persisted_torrents()
         self.update_bottom_status()
+
+        # RSS Auto-DL poller
+        self.rss_poller = RssPoller(self._rss_add_magnet)
+        self.rss_poller.start()
         # Add context menu for removal
         self.trans_context_menu = tk.Menu(self.root, tearoff=0)
         self.theme_manager.register_menu(self.trans_context_menu)
@@ -801,7 +810,7 @@ class FileSharingApp:
     def open_preferences_dialog(self):
         prefs = ttk.Toplevel(self.root)
         prefs.title("Preferences")
-        prefs.geometry("600x500")
+        prefs.geometry("620x560")
         prefs.transient(self.root)
         prefs.grab_set()
         self._style_toplevel(prefs)
@@ -853,6 +862,22 @@ class FileSharingApp:
         ttk.Label(dir_frame, text="TV Shows:").grid(row=3, column=0, sticky='w', pady=5)
         ttk.Label(dir_frame, text=MEDIA_DIR_TV, foreground='gray').grid(row=3, column=1, sticky='w', padx=10)
 
+        # Seeding settings
+        ttk.Label(downloads_tab, text="Seeding",
+                 font=self.theme_manager.get_font(10, bold=True)).pack(anchor='w', pady=(15, 5), padx=10)
+
+        seed_frame = ttk.Frame(downloads_tab)
+        seed_frame.pack(fill='x', padx=20, pady=5)
+
+        ttk.Label(seed_frame, text="Seed ratio (0 = seed forever):").grid(row=0, column=0, sticky='w', pady=5)
+        seed_ratio_var = tk.StringVar(value=str(config.get('seed_ratio', 0.0)))
+        ttk.Entry(seed_frame, textvariable=seed_ratio_var, width=10).grid(row=0, column=1, sticky='w', padx=10, pady=5)
+
+        ttk.Label(downloads_tab,
+                 text="When the upload/download ratio reaches this value the torrent is\n"
+                      "automatically removed (files are kept).",
+                 foreground='gray').pack(anchor='w', padx=40, pady=(0, 10))
+
         # Plex Integration Tab
         plex_tab = ttk.Frame(pref_notebook)
         pref_notebook.add(plex_tab, text="Plex Integration")
@@ -885,11 +910,57 @@ class FileSharingApp:
                       "4. Look for X-Plex-Token in the URL",
                  foreground='gray', justify='left').pack(anchor='w', padx=20, pady=10)
 
+        # Search / Indexer Tab
+        search_tab = ttk.Frame(pref_notebook)
+        pref_notebook.add(search_tab, text="Search")
+
+        ttk.Label(search_tab, text="Indexer Settings",
+                 font=self.theme_manager.get_font(10, bold=True)).pack(anchor='w', pady=(10, 5), padx=10)
+
+        ttk.Label(search_tab,
+                 text="Configure your Jackett indexer for enhanced torrent search\n"
+                      "and RSS Auto-DL rules.",
+                 foreground='gray').pack(anchor='w', padx=20, pady=(0, 10))
+
+        idx_frame = ttk.Frame(search_tab)
+        idx_frame.pack(fill='x', padx=20, pady=10)
+
+        ttk.Label(idx_frame, text="Indexer URL:").grid(row=0, column=0, sticky='w', pady=5)
+        idx_url_var = tk.StringVar(value=config.get('indexing_server', 'http://localhost:9117'))
+        ttk.Entry(idx_frame, textvariable=idx_url_var, width=40).grid(row=0, column=1, sticky='w', padx=10, pady=5)
+
+        ttk.Label(idx_frame, text="Jackett API Key:").grid(row=1, column=0, sticky='w', pady=5)
+        idx_key_var = tk.StringVar(value=config.get('jackett_api_key', ''))
+        ttk.Entry(idx_frame, textvariable=idx_key_var, width=40, show='*').grid(row=1, column=1, sticky='w', padx=10, pady=5)
+
+        ttk.Label(search_tab,
+                 text="Find your Jackett API key at http://localhost:9117\n"
+                      "(top-right of the Jackett dashboard).",
+                 foreground='gray', justify='left').pack(anchor='w', padx=20, pady=10)
+
         # Save button
         def save_preferences():
             save_config('auto_move_to_plex', auto_move_var.get())
             save_config('plex_url', plex_url_var.get().strip())
             save_config('plex_token', plex_token_var.get().strip())
+            # Search settings
+            idx_url = idx_url_var.get().strip()
+            if idx_url:
+                save_config('indexing_server', idx_url)
+                self.server_entry.delete(0, tk.END)
+                self.server_entry.insert(0, idx_url)
+            idx_key = idx_key_var.get().strip()
+            if idx_key:
+                self.jackett_api_key = idx_key
+                save_config('jackett_api_key', idx_key)
+            # Seed ratio
+            try:
+                seed_ratio = float(seed_ratio_var.get())
+                if seed_ratio < 0:
+                    seed_ratio = 0.0
+            except ValueError:
+                seed_ratio = 0.0
+            save_config('seed_ratio', seed_ratio)
             messagebox.showinfo("Saved", "Preferences saved successfully!")
             prefs.destroy()
 
@@ -1044,6 +1115,19 @@ class FileSharingApp:
                 else:
                     t['speed'] = speed
                     t['eta'] = 'Done' if current_state == 'Seeding' else 'N/A'
+                # Seed ratio auto-remove check
+                if current_state == 'Seeding':
+                    cfg = load_config()
+                    seed_ratio = cfg.get('seed_ratio', 0.0)
+                    if seed_ratio > 0:
+                        total_size = t.get('size', 0)
+                        if total_size > 0 and s.total_upload >= total_size * seed_ratio:
+                            logger.info(
+                                f"Seed ratio reached for '{filename}' "
+                                f"({s.total_upload / total_size:.2f} >= {seed_ratio}) — auto-removing"
+                            )
+                            self.root.after(0, lambda fn=filename: self._auto_remove_seeded(fn))
+                            return
             self.transfer_manager.update_transfer(filename, s.total_done, t['size'])
             time.sleep(2)
 
@@ -1099,6 +1183,27 @@ class FileSharingApp:
         threading.Thread(target=do_removal, daemon=True).start()
         self.transfer_manager.save_transfers()
 
+    def _auto_remove_seeded(self, filename):
+        """Called on the main thread when a torrent hits its seed ratio."""
+        with self.transfer_manager.lock:
+            t = self.transfer_manager.transfers.get(filename)
+            if t and 'handle' in t:
+                try:
+                    self.ses.remove_torrent(t['handle'])
+                except Exception:
+                    pass
+            if filename in self.transfer_manager.transfers:
+                del self.transfer_manager.transfers[filename]
+        self.transfer_manager.save_transfers()
+        # Remove the row from the treeview
+        for item in self.trans_tree.get_children():
+            vals = self.trans_tree.item(item)['values']
+            if vals and vals[0] == filename:
+                self.cleanup_ui(item)
+                break
+        self.status.insert(tk.END, f"✓ '{filename}' reached seed ratio — removed (files kept).\n", "success")
+        self.status.see(tk.END)
+
     def cleanup_ui(self, iid):
         if iid in self.transfer_manager.progress_widgets:
             self.transfer_manager.progress_widgets[iid].place_forget()
@@ -1132,6 +1237,7 @@ class FileSharingApp:
             self.trans_context_menu.grab_release()
 
     def on_close(self):
+        self.rss_poller.stop()
         with self.transfer_manager.lock:
             for t in self.transfer_manager.transfers.values():
                 if 'handle' in t:
@@ -1304,6 +1410,197 @@ class FileSharingApp:
 
         threading.Thread(target=self.monitor_seeding, args=(real_name,), daemon=True).start()
         logger.info(f"Now seeding: {real_name}")
+
+    # ── RSS Auto-DL ───────────────────────────────────────────────────────────
+
+    def _rss_add_magnet(self, magnet_uri: str):
+        """Callback from RssPoller — add a matched magnet on a background thread."""
+        threading.Thread(
+            target=self.download_torrent,
+            args=(magnet_uri, "rss_auto", self.status, self.transfer_manager),
+            daemon=True,
+        ).start()
+        self.root.after(0, lambda: (
+            self.status.insert(tk.END, f"[Auto-DL] Added magnet from RSS rule\n", "success"),
+            self.status.see(tk.END),
+        ))
+
+    def _build_auto_dl_tab(self, parent):
+        """Build the RSS Auto-DL tab widgets."""
+        # ── Add-rule form ────────────────────────────────────────────────────
+        form = ttk.LabelFrame(parent, text="Add Rule")
+        form.pack(fill='x', padx=8, pady=(8, 4))
+
+        row0 = ttk.Frame(form)
+        row0.pack(fill='x', padx=5, pady=4)
+
+        ttk.Label(row0, text="Name:").pack(side='left')
+        self._rss_name_var = tk.StringVar()
+        ttk.Entry(row0, textvariable=self._rss_name_var, width=22).pack(side='left', padx=(3, 10))
+
+        ttk.Label(row0, text="Season #:").pack(side='left')
+        self._rss_season_var = tk.StringVar()
+        ttk.Entry(row0, textvariable=self._rss_season_var, width=5).pack(side='left', padx=(3, 10))
+
+        self._rss_from_ep_label = ttk.Label(row0, text="From Ep #:")
+        self._rss_from_ep_var = tk.StringVar()
+        self._rss_from_ep_entry = ttk.Entry(row0, textvariable=self._rss_from_ep_var, width=5)
+
+        ttk.Label(row0, text="Mode:").pack(side='left')
+        self._rss_mode_var = tk.StringVar(value='pack')
+        mode_cb = ttk.Combobox(row0, textvariable=self._rss_mode_var,
+                               values=['pack', 'episodes', 'any'],
+                               state='readonly', width=10)
+        mode_cb.pack(side='left', padx=(3, 10))
+
+        def _on_mode_change(*_):
+            if self._rss_mode_var.get() == 'episodes':
+                self._rss_from_ep_label.pack(side='left')
+                self._rss_from_ep_entry.pack(side='left', padx=(3, 10))
+            else:
+                self._rss_from_ep_label.pack_forget()
+                self._rss_from_ep_entry.pack_forget()
+        mode_cb.bind('<<ComboboxSelected>>', _on_mode_change)
+
+        ttk.Label(row0, text="Quality:").pack(side='left')
+        self._rss_quality_var = tk.StringVar(value='1080p')
+        ttk.Combobox(row0, textvariable=self._rss_quality_var,
+                     values=['1080p', '720p', '4K', 'Any'],
+                     state='readonly', width=8).pack(side='left', padx=(3, 8))
+
+        ttk.Button(row0, text="Watch", style="Accent.TButton",
+                   command=self._rss_add_rule).pack(side='left', padx=4)
+
+        # ── Rules list ──────────────────────────────────────────────────────
+        list_frame = ttk.Frame(parent)
+        list_frame.pack(fill='both', expand=True, padx=8, pady=4)
+
+        cols = ('Name', 'Quality', 'Mode', 'Season', 'Matched', 'Last Check', 'Status')
+        self._rss_tree = ttk.Treeview(list_frame, columns=cols, show='headings', height=10)
+        self._rss_tree.heading('Name', text='Rule Name', anchor='w')
+        self._rss_tree.heading('Quality', text='Quality', anchor='center')
+        self._rss_tree.heading('Mode', text='Mode', anchor='center')
+        self._rss_tree.heading('Season', text='Season', anchor='center')
+        self._rss_tree.heading('Matched', text='Matched', anchor='center')
+        self._rss_tree.heading('Last Check', text='Last Check', anchor='center')
+        self._rss_tree.heading('Status', text='Status', anchor='center')
+        self._rss_tree.column('Name', width=220, anchor='w')
+        self._rss_tree.column('Quality', width=70, anchor='center')
+        self._rss_tree.column('Mode', width=80, anchor='center')
+        self._rss_tree.column('Season', width=60, anchor='center')
+        self._rss_tree.column('Matched', width=65, anchor='center')
+        self._rss_tree.column('Last Check', width=110, anchor='center')
+        self._rss_tree.column('Status', width=80, anchor='center')
+        self._rss_tree.grid(row=0, column=0, sticky='nsew')
+
+        rss_scroll = standard_ttk.Scrollbar(list_frame, orient='vertical', command=self._rss_tree.yview)
+        rss_scroll.grid(row=0, column=1, sticky='ns')
+        self._rss_tree.configure(yscrollcommand=rss_scroll.set)
+        list_frame.rowconfigure(0, weight=1)
+        list_frame.columnconfigure(0, weight=1)
+
+        # ── Action buttons ───────────────────────────────────────────────────
+        btn_row = ttk.Frame(parent)
+        btn_row.pack(fill='x', padx=8, pady=(2, 8))
+
+        ttk.Button(btn_row, text="Check Now", style="Accent.TButton",
+                   command=self._rss_check_now).pack(side='left', padx=3)
+        ttk.Button(btn_row, text="Toggle Enable/Disable",
+                   command=self._rss_toggle).pack(side='left', padx=3)
+        ttk.Button(btn_row, text="Delete", style="Danger.TButton",
+                   command=self._rss_delete).pack(side='left', padx=3)
+        ttk.Button(btn_row, text="Refresh", command=self._rss_refresh).pack(side='right', padx=3)
+
+        # Populate once the event loop starts (rss_poller created later in __init__)
+        self._auto_dl_tab.after(200, self._rss_refresh)
+
+    def _rss_refresh(self):
+        """Repopulate the rules treeview from rss_poller state."""
+        if not hasattr(self, '_rss_tree') or not hasattr(self, 'rss_poller'):
+            return
+        self._rss_tree.delete(*self._rss_tree.get_children())
+        for rule in self.rss_poller.get_all():
+            last = rule.get('last_checked', 0)
+            if last:
+                elapsed = time.time() - last
+                if elapsed < 60:
+                    last_str = "just now"
+                elif elapsed < 3600:
+                    last_str = f"{int(elapsed // 60)}m ago"
+                else:
+                    last_str = f"{int(elapsed // 3600)}h ago"
+            else:
+                last_str = "never"
+            season_str = f"S{rule['season']:02d}" if rule.get('season') else "any"
+            status_str = "enabled" if rule.get('enabled', True) else "paused"
+            self._rss_tree.insert(
+                '', 'end',
+                iid=rule['id'],
+                values=(
+                    rule['name'],
+                    rule.get('quality', 'Any'),
+                    rule.get('episode_mode', 'pack'),
+                    season_str,
+                    rule.get('matched_count', 0),
+                    last_str,
+                    status_str,
+                ),
+            )
+
+    def _rss_add_rule(self):
+        name = self._rss_name_var.get().strip()
+        if not name:
+            messagebox.showwarning("Missing Name", "Enter a rule name (e.g. the show title).")
+            return
+        season_raw = self._rss_season_var.get().strip()
+        season = int(season_raw) if season_raw.isdigit() else None
+        ep_raw = self._rss_from_ep_var.get().strip()
+        start_ep = int(ep_raw) if ep_raw.isdigit() else None
+        mode = self._rss_mode_var.get()
+        quality = self._rss_quality_var.get()
+        self.rss_poller.add_rule(
+            name=name, quality=quality, season=season,
+            episode_mode=mode, start_episode=start_ep,
+        )
+        self._rss_name_var.set('')
+        self._rss_season_var.set('')
+        self._rss_from_ep_var.set('')
+        self._rss_refresh()
+        self.status.insert(tk.END, f"[Auto-DL] Rule added: '{name}' — checking Jackett now...\n", "success")
+        self.status.see(tk.END)
+
+    def _rss_check_now(self):
+        sel = self._rss_tree.selection()
+        if not sel:
+            messagebox.showinfo("Select a rule", "Select a rule to check.")
+            return
+        for rule_id in sel:
+            self.rss_poller.check_now(rule_id)
+        self.status.insert(tk.END, f"[Auto-DL] Manual check triggered for {len(sel)} rule(s).\n", "success")
+        self.status.see(tk.END)
+
+    def _rss_toggle(self):
+        sel = self._rss_tree.selection()
+        if not sel:
+            messagebox.showinfo("Select a rule", "Select a rule to toggle.")
+            return
+        for rule_id in sel:
+            rule = self.rss_poller.get_one(rule_id)
+            if rule:
+                self.rss_poller.patch_rule(rule_id, enabled=not rule['enabled'])
+        self._rss_refresh()
+
+    def _rss_delete(self):
+        sel = self._rss_tree.selection()
+        if not sel:
+            messagebox.showinfo("Select a rule", "Select a rule to delete.")
+            return
+        if not messagebox.askyesno("Delete rule(s)?",
+                                   f"Delete {len(sel)} rule(s)? This clears their history too."):
+            return
+        for rule_id in sel:
+            self.rss_poller.delete_rule(rule_id)
+        self._rss_refresh()
 
     def update_bottom_status(self, event=None):
         sel = self.trans_tree.selection()
@@ -1983,7 +2280,7 @@ This is free software. No tracking, no ads, no premium tier, no bullshit. Fork i
                     # Try Jackett first if API key is configured
                     if self.jackett_api_key:
                         try:
-                            jackett_url = "http://localhost:9117"
+                            jackett_url = load_config().get('indexing_server', 'http://localhost:9117')
                             self.root.after(0, lambda: self.status.insert(tk.END, "Searching via Jackett...\n"))
                             online_results = search_jackett(jackett_url, kw, self.jackett_api_key)
                         except Exception as e:
