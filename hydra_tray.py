@@ -2,16 +2,20 @@
 """
 Hydra Torrent System Tray
 
-Remote monitor for the Hydra daemon running on R710 LXC (192.168.20.33).
-- Hides the console window immediately on launch
-- Shows a Hydra icon in the Windows system tray with a colour-coded status dot
-- Polls GET /status every 5 s to update the icon and VPN menu text
-- Provides a right-click menu: VPN status, Open Web UI, Pause/Resume All, Exit
-- Writes/removes a Windows startup registry entry
+Works in two modes:
+  Desktop mode (desktop_mode=True):
+    - Daemon runs locally (in-process or localhost)
+    - "Open" reopens the pywebview window via a callback
+    - "Exit" kills everything (daemon thread + app)
+
+  Remote/Server mode (desktop_mode=False, default):
+    - Daemon runs on a remote server
+    - "Open Web UI" opens the browser
+    - "Exit" stops the tray only
 
 Usage:
-    python hydra_tray.py          # normal (console visible briefly)
-    pythonw hydra_tray.py         # no console window at all
+    python hydra_tray.py          # standalone remote mode
+    pythonw hydra_tray.py         # no console window
 """
 
 import ctypes
@@ -22,7 +26,7 @@ import threading
 import time
 import webbrowser
 import winreg
-from typing import Optional
+from typing import Callable, Optional
 from urllib.parse import quote as url_quote
 
 import pystray
@@ -69,8 +73,7 @@ def resource_path(name: str) -> str:
     return os.path.join(base, name)
 
 
-_CONFIG_FILE     = os.path.join(_SCRIPT_DIR, 'hydra_config.json')
-_DAEMON_URL_BASE = "https://192.168.20.33:8765"   # R710 LXC
+_CONFIG_FILE = os.path.join(_SCRIPT_DIR, 'hydra_config.json')
 
 _STARTUP_REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 _STARTUP_REG_VALUE = "HydraTorrent"
@@ -108,12 +111,20 @@ def _get_api_key() -> str:
     return _load_config().get('daemon_api_key', '')
 
 
+def _build_daemon_url(cfg: dict) -> str:
+    """Build daemon base URL from config."""
+    host = cfg.get('daemon_host', '192.168.20.33')
+    port = cfg.get('daemon_port', 8765)
+    scheme = 'https' if cfg.get('daemon_use_ssl', True) else 'http'
+    return f"{scheme}://{host}:{port}"
+
+
 # ---------------------------------------------------------------------------
 # Tray icon drawing
 # ---------------------------------------------------------------------------
 
 def _make_icon(status: str) -> Image.Image:
-    """Return a 64×64 RGBA image: Hydra logo + small coloured status dot."""
+    """Return a 64x64 RGBA image: Hydra logo + small coloured status dot."""
     ico_path = resource_path('image8.ico')
     try:
         base = Image.open(ico_path).convert('RGBA').resize(
@@ -159,10 +170,7 @@ def _startup_enabled() -> bool:
 
 def _enable_startup() -> None:
     """Write startup registry entry using pythonw.exe (no console on login)."""
-    # sys.executable is always the interpreter that is actually running right now
-    # and has all required dependencies — use it directly rather than searching.
     python_exe = sys.executable
-    # Prefer pythonw.exe (same dir) so no console flashes on login.
     pythonw = os.path.join(os.path.dirname(python_exe), 'pythonw.exe')
     if not os.path.exists(pythonw):
         pythonw = python_exe
@@ -195,14 +203,19 @@ def _disable_startup() -> None:
 
 class HydraTray:
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        desktop_mode: bool = False,
+        open_callback: Optional[Callable] = None,
+    ) -> None:
+        self._desktop_mode = desktop_mode
+        self._open_callback = open_callback  # callable to reopen pywebview window
         self._api_key: str = ''
+        self._daemon_url: str = ''
         self._icon: Optional[pystray.Icon] = None
         self._status: str = _STATUS_STARTING
         self._vpn_text: str = 'VPN: Checking...'
         self._lock = threading.Lock()
-        # Completion tracking — None means first poll hasn't happened yet
-        # (so we don't spam notifications for already-finished torrents on startup)
         self._notified: Optional[set] = None
 
     # ── Status polling ────────────────────────────────────────────────────────
@@ -220,7 +233,7 @@ class HydraTray:
         """Fetch current transfer list from daemon. Returns None on failure."""
         try:
             r = requests.get(
-                f"{_DAEMON_URL_BASE}/transfers",
+                f"{self._daemon_url}/transfers",
                 headers={"X-API-Key": self._api_key},
                 timeout=3,
                 verify=False,
@@ -234,7 +247,6 @@ class HydraTray:
     def _check_completions(self, transfers: list) -> None:
         """Fire a Windows toast for any transfer that just finished downloading."""
         if self._notified is None:
-            # First successful poll: record already-finished torrents silently
             self._notified = {
                 t['name'] for t in transfers
                 if t.get('status') in ('Seeding', 'Finished') or t.get('progress', 0) >= 100
@@ -250,7 +262,6 @@ class HydraTray:
                 self._fire_notification(name, t)
                 self._notified.add(name)
 
-        # Prune names that were removed (allow re-notification if same torrent re-added)
         self._notified.intersection_update(current_names)
 
     def _fire_notification(self, name: str, transfer: dict) -> None:
@@ -268,14 +279,13 @@ class HydraTray:
             print(f"[tray] Notification error: {e}", file=sys.stderr)
 
     def _refresh_status(self) -> None:
-        # Re-read key in case daemon just generated it
         api_key = _get_api_key() or self._api_key
         if api_key:
             self._api_key = api_key
 
         try:
             r = requests.get(
-                f"{_DAEMON_URL_BASE}/status",
+                f"{self._daemon_url}/status",
                 headers={"X-API-Key": self._api_key},
                 timeout=3,
                 verify=False,
@@ -297,6 +307,8 @@ class HydraTray:
             new_status = _STATUS_DEAD
             new_vpn_text = "VPN: Unknown (daemon unreachable)"
 
+        label = "Local" if self._desktop_mode else "Remote"
+
         with self._lock:
             changed = (new_status != self._status or new_vpn_text != self._vpn_text)
             self._status = new_status
@@ -305,11 +317,11 @@ class HydraTray:
         if changed and self._icon:
             self._icon.icon = _make_icon(new_status)
             self._icon.title = {
-                _STATUS_HEALTHY:  "Hydra Torrent (R710) — OK",
-                _STATUS_NO_VPN:   "Hydra Torrent (R710) — VPN DOWN",
-                _STATUS_DEAD:     "Hydra Torrent (R710) — DAEMON UNREACHABLE",
-                _STATUS_STARTING: "Hydra Torrent (R710) — Connecting...",
-            }.get(new_status, "Hydra Torrent (R710)")
+                _STATUS_HEALTHY:  f"Hydra Torrent ({label}) — OK",
+                _STATUS_NO_VPN:   f"Hydra Torrent ({label}) — VPN DOWN",
+                _STATUS_DEAD:     f"Hydra Torrent ({label}) — DAEMON UNREACHABLE",
+                _STATUS_STARTING: f"Hydra Torrent ({label}) — Connecting...",
+            }.get(new_status, f"Hydra Torrent ({label})")
             self._icon.update_menu()
 
     def _get_vpn_text(self) -> str:
@@ -319,12 +331,15 @@ class HydraTray:
     # ── Menu actions ──────────────────────────────────────────────────────────
 
     def _action_open_web_ui(self, icon, item) -> None:
-        webbrowser.open(f"{_DAEMON_URL_BASE}/ui")  # browser shows self-signed cert warning on first visit
+        if self._desktop_mode and self._open_callback:
+            self._open_callback()
+        else:
+            webbrowser.open(f"{self._daemon_url}/ui")
 
     def _action_pause_all(self, icon, item) -> None:
         try:
             r = requests.get(
-                f"{_DAEMON_URL_BASE}/transfers",
+                f"{self._daemon_url}/transfers",
                 headers={"X-API-Key": self._api_key},
                 timeout=3,
                 verify=False,
@@ -335,7 +350,7 @@ class HydraTray:
                 name = t.get('name', '')
                 if name and not t.get('paused', False):
                     requests.post(
-                        f"{_DAEMON_URL_BASE}/transfers/{url_quote(name, safe='')}/pause",
+                        f"{self._daemon_url}/transfers/{url_quote(name, safe='')}/pause",
                         headers={"X-API-Key": self._api_key},
                         timeout=3,
                         verify=False,
@@ -346,7 +361,7 @@ class HydraTray:
     def _action_resume_all(self, icon, item) -> None:
         try:
             r = requests.get(
-                f"{_DAEMON_URL_BASE}/transfers",
+                f"{self._daemon_url}/transfers",
                 headers={"X-API-Key": self._api_key},
                 timeout=3,
                 verify=False,
@@ -357,7 +372,7 @@ class HydraTray:
                 name = t.get('name', '')
                 if name and t.get('paused', False):
                     requests.post(
-                        f"{_DAEMON_URL_BASE}/transfers/{url_quote(name, safe='')}/resume",
+                        f"{self._daemon_url}/transfers/{url_quote(name, safe='')}/resume",
                         headers={"X-API-Key": self._api_key},
                         timeout=3,
                         verify=False,
@@ -377,21 +392,18 @@ class HydraTray:
         print("[tray] Exit")
         if self._icon:
             self._icon.stop()
+        if self._desktop_mode:
+            # Kill everything — daemon thread, pywebview, the lot
+            os._exit(0)
 
     # ── Menu building ──────────────────────────────────────────────────────────
 
     def _build_menu(self) -> pystray.Menu:
-        """
-        Build the right-click menu.
-
-        VPN text and startup label are callables so pystray re-evaluates them
-        each time the menu opens — no manual update_menu() call needed for text.
-        """
         return pystray.Menu(
-            # Dynamic VPN status line (non-clickable)
             Item(lambda item: self._get_vpn_text(), None, enabled=False),
             Menu.SEPARATOR,
-            Item("Open Web UI", self._action_open_web_ui),
+            Item("Open Web UI" if not self._desktop_mode else "Open",
+                 self._action_open_web_ui),
             Item("Pause All",   self._action_pause_all),
             Item("Resume All",  self._action_resume_all),
             Menu.SEPARATOR,
@@ -406,35 +418,42 @@ class HydraTray:
     # ── Entry point ────────────────────────────────────────────────────────────
 
     def run(self) -> None:
-        # 1. Load API key from local config
+        # 1. Load config and build daemon URL
+        cfg = _load_config()
+        self._daemon_url = _build_daemon_url(cfg)
         self._api_key = _get_api_key()
-        print(f"[tray] Connecting to R710 daemon at {_DAEMON_URL_BASE}")
+
+        label = "Local" if self._desktop_mode else "Remote"
+        print(f"[tray] Connecting to daemon at {self._daemon_url} ({label} mode)")
 
         # 2. Refresh startup registry entry
         _enable_startup()
 
-        # 3. Create and show the tray icon
+        # 3. Do first status check immediately so icon starts with correct colour
+        self._refresh_status()
+
+        # 4. Create and show the tray icon
         self._icon = pystray.Icon(
             name="HydraTorrent",
             icon=_make_icon(self._status),
-            title="Hydra Torrent (R710)",
+            title=f"Hydra Torrent ({label})",
             menu=self._build_menu(),
         )
 
-        # 4. Start background status poll thread
+        # 5. Start background status poll thread
         threading.Thread(
             target=self._poll_loop,
             daemon=True,
             name="tray-poll",
         ).start()
 
-        # 5. Run pystray on the main thread (blocks until icon.stop() is called)
+        # 6. Run pystray (blocks until icon.stop() is called)
         self._icon.run()
 
 
 # ---------------------------------------------------------------------------
-# Entry point
+# Entry point (standalone remote mode)
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    HydraTray().run()
+    HydraTray(desktop_mode=False).run()

@@ -8,6 +8,80 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* Custom frameless title bar */
+    .titlebar {
+      display: none;
+      height: 33px;
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      align-items: center;
+      padding: 0 8px;
+      position: sticky;
+      top: -1px;
+      z-index: 200;
+      user-select: none;
+      cursor: default;
+      margin-top: -1px;
+    }
+
+    body.frameless .titlebar { display: flex; }
+    body.frameless header { display: none; }
+    body.frameless .tabs { top: 32px; }
+
+    .titlebar-rates {
+      font-size: 11px;
+      color: var(--muted);
+      margin-left: 16px;
+    }
+
+    .titlebar-rates b { color: var(--text); }
+
+    .titlebar-icon {
+      width: 16px;
+      height: 16px;
+      margin-right: 8px;
+    }
+
+    .titlebar-title {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 12px;
+      color: var(--text);
+      font-weight: 400;
+    }
+
+    .titlebar-spacer { flex: 1; }
+
+    .titlebar-controls {
+      display: flex;
+      -webkit-app-region: no-drag;
+      app-region: no-drag;
+    }
+
+    .titlebar-btn {
+      width: 46px;
+      height: 32px;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      font-size: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+    }
+
+    .titlebar-btn:hover { background: var(--border); }
+    .titlebar-btn.close:hover { background: #e81123; color: #fff; }
+
+    .titlebar-btn svg {
+      width: 10px;
+      height: 10px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.5;
+    }
+
     :root {
       --bg:         #060606;
       --card:       #111111;
@@ -608,6 +682,30 @@
 
     .secret-row input { flex: 1; }
 
+    .settings-hint-toggle {
+      font-size: 11px;
+      color: var(--accent);
+      cursor: pointer;
+      margin-top: 4px;
+      display: inline-block;
+    }
+
+    .settings-hint-toggle:hover { text-decoration: underline; }
+
+    .settings-hint-box {
+      display: none;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-top: 8px;
+      padding: 10px 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+    }
+
+    .settings-hint-box.open { display: block; }
+
     .checkbox-label {
       display: flex;
       align-items: center;
@@ -700,6 +798,25 @@
   </style>
 </head>
 <body>
+
+<!-- Custom title bar for frameless pywebview window -->
+<div class="titlebar pywebview-drag-region">
+  <img class="titlebar-icon" src="/static/logo.png" alt="Hydra">
+  <span class="titlebar-title">Hydra Torrent</span>
+  <div class="titlebar-rates" id="titlebar-rates"></div>
+  <div class="titlebar-spacer"></div>
+  <div class="titlebar-controls">
+    <button class="titlebar-btn minimize" onclick="window.pywebview && pywebview.api ? pywebview.api.minimize() : null" title="Minimize">
+      <svg viewBox="0 0 10 10"><line x1="0" y1="5" x2="10" y2="5"/></svg>
+    </button>
+    <button class="titlebar-btn maximize" onclick="window.pywebview && pywebview.api ? pywebview.api.maximize() : null" title="Maximize">
+      <svg viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none"/></svg>
+    </button>
+    <button class="titlebar-btn close" onclick="window.pywebview && pywebview.api ? pywebview.api.close() : null" title="Close">
+      <svg viewBox="0 0 10 10"><line x1="0" y1="0" x2="10" y2="10"/><line x1="10" y1="0" x2="0" y2="10"/></svg>
+    </button>
+  </div>
+</div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <!-- Header                                                                   -->
@@ -857,6 +974,13 @@
         <input type="password" id="cfg-jackett-key" placeholder="jackett-api-key">
         <button class="btn btn-sm btn-pause" onclick="toggleSecret('cfg-jackett-key', this)">Show</button>
       </div>
+    </div>
+    <span class="settings-hint-toggle" onclick="this.nextElementSibling.classList.toggle('open')">What's Jackett?</span>
+    <div class="settings-hint-box">
+      Most torrent sites block automated searches — they'll hit you with CAPTCHAs, Cloudflare walls, or just ban your IP.
+      Jackett handles all of that. It talks to 100+ torrent sites and feeds the results back to Hydra.<br><br>
+      Hydra is the app you use. Jackett is the thing that goes out and finds torrents without getting blocked.<br><br>
+      You don't need it to use Hydra. But if you want more results, more sources, and more peers — add Jackett.
     </div>
   </div>
 
@@ -1389,11 +1513,12 @@ async function pollStatus() {
     const dlRate = data.total_download_rate || 0;
     const ulRate = data.total_upload_rate || 0;
     const ratesEl = document.getElementById('header-rates');
-    if (dlRate > 100 || ulRate > 100) {
-      ratesEl.innerHTML = `<b>${fmtSpeed(dlRate)}</b> ↓ &nbsp; <b>${fmtSpeed(ulRate)}</b> ↑`;
-    } else {
-      ratesEl.textContent = '';
-    }
+    const titlebarRatesEl = document.getElementById('titlebar-rates');
+    const ratesHtml = (dlRate > 100 || ulRate > 100)
+      ? `<b>${fmtSpeed(dlRate)}</b> ↓ &nbsp; <b>${fmtSpeed(ulRate)}</b> ↑`
+      : '';
+    if (ratesEl) ratesEl.innerHTML = ratesHtml;
+    if (titlebarRatesEl) titlebarRatesEl.innerHTML = ratesHtml;
   } catch (e) {
     // daemon may be starting; leave badge as-is
   }
