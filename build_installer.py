@@ -39,21 +39,51 @@ pyinstaller_cmd = [
     "--windowed",  # No console window
     "--onefile",   # Single .exe
     "--icon=image8.ico",
+    # Data files
     "--add-data=image8.ico;.",
     "--add-data=GeoLite2-Country.mmdb;.",
-    "--add-data=theme_manager.py;.",
-    "--add-data=transfer_manager.py;.",
-    "--add-data=media_organizer.py;.",
+    "--add-data=static;static",
+    # Local modules (daemon + dependencies)
+    "--add-data=hydra_daemon.py;.",
+    "--add-data=hydra_tray.py;.",
+    "--add-data=webview_api.py;.",
     "--add-data=config.py;.",
     "--add-data=certs.py;.",
     "--add-data=search.py;.",
     "--add-data=download.py;.",
-    "--hidden-import=ttkbootstrap",
+    "--add-data=vpn_guard.py;.",
+    "--add-data=media_organizer.py;.",
+    "--add-data=rss_poller.py;.",
+    "--add-data=daemon_models.py;.",
+    "--add-data=network.py;.",
+    "--add-data=transfer_manager.py;.",
+    "--add-data=theme_manager.py;.",
+    # Hidden imports — pywebview + GUI
+    "--hidden-import=webview",
+    "--hidden-import=pystray",
+    "--hidden-import=PIL",
+    # Hidden imports — daemon
+    "--hidden-import=uvicorn",
+    "--hidden-import=uvicorn.logging",
+    "--hidden-import=uvicorn.loops",
+    "--hidden-import=uvicorn.loops.auto",
+    "--hidden-import=uvicorn.protocols",
+    "--hidden-import=uvicorn.protocols.http",
+    "--hidden-import=uvicorn.protocols.http.auto",
+    "--hidden-import=uvicorn.lifespan",
+    "--hidden-import=uvicorn.lifespan.on",
+    "--hidden-import=fastapi",
+    "--hidden-import=starlette",
+    "--hidden-import=pydantic",
     "--hidden-import=libtorrent",
     "--hidden-import=maxminddb",
-    "--hidden-import=PIL",
-    "--collect-all=ttkbootstrap",
-    "peer.pyw"
+    "--hidden-import=psutil",
+    "--hidden-import=bs4",
+    "--hidden-import=aiofiles",
+    "--hidden-import=miniupnpc",
+    "--hidden-import=cryptography",
+    # Entry point
+    "hydra_app.py"
 ]
 
 result = subprocess.run(pyinstaller_cmd)
@@ -61,7 +91,7 @@ if result.returncode != 0:
     print("\nERROR: PyInstaller build failed!")
     sys.exit(1)
 
-print("\n✓ Executable built successfully!")
+print("\n[OK] Executable built successfully!")
 
 # Create installer package
 print("\n[3/4] Creating installer package...")
@@ -76,14 +106,14 @@ for f in files_to_copy:
     if os.path.exists(f):
         shutil.copy(f, f"installer_package/{f}")
 
-print("✓ Files copied to installer_package/")
+print("[OK] Files copied to installer_package/")
 
 # Create the installer script
 print("\n[4/4] Creating installer script...")
 
-installer_script = """@echo off
+installer_script = r"""@echo off
 REM Hydra Torrent Installer
-REM Installs to %LOCALAPPDATA%\\HydraTorrent
+REM Installs to %LOCALAPPDATA%\HydraTorrent
 
 echo ====================================================================
 echo HYDRA TORRENT INSTALLER
@@ -100,35 +130,43 @@ if %errorLevel% neq 0 (
     exit /b 1
 )
 
-echo [1/5] Creating installation directory...
-set INSTALL_DIR=%LOCALAPPDATA%\\HydraTorrent
+echo [1/6] Creating installation directory...
+set INSTALL_DIR=%LOCALAPPDATA%\HydraTorrent
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 
-echo [2/5] Copying files...
-copy /Y HydraTorrent.exe "%INSTALL_DIR%\\HydraTorrent.exe"
-copy /Y image8.ico "%INSTALL_DIR%\\image8.ico"
-copy /Y GeoLite2-Country.mmdb "%INSTALL_DIR%\\GeoLite2-Country.mmdb"
+echo [2/6] Copying files...
+copy /Y HydraTorrent.exe "%INSTALL_DIR%\HydraTorrent.exe"
+copy /Y image8.ico "%INSTALL_DIR%\image8.ico"
+copy /Y GeoLite2-Country.mmdb "%INSTALL_DIR%\GeoLite2-Country.mmdb"
 
-echo [3/5] Creating configuration...
-(
-echo {
-echo   "peer_port": 6002,
-echo   "jackett_url": "http://192.168.20.2:9117",
-echo   "plex_url": "http://192.168.20.33:32400",
-echo   "plex_token": "8Jkzcq8frQYqxELDQV3K",
-echo   "auto_move_to_plex": true,
-echo   "search_mode": "jackett"
-echo }
-) > "%INSTALL_DIR%\\hydra_config.json"
+echo [3/6] Creating configuration...
+if not exist "%INSTALL_DIR%\hydra_config.json" (
+    (
+    echo {
+    echo   "daemon_host": "127.0.0.1",
+    echo   "daemon_port": 8766,
+    echo   "daemon_use_ssl": false,
+    echo   "desktop_mode": true,
+    echo   "search_mode": "online"
+    echo }
+    ) > "%INSTALL_DIR%\hydra_config.json"
+    echo    Configuration created with defaults.
+) else (
+    echo    Existing configuration preserved.
+)
 
-echo [4/5] Adding Windows Firewall rules...
+echo [4/6] Adding Windows Firewall rules...
 netsh advfirewall firewall delete rule name="Hydra Torrent" >nul 2>&1
 netsh advfirewall firewall add rule name="Hydra Torrent" dir=in action=allow protocol=TCP localport=6002 profile=any description="Hydra Torrent BitTorrent client"
 netsh advfirewall firewall add rule name="Hydra Torrent" dir=in action=allow protocol=UDP localport=6002 profile=any description="Hydra Torrent BitTorrent client"
 netsh advfirewall firewall add rule name="Hydra Torrent DHT" dir=in action=allow protocol=UDP localport=6881 profile=any description="Hydra Torrent DHT"
 
-echo [5/5] Creating desktop shortcut...
-powershell -Command "$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%USERPROFILE%\\Desktop\\Hydra Torrent.lnk'); $Shortcut.TargetPath = '%INSTALL_DIR%\\HydraTorrent.exe'; $Shortcut.WorkingDirectory = '%INSTALL_DIR%'; $Shortcut.IconLocation = '%INSTALL_DIR%\\image8.ico'; $Shortcut.Save()"
+echo [5/6] Creating desktop shortcut...
+powershell -Command "$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%USERPROFILE%\Desktop\Hydra Torrent.lnk'); $Shortcut.TargetPath = '%INSTALL_DIR%\HydraTorrent.exe'; $Shortcut.WorkingDirectory = '%INSTALL_DIR%'; $Shortcut.IconLocation = '%INSTALL_DIR%\image8.ico'; $Shortcut.Save()"
+
+echo [6/6] Creating Start Menu shortcut...
+set START_MENU=%APPDATA%\Microsoft\Windows\Start Menu\Programs
+powershell -Command "$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%START_MENU%\Hydra Torrent.lnk'); $Shortcut.TargetPath = '%INSTALL_DIR%\HydraTorrent.exe'; $Shortcut.WorkingDirectory = '%INSTALL_DIR%'; $Shortcut.IconLocation = '%INSTALL_DIR%\image8.ico'; $Shortcut.Save()"
 
 echo.
 echo ====================================================================
@@ -138,16 +176,11 @@ echo.
 echo Hydra Torrent has been installed to:
 echo %INSTALL_DIR%
 echo.
-echo A desktop shortcut has been created.
-echo Firewall rules have been added for port 6002.
+echo - Desktop shortcut created
+echo - Start Menu shortcut created
+echo - Firewall rules added
 echo.
-echo Configuration:
-echo - BitTorrent Port: 6002
-echo - Jackett: http://192.168.20.2:9117
-echo - Plex: http://192.168.20.33:32400
-echo - Downloads: \\\\192.168.20.4\\Plex\\movies and tv
-echo.
-echo You can now launch Hydra Torrent from your desktop!
+echo Click the Hydra Torrent icon on your desktop to get started!
 echo.
 pause
 """
@@ -155,62 +188,18 @@ pause
 with open("installer_package/INSTALL.bat", "w") as f:
     f.write(installer_script)
 
-# Create README
-readme = """# Hydra Torrent Installer
-
-## Installation Instructions
-
-1. Right-click on INSTALL.bat
-2. Select "Run as Administrator" (required for firewall rules)
-3. Follow the prompts
-
-The installer will:
-- Install Hydra Torrent to %LOCALAPPDATA%\\HydraTorrent
-- Create Windows Firewall rules for port 6002
-- Configure to use existing Jackett and Plex servers
-- Create a desktop shortcut
-
-## Configuration
-
-The installer automatically configures:
-- Port 6002 (so it doesn't conflict with the main instance on 6001)
-- Jackett at http://192.168.20.2:9117
-- Plex at http://192.168.20.33:32400
-- Downloads to \\\\192.168.20.4\\Plex\\movies and tv
-
-## Uninstall
-
-To uninstall:
-1. Delete the folder: %LOCALAPPDATA%\\HydraTorrent
-2. Delete the desktop shortcut
-3. Remove firewall rules (optional):
-   - Run: netsh advfirewall firewall delete rule name="Hydra Torrent"
-
-## Troubleshooting
-
-**"Access Denied" when installing:**
-- Make sure you right-click INSTALL.bat and choose "Run as Administrator"
-
-**Can't download torrents:**
-- Check Windows Firewall hasn't blocked the program
-- Verify port 6002 is open
-
-**Can't connect to shares:**
-- Make sure you can access \\\\192.168.20.4\\Plex from this computer
-- Check network permissions
-"""
-
-with open("installer_package/README.txt", "w") as f:
-    f.write(readme)
-
-print("✓ Installer script created!")
+print("[OK] Installer script created!")
 
 print("\n" + "=" * 70)
 print("BUILD COMPLETE!")
 print("=" * 70)
 print(f"\nInstaller package created in: installer_package/")
+print("\nContents:")
+for f in os.listdir("installer_package"):
+    size = os.path.getsize(os.path.join("installer_package", f))
+    print(f"  {f} ({size:,} bytes)")
 print("\nTo install on another computer:")
 print("1. Copy the entire 'installer_package' folder")
 print("2. Right-click INSTALL.bat and 'Run as Administrator'")
-print("3. Done!")
+print("3. Click the desktop shortcut — Hydra Torrent opens!")
 print("\n" + "=" * 70)
