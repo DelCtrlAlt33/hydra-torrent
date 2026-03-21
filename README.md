@@ -2,6 +2,14 @@
 
 **One app replaces qBittorrent + Sonarr + Radarr.** Download, auto-sort to Plex, VPN kill switch — no Docker stack required.
 
+## [>>> Download for Windows <<<](https://github.com/DelCtrlAlt33/hydra-torrent/releases/latest/download/HydraTorrent-Windows.zip)
+
+Download the zip, extract it, right-click `INSTALL.bat` → **Run as administrator**. That's it — click the desktop shortcut and go.
+
+No Python, no dependencies, no terminal. Just a normal app.
+
+---
+
 ![Hydra Torrent — Transfers](screenshots/transfers.png)
 ![Hydra Torrent — Search](screenshots/search.png)
 
@@ -49,7 +57,11 @@ sudo bash install.sh
 
 That's it. The installer sets up everything — installs dependencies, creates a system user, registers a service, and starts Hydra. It prints the URL when it's done.
 
-### Windows
+### Windows (Desktop App)
+
+[Download the latest release](https://github.com/DelCtrlAlt33/hydra-torrent/releases/latest/download/HydraTorrent-Windows.zip), extract, right-click `INSTALL.bat` → **Run as administrator**. A desktop shortcut is created — click it and Hydra opens as a native app with a system tray icon.
+
+### Windows (Server / Manual)
 
 ```bash
 git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
@@ -58,9 +70,11 @@ pip install -r requirements.txt
 python hydra_daemon.py
 ```
 
+Open `http://127.0.0.1:8766/ui` in your browser.
+
 ### Then what?
 
-Open `https://your-ip:8765/ui` in your browser. You'll get a certificate warning — that's normal, Hydra generates a self-signed cert on first run. Click through it.
+Everything works out of the box as a torrent client. Add Plex, Jackett, VPN whenever you want — all optional.
 
 A config file (`hydra_config.json`) is created automatically. Everything works out of the box as a torrent client. Add Plex, Jackett, VPN whenever you want — all optional.
 
