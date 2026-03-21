@@ -33,7 +33,8 @@
       min-height: 100vh;
     }
 
-    /* ── Header ─────────────────────────────────────────────────────────── */
+
+    /* Header */
     header {
       background: var(--card);
       border-bottom: 1px solid var(--border);
@@ -48,9 +49,10 @@
     }
 
     .logo {
-      font-size: 14px;
-      font-weight: 700;
-      letter-spacing: 2px;
+      font-family: Consolas, 'Courier New', monospace;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 3px;
       text-transform: uppercase;
       white-space: nowrap;
     }
@@ -83,19 +85,19 @@
 
     .vpn-badge.protected {
       background: rgba(0, 204, 68, 0.15);
-      color: var(--green);
+      color: #00cc44;
       border-color: rgba(0, 204, 68, 0.3);
     }
 
     .vpn-badge.exposed {
       background: rgba(255, 51, 51, 0.15);
-      color: var(--red);
+      color: #ff3333;
       border-color: rgba(255, 51, 51, 0.3);
     }
 
     .vpn-badge.checking {
       background: rgba(255, 165, 0, 0.15);
-      color: var(--orange);
+      color: #ffa500;
       border-color: rgba(255, 165, 0, 0.3);
     }
 
@@ -105,9 +107,10 @@
       background: currentColor;
     }
 
-    /* ── Tabs ──────────────────────────────────────────────────────────── */
+    /* Tabs */
     .tabs {
       display: flex;
+      align-items: center;
       gap: 0;
       background: var(--card);
       border-bottom: 1px solid var(--border);
@@ -131,7 +134,7 @@
 
     .tab:hover:not(.active) { color: var(--text); }
 
-    /* ── Main content ───────────────────────────────────────────────────── */
+    /* Main content */
     .pane {
       display: none;
       padding: 20px;
@@ -141,7 +144,7 @@
 
     .pane.active { display: block; }
 
-    /* ── Magnet input ───────────────────────────────────────────────────── */
+    /* Magnet input */
     .add-row {
       display: flex;
       gap: 8px;
@@ -152,7 +155,7 @@
       flex: 1;
       background: var(--input-bg);
       border: 1px solid var(--border);
-      border-radius: 6px;
+      border-radius: 2px;
       color: var(--text);
       padding: 9px 12px;
       font-size: 13px;
@@ -163,11 +166,11 @@
     .add-row input:focus { border-color: var(--accent); }
     .add-row input::placeholder { color: var(--muted); }
 
-    /* ── Buttons ────────────────────────────────────────────────────────── */
+    /* Buttons */
     .btn {
       padding: 8px 14px;
       border: none;
-      border-radius: 6px;
+      border-radius: 2px;
       cursor: pointer;
       font-size: 13px;
       font-weight: 600;
@@ -179,39 +182,39 @@
 
     .btn-primary {
       background: var(--accent);
-      color: #fff;
+      color: var(--btn-text, #fff);
     }
-    .btn-primary:hover { background: #9060e0; }
+    .btn-primary:hover { filter: brightness(1.2); }
 
     .btn-sm {
       padding: 5px 10px;
       font-size: 12px;
     }
 
-    .btn-pause  { background: #333348; color: var(--text); }
-    .btn-pause:hover  { background: #3e3e58; }
+    .btn-pause  { background: var(--bar-bg); color: var(--text); }
+    .btn-pause:hover  { filter: brightness(1.3); }
 
-    .btn-resume { background: rgba(0, 204, 68, 0.2); color: var(--green); border: 1px solid rgba(0,204,68,0.4); }
-    .btn-resume:hover { background: rgba(0, 204, 68, 0.3); }
+    .btn-resume { background: transparent; color: var(--green); border: 1px solid var(--green); }
+    .btn-resume:hover { background: var(--green); color: #000; }
 
-    .btn-remove { background: rgba(255, 51, 51, 0.15); color: var(--red); border: 1px solid rgba(255,51,51,0.3); }
-    .btn-remove:hover { background: rgba(255, 51, 51, 0.25); }
+    .btn-remove { background: transparent; color: var(--red); border: 1px solid var(--red); }
+    .btn-remove:hover { background: var(--red); color: #fff; }
 
-    .btn-add { background: rgba(124, 77, 204, 0.2); color: var(--accent); border: 1px solid rgba(124,77,204,0.4); }
-    .btn-add:hover { background: rgba(124, 77, 204, 0.35); }
+    .btn-add { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+    .btn-add:hover { background: var(--accent); color: #000; }
 
-    /* ── Transfer cards ─────────────────────────────────────────────────── */
+    /* Transfer cards */
     #transfers-list { display: flex; flex-direction: column; gap: 10px; }
 
     .card {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 3px;
       padding: 14px 16px;
       transition: border-color 0.2s;
     }
 
-    .card:hover { border-color: #3a3a4e; }
+    .card:hover { border-color: var(--accent-dim); }
 
     .card-header {
       display: flex;
@@ -245,10 +248,10 @@
     .badge-failed      { background: rgba(255, 51, 51, 0.15); color: var(--red); border: 1px solid rgba(255,51,51,0.3); }
     .badge-other       { background: rgba(136, 136, 152, 0.15); color: var(--muted); border: 1px solid rgba(136,136,152,0.3); }
 
-    /* ── Progress bar ───────────────────────────────────────────────────── */
+    /* Progress bar */
     .progress-wrap {
       background: var(--bar-bg);
-      border-radius: 4px;
+      border-radius: 1px;
       height: 6px;
       overflow: hidden;
       margin-bottom: 10px;
@@ -256,7 +259,7 @@
 
     .progress-bar {
       height: 100%;
-      border-radius: 4px;
+      border-radius: 1px;
       transition: width 0.5s ease;
     }
 
@@ -266,7 +269,7 @@
     .progress-bar.vpnpaused   { background: var(--orange); }
     .progress-bar.other       { background: var(--muted); }
 
-    /* ── Card stats row ─────────────────────────────────────────────────── */
+    /* Card stats row */
     .card-stats {
       display: flex;
       align-items: center;
@@ -293,7 +296,7 @@
 
     .plex-path::before { content: "→ Plex:"; color: var(--muted); }
 
-    /* ── Empty state ────────────────────────────────────────────────────── */
+    /* Empty state */
     .empty {
       text-align: center;
       color: var(--muted);
@@ -330,14 +333,14 @@
       margin-top: 0;
     }
 
-    /* ── HTTP warning banner ────────────────────────────────────────────── */
+    /* HTTP warning banner */
     .http-warning {
       display: none;
       background: rgba(255, 51, 51, 0.1);
       border: 1px solid rgba(255, 51, 51, 0.3);
       color: var(--red);
       padding: 8px 14px;
-      border-radius: 6px;
+      border-radius: 2px;
       font-size: 12px;
       margin-bottom: 12px;
       text-align: center;
@@ -345,7 +348,7 @@
 
     .http-warning.visible { display: block; }
 
-    /* ── Torrent file upload row ─────────────────────────────────────────── */
+    /* Torrent file upload row */
     .upload-row {
       display: flex;
       gap: 8px;
@@ -357,7 +360,7 @@
       flex: 1;
       background: var(--input-bg);
       border: 1px solid var(--border);
-      border-radius: 6px;
+      border-radius: 2px;
       color: var(--muted);
       padding: 8px 12px;
       font-size: 13px;
@@ -369,21 +372,21 @@
       background: var(--accent-dim);
       color: var(--text);
       border: none;
-      border-radius: 4px;
+      border-radius: 2px;
       padding: 4px 10px;
       font-size: 12px;
       cursor: pointer;
       margin-right: 8px;
     }
 
-    /* ── WS status banner ───────────────────────────────────────────────── */
+    /* WS status banner */
     .ws-banner {
       display: none;
       background: rgba(255, 165, 0, 0.1);
       border: 1px solid rgba(255, 165, 0, 0.3);
       color: var(--orange);
       padding: 8px 14px;
-      border-radius: 6px;
+      border-radius: 2px;
       font-size: 12px;
       margin-bottom: 16px;
       text-align: center;
@@ -391,7 +394,7 @@
 
     .ws-banner.visible { display: block; }
 
-    /* ── Search tab ─────────────────────────────────────────────────────── */
+    /* Search tab */
     .search-row {
       display: flex;
       gap: 8px;
@@ -402,7 +405,7 @@
       flex: 1;
       background: var(--input-bg);
       border: 1px solid var(--border);
-      border-radius: 6px;
+      border-radius: 2px;
       color: var(--text);
       padding: 9px 12px;
       font-size: 13px;
@@ -416,7 +419,7 @@
     .search-row select {
       background: var(--input-bg);
       border: 1px solid var(--border);
-      border-radius: 6px;
+      border-radius: 2px;
       color: var(--text);
       padding: 9px 10px;
       font-size: 13px;
@@ -426,7 +429,7 @@
 
     .search-row select:focus { border-color: var(--accent); }
 
-    /* ── Results table ──────────────────────────────────────────────────── */
+    /* Results table */
     .results-table {
       width: 100%;
       border-collapse: collapse;
@@ -445,7 +448,7 @@
 
     .results-table td {
       padding: 10px;
-      border-bottom: 1px solid #1e1e28;
+      border-bottom: 1px solid var(--border);
       font-size: 13px;
       vertical-align: middle;
     }
@@ -464,7 +467,7 @@
     .engine-badge {
       display: inline-block;
       padding: 2px 7px;
-      border-radius: 4px;
+      border-radius: 2px;
       font-size: 11px;
       background: rgba(124,77,204,0.15);
       color: var(--accent);
@@ -490,7 +493,7 @@
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ── File list panel ─────────────────────────────────────────────────── */
+    /* File list panel */
     .file-list-panel {
       border-top: 1px solid var(--border);
       margin-top: 10px;
@@ -506,12 +509,12 @@
       color: var(--muted);
       background: transparent;
       border: 1px solid var(--border);
-      border-radius: 4px;
+      border-radius: 2px;
       cursor: pointer;
       transition: color 0.15s, border-color 0.15s;
     }
 
-    .file-toggle-btn:hover { color: var(--text); border-color: #3a3a4e; }
+    .file-toggle-btn:hover { color: var(--text); border-color: var(--accent-dim); }
 
     .file-item {
       display: flex;
@@ -545,11 +548,11 @@
     input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
     input[type=number] { -moz-appearance: textfield; }
 
-    /* ── Settings tab ───────────────────────────────────────────────────── */
+    /* Settings tab */
     .settings-section {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 3px;
       padding: 16px 20px;
       margin-bottom: 16px;
     }
@@ -585,7 +588,7 @@
       flex: 1;
       background: var(--input-bg);
       border: 1px solid var(--border);
-      border-radius: 6px;
+      border-radius: 2px;
       color: var(--text);
       padding: 8px 12px;
       font-size: 13px;
@@ -621,7 +624,7 @@
       accent-color: var(--accent);
     }
 
-    /* ── Theme picker ──────────────────────────────────────────────────── */
+    /* Theme picker */
     .theme-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -631,7 +634,7 @@
     .theme-card {
       background: var(--input-bg);
       border: 2px solid var(--border);
-      border-radius: 8px;
+      border-radius: 3px;
       padding: 10px;
       cursor: pointer;
       transition: border-color 0.2s, transform 0.15s;
@@ -651,7 +654,7 @@
     .theme-card .theme-preview {
       display: flex;
       height: 24px;
-      border-radius: 4px;
+      border-radius: 2px;
       overflow: hidden;
       margin-bottom: 4px;
     }
@@ -664,7 +667,7 @@
       text-align: center;
     }
 
-    /* ── Toast notifications ────────────────────────────────────────────── */
+    /* Toast notifications */
     #toast-container {
       position: fixed;
       bottom: 20px;
@@ -678,7 +681,7 @@
     .toast {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 6px;
+      border-radius: 2px;
       padding: 10px 14px;
       font-size: 13px;
       max-width: 320px;
@@ -702,13 +705,9 @@
 <!-- Header                                                                   -->
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <header>
-  <div class="logo"><span class="brand">HYDRA</span> <span class="sub">TORRENT</span></div>
-  <div class="header-rates" id="header-rates"></div>
+  <div class="logo"><span class="brand">H Y D R A</span> &nbsp;<span class="sub">T O R R E N T</span></div>
   <div class="spacer"></div>
-  <div class="vpn-badge checking" id="vpn-badge">
-    <div class="vpn-dot"></div>
-    <span id="vpn-text">Checking...</span>
-  </div>
+  <div class="header-rates" id="header-rates"></div>
 </header>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -719,6 +718,11 @@
   <div class="tab" data-tab="search">Search</div>
   <div class="tab" data-tab="autodl">Auto-DL</div>
   <div class="tab" data-tab="settings">Settings</div>
+  <div style="flex:1"></div>
+  <div class="vpn-badge checking" id="vpn-badge">
+    <div class="vpn-dot"></div>
+    <span id="vpn-text">Checking...</span>
+  </div>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -728,7 +732,7 @@
   <div class="http-warning" id="http-warning"></div>
   <div class="add-row">
     <input type="text" id="magnet-input" placeholder="magnet:?xt=urn:btih:...">
-    <button class="btn btn-primary" onclick="addMagnet()">Add ↓</button>
+    <button class="btn btn-primary" onclick="addMagnet()">Add</button>
   </div>
   <div class="upload-row">
     <input type="file" id="torrent-file" accept=".torrent">
@@ -774,7 +778,6 @@
     <select id="search-mode">
       <option value="jackett">Jackett</option>
       <option value="online">Public</option>
-      <option value="local">Local</option>
     </select>
     <button class="btn btn-primary" onclick="doSearch()">Search</button>
   </div>
@@ -831,7 +834,7 @@
     <div class="settings-section-title">Plex</div>
     <div class="settings-row">
       <label>Plex URL</label>
-      <input type="text" id="cfg-plex-url" placeholder="http://localhost:32400">
+      <input type="text" id="cfg-plex-url" placeholder="http://192.168.1.x:32400">
     </div>
     <div class="settings-row">
       <label>Plex Token</label>
@@ -846,7 +849,7 @@
     <div class="settings-section-title">Indexer</div>
     <div class="settings-row">
       <label>Indexer URL</label>
-      <input type="text" id="cfg-indexer-url" placeholder="http://192.168.20.2:9117">
+      <input type="text" id="cfg-indexer-url" placeholder="http://192.168.1.x:9117">
     </div>
     <div class="settings-row">
       <label>Jackett API Key</label>
@@ -890,16 +893,16 @@
       </div>
     </div>
     <div style="padding-left: 142px; font-size: 11px; color: var(--muted); margin-top: 6px;">
-      Read-only. Used in tray config and curl commands.
+      Auto-generated key for external access to Hydra's API. You only need this if you're using the tray app or controlling Hydra from scripts.
     </div>
   </div>
 
   <div class="settings-section">
-    <div class="settings-section-title">Tray App</div>
+    <div class="settings-section-title">Tray App (Windows only)</div>
     <div class="settings-row">
       <label>Windows Tray</label>
       <div>
-        <a class="btn btn-primary" href="/download/tray" download="HydraTray.zip">&#8595; Download Tray App</a>
+        <a class="btn btn-primary" href="/download/tray" download="HydraTray.zip">Download Tray App</a>
         <div style="font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.8;">
           Extract <strong>HydraTray.zip</strong> anywhere and run <code>hydra_tray.exe</code>.<br>
           The API key is pre-configured. Adds itself to Windows startup automatically.
@@ -947,24 +950,28 @@ const THEMES = {
     '--bg':'#0a0a0a','--card':'#0f1a0f','--border':'#1a331a','--accent':'#00ff41','--accent-dim':'#008f11',
     '--green':'#39ff14','--red':'#ff0000','--orange':'#ccff00','--blue':'#00ff41','--yellow':'#ccff00',
     '--text':'#00ff41','--muted':'#008f11','--bar-bg':'#0f1a0f','--input-bg':'#0a0a0a',
+    '--btn-text':'#000',
   },
   tron: {
     name: 'Tron Legacy', desc: 'The Grid awaits',
     '--bg':'#000000','--card':'#0c141f','--border':'#1a2a3a','--accent':'#6fc3df','--accent-dim':'#3a7ca5',
     '--green':'#6fc3df','--red':'#df740c','--orange':'#df740c','--blue':'#6fc3df','--yellow':'#f5e642',
     '--text':'#6fc3df','--muted':'#3a7ca5','--bar-bg':'#0c141f','--input-bg':'#000000',
+    '--btn-text':'#000',
   },
   synthwave: {
     name: 'Synthwave', desc: 'Retro-futuristic sunset',
     '--bg':'#2b213a','--card':'#1e1528','--border':'#3a2a50','--accent':'#ff6ac1','--accent-dim':'#a855f7',
     '--green':'#ff6ac1','--red':'#ff4444','--orange':'#f5a623','--blue':'#a855f7','--yellow':'#f5a623',
     '--text':'#f4eeff','--muted':'#c4b7d5','--bar-bg':'#1e1528','--input-bg':'#2b213a',
+    '--btn-text':'#000',
   },
   deep_ocean: {
     name: 'Deep Ocean', desc: 'Abyssal depths',
     '--bg':'#0a1628','--card':'#0f2035','--border':'#1a3048','--accent':'#00d2d3','--accent-dim':'#0abde3',
     '--green':'#00d2d3','--red':'#ee5a24','--orange':'#feca57','--blue':'#0abde3','--yellow':'#feca57',
     '--text':'#c8d6e5','--muted':'#576574','--bar-bg':'#0f2035','--input-bg':'#0a1628',
+    '--btn-text':'#000',
   },
   blood_moon: {
     name: 'Blood Moon', desc: 'Crimson eclipse',
@@ -977,12 +984,14 @@ const THEMES = {
     '--bg':'#0a0a00','--card':'#141400','--border':'#2a2a00','--accent':'#ffb000','--accent-dim':'#996600',
     '--green':'#ffb000','--red':'#ff4444','--orange':'#ffdd00','--blue':'#ffb000','--yellow':'#ffdd00',
     '--text':'#ffb000','--muted':'#996600','--bar-bg':'#141400','--input-bg':'#0a0a00',
+    '--btn-text':'#000',
   },
   arctic: {
     name: 'Arctic', desc: 'Frozen digital tundra',
     '--bg':'#1b2838','--card':'#1e3246','--border':'#2a475e','--accent':'#66c0f4','--accent-dim':'#4fc3f7',
     '--green':'#66c0f4','--red':'#e74c3c','--orange':'#f39c12','--blue':'#66c0f4','--yellow':'#f39c12',
     '--text':'#c7d5e0','--muted':'#8496a9','--bar-bg':'#1e3246','--input-bg':'#1b2838',
+    '--btn-text':'#000',
   },
   neon_tokyo: {
     name: 'Neon Tokyo', desc: 'Electric Akihabara nights',
@@ -994,7 +1003,8 @@ const THEMES = {
     name: 'Void', desc: 'Embrace the emptiness',
     '--bg':'#0e0e0e','--card':'#181818','--border':'#2a2a2a','--accent':'#ffffff','--accent-dim':'#888888',
     '--green':'#a0a0a0','--red':'#ff4444','--orange':'#cccccc','--blue':'#ffffff','--yellow':'#cccccc',
-    '--text':'#a0a0a0','--muted':'#555555','--bar-bg':'#181818','--input-bg':'#0e0e0e',
+    '--text':'#e0e0e0','--muted':'#555555','--bar-bg':'#181818','--input-bg':'#0e0e0e',
+    '--btn-text':'#000',
   },
   solar_flare: {
     name: 'Solar Flare', desc: 'Surface of the sun',
@@ -1007,9 +1017,10 @@ const THEMES = {
     '--bg':'#16101e','--card':'#201830','--border':'#302848','--accent':'#bd93f9','--accent-dim':'#ff79c6',
     '--green':'#50fa7b','--red':'#ff5555','--orange':'#f1fa8c','--blue':'#bd93f9','--yellow':'#f1fa8c',
     '--text':'#d4c5f9','--muted':'#7e6ba4','--bar-bg':'#201830','--input-bg':'#16101e',
+    '--btn-text':'#000',
   },
   hydra_default: {
-    name: 'Hydra Default', desc: 'Classic Hydra look',
+    name: 'Nebula', desc: 'Deep space purple haze',
     '--bg':'#1a1a2e','--card':'#2c0a3a','--border':'#3a1a50','--accent':'#6c5ce7','--accent-dim':'#a29bfe',
     '--green':'#00ff00','--red':'#ff4444','--orange':'#ffa500','--blue':'#6c5ce7','--yellow':'#ffa500',
     '--text':'#ffffff','--muted':'#aaaaaa','--bar-bg':'#2c0a3a','--input-bg':'#1a1a2e',
@@ -1019,6 +1030,7 @@ const THEMES = {
     '--bg':'#0a1f0a','--card':'#0f2e0f','--border':'#1a441a','--accent':'#2ecc71','--accent-dim':'#27ae60',
     '--green':'#2ecc71','--red':'#e74c3c','--orange':'#f1c40f','--blue':'#2ecc71','--yellow':'#f1c40f',
     '--text':'#b8e6b8','--muted':'#5a8a5a','--bar-bg':'#0f2e0f','--input-bg':'#0a1f0a',
+    '--btn-text':'#000',
   },
   midnight_steel: {
     name: 'Midnight Steel', desc: 'Cold precision engineering',
@@ -1032,6 +1044,7 @@ function applyTheme(key) {
   const t = THEMES[key];
   if (!t) return;
   const root = document.documentElement;
+  root.style.removeProperty('--btn-text');
   for (const [prop, val] of Object.entries(t)) {
     if (prop.startsWith('--')) root.style.setProperty(prop, val);
   }
@@ -1067,10 +1080,10 @@ function renderThemeGrid() {
   }
 }
 
-// Apply saved theme on load
+// Apply saved theme on load (default: Deep Ocean)
 (function() {
   const saved = localStorage.getItem('hydra-theme');
-  if (saved && THEMES[saved]) applyTheme(saved);
+  applyTheme((saved && THEMES[saved]) ? saved : 'deep_ocean');
 })();
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1690,7 +1703,7 @@ function renderRssRules(rules) {
   const modeLabel = { pack: 'Season pack', episodes: 'Episodes', any: 'Any' };
   el.innerHTML = rules.map(r => {
     const checked = r.last_checked ? relTime(r.last_checked) : 'Never';
-    const dot = r.enabled ? 'var(--green)' : 'var(--muted)';
+    const dot = r.enabled ? '#00cc44' : 'var(--muted)';
     const seasonTag = r.season ? ` · S${String(r.season).padStart(2,'0')}` : '';
     const startTag  = (r.start_episode && r.episode_mode === 'episodes')
                       ? ` from E${String(r.start_episode).padStart(2,'0')}` : '';
