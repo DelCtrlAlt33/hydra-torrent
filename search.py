@@ -218,11 +218,23 @@ def search_jackett(server_url, keyword, api_key):
     for item in root.findall('.//item'):
         title = item.find('title').text or 'Unknown'
         magnet = None
+        # Check enclosure URLs
         for enc in item.findall('enclosure'):
             u = enc.get('url', '')
             if u and u.startswith('magnet:'):
                 magnet = u
                 break
+        # Check torznab magneturl attribute
+        if not magnet:
+            for attr in item.findall('{http://torznab.com/schemas/2015/feed}attr'):
+                if attr.get('name') == 'magneturl':
+                    magnet = attr.get('value')
+                    break
+        # Check <link> element
+        if not magnet:
+            link_el = item.find('link')
+            if link_el is not None and link_el.text and link_el.text.startswith('magnet:'):
+                magnet = link_el.text
         if not magnet:
             continue
 

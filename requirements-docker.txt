@@ -1,11 +1,8 @@
-ttkbootstrap
 requests
 beautifulsoup4
-miniupnpc
 aiofiles
 libtorrent>=2.0.11
 maxminddb
-Pillow
 cryptography
 fastapi
 python-multipart
@@ -13,4 +10,3 @@ uvicorn[standard]
 pydantic>=2.0
 websockets
 psutil
-pystray
