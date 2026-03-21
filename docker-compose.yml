@@ -1,0 +1,39 @@
+services:
+  hydra:
+    build: .
+    container_name: hydra-torrent
+    restart: unless-stopped
+    ports:
+      - 8765:8765
+    volumes:
+      - ./data:/data         # config, certs, transfers
+      - /path/to/movies:/movies   # your Plex movies folder
+      - /path/to/tv:/tv           # your Plex TV folder
+    environment:
+      - TZ=UTC
+
+  # ── VPN with gluetun (optional) ────────────────────────
+  # To route all torrent traffic through your VPN:
+  #
+  # 1. Uncomment the gluetun service below
+  # 2. On the hydra service above:
+  #    - delete the 'ports:' section
+  #    - add these two lines instead:
+  #        network_mode: "service:gluetun"
+  #        depends_on:
+  #          - gluetun
+  #
+  # gluetun:
+  #   image: qmcgaw/gluetun
+  #   container_name: gluetun
+  #   cap_add:
+  #     - NET_ADMIN
+  #   devices:
+  #     - /dev/net/tun:/dev/net/tun
+  #   ports:
+  #     - 8765:8765
+  #   environment:
+  #     - VPN_SERVICE_PROVIDER=private_internet_access
+  #     - OPENVPN_USER=p1234567
+  #     - OPENVPN_PASSWORD=your_password
+  #     - SERVER_REGIONS=US Texas

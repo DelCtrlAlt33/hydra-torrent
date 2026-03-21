@@ -1176,7 +1176,7 @@ def web_ui() -> HTMLResponse:
             html = f.read().replace('__HYDRA_API_KEY__', API_KEY)
     except FileNotFoundError:
         return HTMLResponse(content="<h1>Web UI not found</h1><p>static/index.html is missing.</p>", status_code=404)
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=html, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 @app.get("/download/tray", include_in_schema=False)
@@ -1297,7 +1297,7 @@ def do_search(req: SearchRequest) -> List[SearchResult]:
 
 if __name__ == "__main__":
     cfg = load_config()
-    host = cfg.get('daemon_host', '127.0.0.1')
+    host = cfg.get('daemon_host', '0.0.0.0')
     port = int(cfg.get('daemon_port', 8765))
     use_ssl = cfg.get('daemon_use_ssl', True)
 
