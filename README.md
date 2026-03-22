@@ -2,11 +2,41 @@
 
 **One app replaces qBittorrent + Sonarr + Radarr.** Download, auto-sort to Plex, VPN kill switch — no Docker stack required.
 
-## [>>> Download for Windows <<<](https://github.com/DelCtrlAlt33/hydra-torrent/releases/latest/download/HydraTorrent-Windows.zip)
+## Install
 
-Download the zip, extract it, double-click `HydraTorrent.exe`. It self-installs on first run — creates a desktop shortcut, Start Menu entry, and opens automatically.
+### Windows
+**[>>> Download for Windows <<<](https://github.com/DelCtrlAlt33/hydra-torrent/releases/latest/download/HydraTorrent-Windows.zip)**
 
-No Python, no dependencies, no terminal. Just a normal app.
+Extract the zip, double-click `HydraTorrent.exe`. It self-installs on first run — desktop shortcut, Start Menu entry, system tray icon. No Python, no dependencies, no terminal.
+
+### Docker
+```bash
+git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
+cd hydra-torrent
+docker compose up -d
+```
+Edit `docker-compose.yml` to set your media volumes and VPN. Config is stored in `./data/`.
+
+### Linux (Ubuntu, Debian, LXC, VM, bare metal)
+```bash
+git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
+cd hydra-torrent
+sudo bash install.sh
+```
+Installs dependencies, creates a system user, registers a systemd service, and starts Hydra. Prints the URL when done.
+
+### Manual (any OS with Python 3.10+)
+```bash
+git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
+cd hydra-torrent
+pip install -r requirements.txt
+python hydra_daemon.py
+```
+Open `http://127.0.0.1:8766/ui` in your browser.
+
+---
+
+**Everything works out of the box as a torrent client.** A config file is created automatically. Add Plex, Jackett, VPN whenever you want — all optional.
 
 ---
 
@@ -23,60 +53,17 @@ No Python, no dependencies, no terminal. Just a normal app.
 
 **It's one Python script and one config file.** That's the whole stack.
 
-## What else it does
+## Features
 
-- Browser UI you can open from any device on your network (phone, laptop, whatever)
-- Search torrents directly from the UI via Jackett
+- Browser UI from any device on your network (phone, laptop, whatever)
+- Search torrents directly from the UI (public indexers or Jackett)
+- VPN kill switch — optional toggle to block all downloads without VPN
 - Pick which files to download from a torrent — skip the extras
 - Seed ratio limits with auto-remove
 - RSS rules that grab new episodes as they drop
+- Auto-sort to Plex with library scan on completion
 - HTTPS with API key auth and rate limiting
-- Windows system tray app with toast notifications (optional)
-
-## Quick Start
-
-### Docker
-
-```bash
-git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
-cd hydra-torrent
-docker compose up -d
-```
-
-Edit `docker-compose.yml` to point the `/movies` and `/tv` volumes to your Plex library folders. Config and certs are stored in `./data/`.
-
-To add a VPN, uncomment the gluetun section in `docker-compose.yml` — instructions are in the file.
-
-### Linux (LXC, VM, bare metal)
-
-```bash
-git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
-cd hydra-torrent
-sudo bash install.sh
-```
-
-That's it. The installer sets up everything — installs dependencies, creates a system user, registers a service, and starts Hydra. It prints the URL when it's done.
-
-### Windows (Desktop App)
-
-[Download the latest release](https://github.com/DelCtrlAlt33/hydra-torrent/releases/latest/download/HydraTorrent-Windows.zip), extract, double-click `HydraTorrent.exe`. It self-installs on first run — creates a desktop shortcut, Start Menu entry, and opens as a native app with a system tray icon.
-
-### Windows (Server / Manual)
-
-```bash
-git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
-cd hydra-torrent
-pip install -r requirements.txt
-python hydra_daemon.py
-```
-
-Open `http://127.0.0.1:8766/ui` in your browser.
-
-### Then what?
-
-Everything works out of the box as a torrent client. Add Plex, Jackett, VPN whenever you want — all optional.
-
-A config file (`hydra_config.json`) is created automatically. Everything works out of the box as a torrent client. Add Plex, Jackett, VPN whenever you want — all optional.
+- Windows system tray app with toast notifications
 
 ### Useful commands (Linux)
 
