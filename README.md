@@ -4,7 +4,7 @@
 
 ## [>>> Download for Windows <<<](https://github.com/DelCtrlAlt33/hydra-torrent/releases/latest/download/HydraTorrent-Windows.zip)
 
-Download the zip, extract it, right-click `INSTALL.bat` → **Run as administrator**. That's it — click the desktop shortcut and go.
+Download the zip, extract it, double-click `HydraTorrent.exe`. It self-installs on first run — creates a desktop shortcut, Start Menu entry, and opens automatically.
 
 No Python, no dependencies, no terminal. Just a normal app.
 
@@ -59,7 +59,7 @@ That's it. The installer sets up everything — installs dependencies, creates a
 
 ### Windows (Desktop App)
 
-[Download the latest release](https://github.com/DelCtrlAlt33/hydra-torrent/releases/latest/download/HydraTorrent-Windows.zip), extract, right-click `INSTALL.bat` → **Run as administrator**. A desktop shortcut is created — click it and Hydra opens as a native app with a system tray icon.
+[Download the latest release](https://github.com/DelCtrlAlt33/hydra-torrent/releases/latest/download/HydraTorrent-Windows.zip), extract, double-click `HydraTorrent.exe`. It self-installs on first run — creates a desktop shortcut, Start Menu entry, and opens as a native app with a system tray icon.
 
 ### Windows (Server / Manual)
 
@@ -90,7 +90,7 @@ sudo journalctl -u hydra-torrent -f     # view logs
 
 **`pip install libtorrent` fails?** Make sure you're on Python 3.10–3.13. Older versions don't have prebuilt packages. If you're on Linux and pip doesn't work, try `sudo apt install python3-libtorrent` instead.
 
-**Can't connect?** Hydra runs on port 8765 with HTTPS. Make sure nothing else is using that port. Check your firewall if accessing from another device on your network.
+**Can't connect?** Hydra runs on port 8766. Make sure nothing else is using that port. Check your firewall if accessing from another device on your network.
 
 ## VPN (optional)
 
