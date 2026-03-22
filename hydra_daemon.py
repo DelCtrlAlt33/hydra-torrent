@@ -851,9 +851,14 @@ _PUBLIC_IP_TTL = 300  # refresh every 5 minutes
 
 
 async def _public_ip_refresher() -> None:
-    """Background task: fetch public IP immediately, then every 5 minutes."""
+    """Background task: fetch public IP every 5 minutes, bound to VPN interface."""
     global _public_ip, _public_ip_ts
     loop = asyncio.get_event_loop()
+    # Wait for engine to finish starting (VPN detection) before first fetch
+    for _ in range(30):
+        if engine and engine.vpn_ip is not None:
+            break
+        await asyncio.sleep(1)
     while True:
         try:
             vpn_ip = engine.vpn_ip if engine else None
