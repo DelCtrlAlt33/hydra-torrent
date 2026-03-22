@@ -79,7 +79,11 @@ sudo journalctl -u hydra-torrent -f     # view logs
 
 **Can't connect?** Hydra runs on port 8766. Make sure nothing else is using that port. Check your firewall if accessing from another device on your network.
 
-## VPN (optional)
+## VPN Kill Switch
+
+Enable "Require VPN to download" in Settings and your real IP will never touch a peer or tracker. Hydra binds all torrent traffic directly to your VPN interface — your public IP is never used to download, upload, or connect to anything. If the VPN drops, there's nothing to fall back to. The connection is physically locked to an interface that no longer exists, so nothing can leak. Every download pauses instantly and resumes automatically when the VPN reconnects. This is the same mechanism qBittorrent, Deluge, and Transmission use — it's the industry standard approach, but Hydra does it automatically.
+
+## VPN Setup (optional)
 
 Install your VPN on the same machine Hydra runs on. That's it — Hydra finds it automatically.
 
