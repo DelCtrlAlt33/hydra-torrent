@@ -40,16 +40,25 @@ Open `http://127.0.0.1:8765/ui` in your browser.
 
 ---
 
-![Hydra Torrent — Transfers](screenshots/transfers.png)
-![Hydra Torrent — Search](screenshots/search.png)
+![Hydra Torrent](screenshots/Title.png)
+
+![Hydra Torrent — Downloads](screenshots/Downloads.png)
 
 ## Why Hydra?
 
 **Your VPN drops. qBittorrent keeps downloading on your real IP.** Hydra doesn't. It auto-detects your VPN (any provider — WireGuard, OpenVPN, NordVPN, Mullvad, PIA, whatever), binds to it, and if the VPN goes down — every torrent pauses instantly. When it reconnects, they resume. Zero config, zero leaks.
 
+![VPN Kill Switch](screenshots/VPN.gif)
+
 **A download finishes. Now you have to move it, rename it, figure out if it's a movie or TV show, put it in the right Plex folder, and trigger a library scan.** Hydra does all of that automatically. It detects movies vs TV vs anime, files it into the right folder, and tells Plex to scan. Download finishes → it's in Plex. Done.
 
 **You want new episodes of a show grabbed automatically.** Set up a rule with the show name, season, and quality — Hydra checks for new releases and downloads them as they drop. No Sonarr, no Radarr, no Prowlarr, no Docker compose with 5 containers.
+
+![Auto-DL Rules](screenshots/Auto-DL.png)
+
+**Search and download in seconds.** Search public indexers or your own Jackett instance, click a result, and it starts downloading.
+
+![Search](screenshots/Searching.gif)
 
 **It's one Python script and one config file.** That's the whole stack.
 
@@ -64,6 +73,9 @@ Open `http://127.0.0.1:8765/ui` in your browser.
 - Auto-sort to Plex with library scan on completion
 - HTTPS with API key auth and rate limiting
 - Windows system tray app with toast notifications
+
+![Settings](screenshots/Settings1.png)
+![Settings](screenshots/Settings2.png)
 
 ### Useful commands (Linux)
 
