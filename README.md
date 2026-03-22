@@ -32,7 +32,7 @@ cd hydra-torrent
 pip install -r requirements.txt
 python hydra_daemon.py
 ```
-Open `http://127.0.0.1:8766/ui` in your browser.
+Open `http://127.0.0.1:8765/ui` in your browser.
 
 ---
 
@@ -77,7 +77,7 @@ sudo journalctl -u hydra-torrent -f     # view logs
 
 **`pip install libtorrent` fails?** Make sure you're on Python 3.10–3.13. Older versions don't have prebuilt packages. If you're on Linux and pip doesn't work, try `sudo apt install python3-libtorrent` instead.
 
-**Can't connect?** Hydra runs on port 8766. Make sure nothing else is using that port. Check your firewall if accessing from another device on your network.
+**Can't connect?** Hydra runs on port 8765. Make sure nothing else is using that port. Check your firewall if accessing from another device on your network.
 
 ## VPN Kill Switch
 

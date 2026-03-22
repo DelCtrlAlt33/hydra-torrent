@@ -118,7 +118,7 @@ def _self_install() -> None:
         with open(_CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump({
                 "daemon_host": "127.0.0.1",
-                "daemon_port": 8766,
+                "daemon_port": 8765,
                 "daemon_use_ssl": False,
                 "desktop_mode": True,
                 "search_mode": "online",
@@ -271,7 +271,7 @@ def main():
     # 1. Load config
     cfg = _load_config()
     host = cfg.get('daemon_host', '127.0.0.1')
-    port = int(cfg.get('daemon_port', 8766))
+    port = int(cfg.get('daemon_port', 8765))
     use_ssl = cfg.get('daemon_use_ssl', False)
     api_key = cfg.get('daemon_api_key', '')
 
