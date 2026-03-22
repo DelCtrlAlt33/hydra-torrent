@@ -56,8 +56,9 @@ _hide_console()
 # Paths / config
 # ---------------------------------------------------------------------------
 
+_INSTALL_DIR = os.path.join(os.environ.get('LOCALAPPDATA', _EXE_DIR), 'HydraTorrent')
 _SCRIPT_DIR = _BUNDLE_DIR
-_CONFIG_FILE = os.path.join(_EXE_DIR, 'hydra_config.json')
+_CONFIG_FILE = os.path.join(_INSTALL_DIR, 'hydra_config.json')
 
 
 def _load_config() -> dict:
@@ -66,6 +67,103 @@ def _load_config() -> dict:
             return json.load(f)
     except Exception:
         return {}
+
+
+# ---------------------------------------------------------------------------
+# First-run self-install
+# ---------------------------------------------------------------------------
+
+def _is_installed() -> bool:
+    """Check if Hydra is installed in the proper location."""
+    return os.path.isfile(os.path.join(_INSTALL_DIR, 'HydraTorrent.exe'))
+
+
+def _self_install() -> None:
+    """Copy exe + assets to %LOCALAPPDATA%\\HydraTorrent, create shortcuts
+    and firewall rules. Runs silently on first launch."""
+    import shutil
+    import subprocess
+
+    os.makedirs(_INSTALL_DIR, exist_ok=True)
+
+    # Copy exe
+    exe_src = sys.executable if getattr(sys, 'frozen', False) else __file__
+    exe_dst = os.path.join(_INSTALL_DIR, 'HydraTorrent.exe')
+    if os.path.abspath(exe_src) != os.path.abspath(exe_dst):
+        shutil.copy2(exe_src, exe_dst)
+
+    # Copy bundled assets next to installed exe
+    for asset in ('image8.ico', 'GeoLite2-Country.mmdb'):
+        src = os.path.join(_BUNDLE_DIR, asset) if getattr(sys, 'frozen', False) else os.path.join(_EXE_DIR, asset)
+        if os.path.isfile(src):
+            shutil.copy2(src, os.path.join(_INSTALL_DIR, asset))
+
+    # Create default config if none exists
+    if not os.path.isfile(_CONFIG_FILE):
+        with open(_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump({
+                "daemon_host": "127.0.0.1",
+                "daemon_port": 8766,
+                "daemon_use_ssl": False,
+                "desktop_mode": True,
+                "search_mode": "online",
+            }, f, indent=2)
+
+    # Create desktop shortcut
+    icon_path = os.path.join(_INSTALL_DIR, 'image8.ico')
+    _create_shortcut(
+        os.path.join(os.path.expanduser('~'), 'Desktop', 'Hydra Torrent.lnk'),
+        exe_dst, _INSTALL_DIR, icon_path,
+    )
+
+    # Create Start Menu shortcut
+    start_menu = os.path.join(os.environ.get('APPDATA', ''), 'Microsoft', 'Windows', 'Start Menu', 'Programs')
+    if os.path.isdir(start_menu):
+        _create_shortcut(
+            os.path.join(start_menu, 'Hydra Torrent.lnk'),
+            exe_dst, _INSTALL_DIR, icon_path,
+        )
+
+    # Add firewall rules (best-effort, requires admin — silently skip if not admin)
+    try:
+        subprocess.run(
+            ['netsh', 'advfirewall', 'firewall', 'delete', 'rule', 'name=Hydra Torrent'],
+            capture_output=True, timeout=5,
+        )
+        for proto in ('TCP', 'UDP'):
+            subprocess.run(
+                ['netsh', 'advfirewall', 'firewall', 'add', 'rule',
+                 'name=Hydra Torrent', 'dir=in', 'action=allow',
+                 f'protocol={proto}', 'localport=6002', 'profile=any',
+                 'description=Hydra Torrent BitTorrent client'],
+                capture_output=True, timeout=5,
+            )
+        subprocess.run(
+            ['netsh', 'advfirewall', 'firewall', 'add', 'rule',
+             'name=Hydra Torrent DHT', 'dir=in', 'action=allow',
+             'protocol=UDP', 'localport=6881', 'profile=any',
+             'description=Hydra Torrent DHT'],
+            capture_output=True, timeout=5,
+        )
+    except Exception:
+        pass  # not admin — firewall rules skipped, user will get the Windows prompt instead
+
+
+def _create_shortcut(lnk_path: str, target: str, workdir: str, icon: str) -> None:
+    """Create a Windows .lnk shortcut using PowerShell."""
+    import subprocess
+    ps_cmd = (
+        f"$ws = New-Object -ComObject WScript.Shell; "
+        f"$s = $ws.CreateShortcut('{lnk_path}'); "
+        f"$s.TargetPath = '{target}'; "
+        f"$s.WorkingDirectory = '{workdir}'; "
+        f"$s.IconLocation = '{icon}'; "
+        f"$s.Save()"
+    )
+    try:
+        subprocess.run(['powershell', '-Command', ps_cmd], capture_output=True, timeout=10)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +241,10 @@ def main():
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     except Exception:
         pass
+
+    # 0. First-run self-install
+    if getattr(sys, 'frozen', False) and not _is_installed():
+        _self_install()
 
     # 1. Load config
     cfg = _load_config()
