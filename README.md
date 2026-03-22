@@ -1,6 +1,6 @@
 # Hydra Torrent
 
-**One app replaces qBittorrent + Sonarr + Radarr.** Download, auto-sort to Plex, VPN kill switch — no Docker stack required.
+**A torrent client that actually protects your IP.** Auto-sorts to Plex, grabs new episodes automatically, and replaces your entire qBittorrent + Sonarr + Radarr stack.
 
 ## Install
 
