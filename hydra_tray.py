@@ -118,7 +118,7 @@ def _build_daemon_url(cfg: dict) -> str:
     host = cfg.get('daemon_host', '127.0.0.1')
     if host == '0.0.0.0':
         host = '127.0.0.1'
-    port = cfg.get('daemon_port', 8766)
+    port = cfg.get('daemon_port', 8765)
     scheme = 'https' if cfg.get('daemon_use_ssl', False) else 'http'
     return f"{scheme}://{host}:{port}"
 
