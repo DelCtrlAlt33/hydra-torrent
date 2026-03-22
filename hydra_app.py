@@ -165,18 +165,25 @@ def _self_install() -> None:
 
 
 def _create_shortcut(lnk_path: str, target: str, workdir: str, icon: str) -> None:
-    """Create a Windows .lnk shortcut using PowerShell."""
+    """Create a Windows .lnk shortcut using a temporary PowerShell script."""
     import subprocess
-    ps_cmd = (
-        f"$ws = New-Object -ComObject WScript.Shell; "
-        f"$s = $ws.CreateShortcut('{lnk_path}'); "
-        f"$s.TargetPath = '{target}'; "
-        f"$s.WorkingDirectory = '{workdir}'; "
-        f"$s.IconLocation = '{icon}'; "
-        f"$s.Save()"
-    )
+    import tempfile
     try:
-        subprocess.run(['powershell', '-Command', ps_cmd], capture_output=True, timeout=10)
+        ps_file = os.path.join(tempfile.gettempdir(), 'hydra_shortcut.ps1')
+        with open(ps_file, 'w', encoding='utf-8') as f:
+            f.write(
+                f'$ws = New-Object -ComObject WScript.Shell\n'
+                f'$s = $ws.CreateShortcut("{lnk_path}")\n'
+                f'$s.TargetPath = "{target}"\n'
+                f'$s.WorkingDirectory = "{workdir}"\n'
+                f'$s.IconLocation = "{icon}"\n'
+                f'$s.Save()\n'
+            )
+        subprocess.run(
+            ['powershell', '-ExecutionPolicy', 'Bypass', '-File', ps_file],
+            capture_output=True, timeout=10,
+        )
+        os.remove(ps_file)
     except Exception:
         pass
 
