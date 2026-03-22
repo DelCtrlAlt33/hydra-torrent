@@ -320,7 +320,7 @@ class TorrentEngine:
         global _public_ip, _public_ip_ts
         try:
             time.sleep(2)  # brief delay for VPN tunnel to stabilise
-            ip = _fetch_public_ip()
+            ip = _fetch_public_ip(source_ip=self.vpn_ip)
             if ip:
                 _public_ip = ip
                 _public_ip_ts = time.time()
@@ -856,7 +856,8 @@ async def _public_ip_refresher() -> None:
     loop = asyncio.get_event_loop()
     while True:
         try:
-            ip = await loop.run_in_executor(None, _fetch_public_ip)
+            vpn_ip = engine.vpn_ip if engine else None
+            ip = await loop.run_in_executor(None, lambda: _fetch_public_ip(source_ip=vpn_ip))
             if ip:
                 _public_ip = ip
                 _public_ip_ts = time.time()

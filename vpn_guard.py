@@ -80,16 +80,36 @@ def detect_vpn_interface():
 detect_pia_interface = detect_vpn_interface
 
 
-def get_public_ip(timeout=5):
+def get_public_ip(timeout=5, source_ip=None):
     """
     Fetch the current public IP as seen by the internet.
-    If a VPN is connected this will return the VPN's exit IP, not your real IP.
+    If source_ip is given, bind the outgoing request to that address so the
+    request exits through the VPN interface rather than the default route.
     Tries two services for reliability. Returns an IP string or None.
     """
     import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.connection import allowed_gai_family
+    import urllib3
+
+    class SourceIPAdapter(HTTPAdapter):
+        def __init__(self, source_address, **kwargs):
+            self._source_address = source_address
+            super().__init__(**kwargs)
+
+        def init_poolmanager(self, *args, **kwargs):
+            kwargs['source_address'] = (self._source_address, 0)
+            super().init_poolmanager(*args, **kwargs)
+
+    session = requests.Session()
+    if source_ip:
+        adapter = SourceIPAdapter(source_ip)
+        session.mount('https://', adapter)
+        session.mount('http://', adapter)
+
     for url in ('https://api.ipify.org', 'https://icanhazip.com'):
         try:
-            resp = requests.get(url, timeout=timeout)
+            resp = session.get(url, timeout=timeout)
             ip = resp.text.strip()
             if ip:
                 return ip
