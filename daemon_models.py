@@ -104,6 +104,7 @@ class ConfigResponse(BaseModel):
     media_dir_movies: str = ""
     media_dir_tv: str = ""
     auto_move_to_plex: bool = True
+    vpn_required: bool = False
     seed_ratio: float = 0.0           # 0 = seed forever; >0 = auto-remove at ratio
     download_rate_limit: int = 0      # bytes/sec; 0 = unlimited
     upload_rate_limit: int = 0        # bytes/sec; 0 = unlimited
@@ -118,6 +119,7 @@ class ConfigUpdate(BaseModel):
     media_dir_movies: Optional[str] = None
     media_dir_tv: Optional[str] = None
     auto_move_to_plex: Optional[bool] = None
+    vpn_required: Optional[bool] = None
     seed_ratio: Optional[float] = None
     download_rate_limit: Optional[int] = None   # bytes/sec; 0 = unlimited
     upload_rate_limit: Optional[int] = None     # bytes/sec; 0 = unlimited

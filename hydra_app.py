@@ -35,6 +35,21 @@ else:
     _BUNDLE_DIR = os.path.dirname(os.path.abspath(__file__))
     _EXE_DIR = _BUNDLE_DIR
 
+# ---------------------------------------------------------------------------
+# Single-instance enforcement
+# ---------------------------------------------------------------------------
+# If another instance is already running, show its window and exit.
+
+_MUTEX_NAME = "HydraTorrentSingleInstance"
+_mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, False, _MUTEX_NAME)
+if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+    # Bring the existing window to the foreground and exit
+    hwnd = ctypes.windll.user32.FindWindowW(None, "Hydra Torrent")
+    if hwnd:
+        ctypes.windll.user32.ShowWindow(hwnd, 9)   # SW_RESTORE
+        ctypes.windll.user32.SetForegroundWindow(hwnd)
+    sys.exit(0)
+
 import requests
 import webview
 

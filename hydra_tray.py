@@ -73,7 +73,9 @@ def resource_path(name: str) -> str:
     return os.path.join(base, name)
 
 
-_CONFIG_FILE = os.path.join(_SCRIPT_DIR, 'hydra_config.json')
+_INSTALL_DIR = os.path.join(os.environ.get('LOCALAPPDATA', _SCRIPT_DIR), 'HydraTorrent')
+_CONFIG_FILE = os.path.join(_INSTALL_DIR, 'hydra_config.json') if getattr(sys, 'frozen', False) \
+    else os.path.join(_SCRIPT_DIR, 'hydra_config.json')
 
 _STARTUP_REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 _STARTUP_REG_VALUE = "HydraTorrent"
@@ -113,9 +115,11 @@ def _get_api_key() -> str:
 
 def _build_daemon_url(cfg: dict) -> str:
     """Build daemon base URL from config."""
-    host = cfg.get('daemon_host', '192.168.20.33')
-    port = cfg.get('daemon_port', 8765)
-    scheme = 'https' if cfg.get('daemon_use_ssl', True) else 'http'
+    host = cfg.get('daemon_host', '127.0.0.1')
+    if host == '0.0.0.0':
+        host = '127.0.0.1'
+    port = cfg.get('daemon_port', 8766)
+    scheme = 'https' if cfg.get('daemon_use_ssl', False) else 'http'
     return f"{scheme}://{host}:{port}"
 
 
