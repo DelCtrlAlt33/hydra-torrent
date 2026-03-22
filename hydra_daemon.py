@@ -59,7 +59,7 @@ from config import (
     save_config,
     logger,
 )
-from vpn_guard import VPNGuard
+from vpn_guard import VPNGuard, get_public_ip as _fetch_public_ip
 from media_organizer import auto_move_completed_download
 from search import search_online_public, search_jackett, search_index_server
 from rss_poller import RssPoller
@@ -194,6 +194,14 @@ class DaemonStore:
             self._data.pop(name, None)
         self._push_snapshot()
 
+    def rename(self, old_name: str, new_name: str) -> None:
+        with self._lock:
+            entry = self._data.pop(old_name, None)
+            if entry:
+                entry['name'] = new_name
+                self._data[new_name] = entry
+        self._push_snapshot()
+
     # ── Reads ─────────────────────────────────────────────────────────────────
 
     def get(self, name: str) -> Optional[dict]:
@@ -292,10 +300,13 @@ class TorrentEngine:
         connected, iface, ip = self.vpn_guard.get_status()
         self.vpn_ip = ip if connected else None
 
+        vpn_required = load_config().get('vpn_required', False)
         if connected:
             logger.info(f"VPN connected: {iface} ({ip})")
-        else:
+        elif vpn_required:
             logger.warning("No VPN detected at startup — binding to 0.0.0.0 (IP exposed)")
+        else:
+            logger.info("No VPN detected at startup — kill switch off, binding to 0.0.0.0")
 
         listen_ip = self.vpn_ip or '0.0.0.0'
         self._create_session(listen_ip)
@@ -303,6 +314,18 @@ class TorrentEngine:
         self._resume_persisted()
         self.vpn_guard.start(self._on_vpn_change)
         logger.info(f"TorrentEngine ready on {listen_ip}:{PEER_PORT}")
+
+    def _refresh_public_ip_sync(self) -> None:
+        """Blocking fetch of public IP — run in a thread after VPN reconnects."""
+        global _public_ip, _public_ip_ts
+        try:
+            time.sleep(2)  # brief delay for VPN tunnel to stabilise
+            ip = _fetch_public_ip()
+            if ip:
+                _public_ip = ip
+                _public_ip_ts = time.time()
+        except Exception:
+            pass
 
     def shutdown(self) -> None:
         logger.info("TorrentEngine shutting down...")
@@ -357,7 +380,17 @@ class TorrentEngine:
     # ── VPN kill switch ────────────────────────────────────────────────────────
 
     def _on_vpn_change(self, connected: bool, iface: Optional[str], ip: Optional[str]) -> None:
+        global _public_ip
         if not connected:
+            if not load_config().get('vpn_required', False):
+                logger.info("VPN disconnected — kill switch is off, rebinding to 0.0.0.0")
+                self.vpn_ip = None
+                _public_ip = None
+                try:
+                    self.ses.apply_settings({'listen_interfaces': f'0.0.0.0:{PEER_PORT}'})
+                except Exception as e:
+                    logger.error(f"Failed to rebind on VPN drop: {e}")
+                return
             logger.warning("VPN DISCONNECTED — kill switch activated")
             try:
                 self.ses.apply_settings({'listen_interfaces': f'127.0.0.1:{PEER_PORT}'})
@@ -375,9 +408,12 @@ class TorrentEngine:
                         pass
 
             self.vpn_ip = None
+            _public_ip = None
         else:
             logger.info(f"VPN reconnected ({ip}) — kill switch deactivated, rebinding session")
             self.vpn_ip = ip
+            _public_ip = None
+            threading.Thread(target=self._refresh_public_ip_sync, daemon=True).start()
             try:
                 self.ses.apply_settings({'listen_interfaces': f'{ip}:{PEER_PORT}'})
             except Exception as e:
@@ -409,13 +445,40 @@ class TorrentEngine:
         if save_path is None:
             save_path = DOWNLOAD_DIR_INCOMPLETE
 
+        vpn_required = load_config().get('vpn_required', False)
+
         params = {
             'url': magnet_uri,
             'save_path': save_path,
             'storage_mode': lt.storage_mode_t(2),
         }
         handle = lt.add_magnet_uri(self.ses, magnet_uri, params)
-        logger.info("Added magnet → fetching metadata...")
+
+        # Extract display name from magnet URI for immediate display
+        import urllib.parse
+        parsed = urllib.parse.parse_qs(urllib.parse.urlparse(magnet_uri).query)
+        placeholder = (parsed.get('dn', [''])[0]
+                       or parsed.get('xt', [''])[0].split(':')[-1][:16]
+                       or 'unknown_torrent')
+
+        # If kill switch is on and VPN is down, add paused immediately
+        if vpn_required and not self.vpn_ip:
+            handle.pause()
+            self.store.add(placeholder, magnet_uri, 0, handle)
+            self.store.update(placeholder, vpn_paused=True, paused=True, status='Waiting for VPN')
+            logger.warning(f"'{placeholder}' added paused — kill switch on, no VPN")
+            threading.Thread(
+                target=self._monitor_download,
+                args=(placeholder, handle, 0),
+                daemon=True,
+                name=f"dl-{placeholder[:24]}",
+            ).start()
+            return placeholder
+
+        # Add to store immediately so it shows in the UI
+        self.store.add(placeholder, magnet_uri, 0, handle)
+        self.store.update(placeholder, status='Fetching metadata...')
+        logger.info(f"Added magnet '{placeholder}' → fetching metadata...")
 
         start_wait = time.time()
         while not handle.has_metadata():
@@ -424,6 +487,7 @@ class TorrentEngine:
                     self.ses.remove_torrent(handle)
                 except Exception:
                     pass
+                self.store.remove(placeholder)
                 raise TimeoutError("Metadata timeout — no peers responded in 120 s")
             time.sleep(0.5)
 
@@ -436,7 +500,11 @@ class TorrentEngine:
             handle.add_tracker({'url': tracker})
         handle.force_reannounce()
 
-        self.store.add(real_name, magnet_uri, total_size, handle)
+        # Update the placeholder entry with real metadata
+        if real_name != placeholder:
+            self.store.rename(placeholder, real_name)
+        self.store.update(real_name, size=total_size, status='Downloading')
+
         threading.Thread(
             target=self._monitor_download,
             args=(real_name, handle, total_size),
@@ -773,6 +841,31 @@ _ws_clients: Set[WebSocket] = set()
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Public IP cache
+# ---------------------------------------------------------------------------
+
+_public_ip: str | None = None
+_public_ip_ts: float = 0.0
+_PUBLIC_IP_TTL = 300  # refresh every 5 minutes
+
+
+async def _public_ip_refresher() -> None:
+    """Background task: fetch public IP immediately, then every 5 minutes."""
+    global _public_ip, _public_ip_ts
+    loop = asyncio.get_event_loop()
+    while True:
+        try:
+            ip = await loop.run_in_executor(None, _fetch_public_ip)
+            if ip:
+                _public_ip = ip
+                _public_ip_ts = time.time()
+        except Exception:
+            pass
+        await asyncio.sleep(_PUBLIC_IP_TTL)
+
+
+# ---------------------------------------------------------------------------
 # FastAPI lifespan
 # ---------------------------------------------------------------------------
 
@@ -782,10 +875,12 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=engine.start, daemon=True, name="engine-start").start()
     rss_poller.start()
     broadcaster_task = asyncio.create_task(_ws_broadcaster())
+    public_ip_task = asyncio.create_task(_public_ip_refresher())
     logger.info(f"Hydra Daemon starting — API key: {API_KEY}")
     yield
     # Shutdown
     broadcaster_task.cancel()
+    public_ip_task.cancel()
     rss_poller.stop()
     engine.shutdown()
 
@@ -926,6 +1021,7 @@ def get_status() -> DaemonStatus:
             connected=vpn_connected,
             iface=vpn_iface,
             vpn_ip=vpn_ip,
+            public_ip=_public_ip if vpn_connected else None,
         ),
         total_download_rate=float(ses_status.get('download_rate', 0)),
         total_upload_rate=float(ses_status.get('upload_rate', 0)),
@@ -1017,6 +1113,8 @@ def resume_transfer(name: str) -> dict:
     """Resume a paused transfer."""
     if store.get(name) is None:
         raise HTTPException(status_code=404, detail=f"Transfer '{name}' not found")
+    if load_config().get('vpn_required', False) and not engine.vpn_ip:
+        raise HTTPException(status_code=409, detail="VPN kill switch is on but no VPN is connected")
     engine.resume(name)
     return {"ok": True}
 
@@ -1208,7 +1306,7 @@ def download_tray() -> StreamingResponse:
 _EDITABLE_CONFIG_KEYS = frozenset({
     'plex_url', 'plex_token', 'jackett_api_key',
     'indexing_server', 'media_dir_movies', 'media_dir_tv', 'auto_move_to_plex',
-    'seed_ratio', 'download_rate_limit', 'upload_rate_limit',
+    'vpn_required', 'seed_ratio', 'download_rate_limit', 'upload_rate_limit',
 })
 
 
@@ -1224,6 +1322,7 @@ def get_config() -> ConfigResponse:
         media_dir_movies=cfg.get('media_dir_movies', ''),
         media_dir_tv=cfg.get('media_dir_tv', ''),
         auto_move_to_plex=bool(cfg.get('auto_move_to_plex', True)),
+        vpn_required=bool(cfg.get('vpn_required', False)),
         seed_ratio=float(cfg.get('seed_ratio', 0) or 0),
         download_rate_limit=int(cfg.get('download_rate_limit', 0) or 0),
         upload_rate_limit=int(cfg.get('upload_rate_limit', 0) or 0),
@@ -1252,6 +1351,19 @@ def update_config(req: ConfigUpdate) -> dict:
             int(cfg.get('download_rate_limit', 0) or 0),
             int(cfg.get('upload_rate_limit', 0) or 0),
         )
+    # Live-apply VPN kill switch — if just turned on and VPN is off, pause all
+    if 'vpn_required' in updates and updates['vpn_required'] and not engine.vpn_ip:
+        logger.warning("VPN kill switch enabled with no VPN — pausing all transfers")
+        engine.ses.apply_settings({'listen_interfaces': f'127.0.0.1:{PEER_PORT}'})
+        for name in store.all_names():
+            t = store.get(name)
+            handle = store.get_handle(name)
+            if handle and t and not t.get('intended_pause', False):
+                try:
+                    handle.pause()
+                    store.update(name, vpn_paused=True, paused=True)
+                except Exception:
+                    pass
     return {"saved": list(updates.keys())}
 
 

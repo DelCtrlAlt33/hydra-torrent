@@ -892,9 +892,9 @@
 <div class="pane" id="pane-search">
   <div class="search-row">
     <input type="text" id="search-input" placeholder="Movie name, show, etc..." onkeydown="if(event.key==='Enter')doSearch()">
-    <select id="search-mode">
-      <option value="jackett">Jackett</option>
+    <select id="search-mode" onchange="localStorage.setItem('searchMode', this.value)">
       <option value="online">Public</option>
+      <option value="jackett">Jackett</option>
     </select>
     <button class="btn btn-primary" onclick="doSearch()">Search</button>
   </div>
@@ -1001,9 +1001,24 @@
     <div class="settings-row">
       <label></label>
       <label class="checkbox-label">
-        <input type="checkbox" id="cfg-auto-move">
+        <input type="checkbox" id="cfg-auto-move" onchange="saveSettings(true)">
         Auto-move to Plex when complete
       </label>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-section-title">VPN</div>
+    <div class="settings-row">
+      <label></label>
+      <label class="checkbox-label">
+        <input type="checkbox" id="cfg-vpn-required" onchange="saveSettings(true)">
+        Require VPN to download (kill switch)
+      </label>
+    </div>
+    <div class="settings-row">
+      <label></label>
+      <span style="font-size:12px;opacity:0.5;">When enabled, all torrents pause if your VPN disconnects. Turn off if you don't use a VPN.</span>
     </div>
   </div>
 
@@ -1502,9 +1517,9 @@ async function pollStatus() {
     const vpnTxt = document.getElementById('vpn-text');
 
     badge.classList.remove('protected', 'exposed', 'checking');
-    if (vpn.connected && vpn.vpn_ip) {
+    if (vpn.connected) {
       badge.classList.add('protected');
-      vpnTxt.textContent = 'Protected (' + vpn.vpn_ip + ')';
+      vpnTxt.textContent = vpn.public_ip ? 'Protected · ' + vpn.public_ip : 'Protected · checking...';
     } else {
       badge.classList.add('exposed');
       vpnTxt.textContent = 'EXPOSED — No VPN';
@@ -1599,7 +1614,11 @@ async function pauseTransfer(name) {
   const encoded = encodeURIComponent(name);
   try {
     const r = await fetch(`${BASE}/transfers/${encoded}/pause`, { method: 'POST', headers: HEADERS });
-    if (!r.ok) toast('Pause failed: ' + r.status, 'err');
+    if (!r.ok) {
+      let msg = r.status;
+      try { const j = await r.json(); if (j.detail) msg = j.detail; } catch {}
+      toast('Pause failed: ' + msg, 'err');
+    }
   } catch (e) {
     toast('Pause failed: ' + e.message, 'err');
   }
@@ -1609,7 +1628,11 @@ async function resumeTransfer(name) {
   const encoded = encodeURIComponent(name);
   try {
     const r = await fetch(`${BASE}/transfers/${encoded}/resume`, { method: 'POST', headers: HEADERS });
-    if (!r.ok) toast('Resume failed: ' + r.status, 'err');
+    if (!r.ok) {
+      let msg = r.status;
+      try { const j = await r.json(); if (j.detail) msg = j.detail; } catch {}
+      toast('Resume failed: ' + msg, 'err');
+    }
   } catch (e) {
     toast('Resume failed: ' + e.message, 'err');
   }
@@ -1620,7 +1643,11 @@ async function removeTransfer(name) {
   const encoded = encodeURIComponent(name);
   try {
     const r = await fetch(`${BASE}/transfers/${encoded}`, { method: 'DELETE', headers: HEADERS });
-    if (!r.ok) toast('Remove failed: ' + r.status, 'err');
+    if (!r.ok) {
+      let msg = r.status;
+      try { const j = await r.json(); if (j.detail) msg = j.detail; } catch {}
+      toast('Remove failed: ' + msg, 'err');
+    }
   } catch (e) {
     toast('Remove failed: ' + e.message, 'err');
   }
@@ -1747,15 +1774,16 @@ async function loadSettings() {
     document.getElementById('cfg-jackett-key').value = cfg.jackett_api_key   || '';
     document.getElementById('cfg-movies-path').value = cfg.media_dir_movies  || '';
     document.getElementById('cfg-tv-path').value     = cfg.media_dir_tv      || '';
-    document.getElementById('cfg-auto-move').checked  = cfg.auto_move_to_plex !== false;
-    document.getElementById('cfg-seed-ratio').value   = cfg.seed_ratio > 0 ? cfg.seed_ratio : '';
-    document.getElementById('cfg-api-key').value      = cfg.daemon_api_key   || '';
+    document.getElementById('cfg-auto-move').checked    = cfg.auto_move_to_plex !== false;
+    document.getElementById('cfg-seed-ratio').value     = cfg.seed_ratio > 0 ? cfg.seed_ratio : '';
+    document.getElementById('cfg-api-key').value        = cfg.daemon_api_key   || '';
+    document.getElementById('cfg-vpn-required').checked = cfg.vpn_required === true;
   } catch (e) {
     toast('Settings load failed: ' + e.message, 'err');
   }
 }
 
-async function saveSettings() {
+async function saveSettings(silent = false) {
   const body = {
     plex_url:         document.getElementById('cfg-plex-url').value.trim(),
     plex_token:       document.getElementById('cfg-plex-token').value.trim(),
@@ -1764,6 +1792,7 @@ async function saveSettings() {
     media_dir_movies: document.getElementById('cfg-movies-path').value.trim(),
     media_dir_tv:     document.getElementById('cfg-tv-path').value.trim(),
     auto_move_to_plex: document.getElementById('cfg-auto-move').checked,
+    vpn_required: document.getElementById('cfg-vpn-required').checked,
   };
   // Parse seed ratio — omit if blank (don't overwrite), store 0 if explicitly cleared
   const ratioRaw = document.getElementById('cfg-seed-ratio').value.trim();
@@ -1783,7 +1812,7 @@ async function saveSettings() {
     });
     if (r.ok) {
       const d = await r.json();
-      toast('Saved: ' + (d.saved.length ? d.saved.join(', ') : 'no changes'), 'ok');
+      if (!silent) toast('Saved: ' + (d.saved.length ? d.saved.join(', ') : 'no changes'), 'ok');
     } else {
       const d = await r.json().catch(() => ({}));
       toast('Save failed: ' + (d.detail || r.status), 'err');
@@ -2022,6 +2051,10 @@ document.addEventListener('DOMContentLoaded', () => {
     warn.textContent = '⚠️  Unencrypted HTTP — API key is visible on your LAN. Use https:// instead.';
     warn.classList.add('visible');
   }
+
+  // Restore last search mode choice
+  const savedMode = localStorage.getItem('searchMode');
+  if (savedMode) document.getElementById('search-mode').value = savedMode;
 
   connectWebSocket();
   pollStatus();
