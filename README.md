@@ -2,7 +2,7 @@
 
 **One app replaces qBittorrent + Sonarr + Radarr.** Download, auto-sort to Plex, VPN kill switch — no Docker stack required.
 
-## [>>> Download for Windows <<<](https://github.com/DelCtrlAlt33/hydra-torrent/releases/latest/download/HydraTorrent-Windows-v1.0.1.zip)
+## [>>> Download for Windows <<<](https://github.com/DelCtrlAlt33/hydra-torrent/releases/latest/download/HydraTorrent-Windows.zip)
 
 Download the zip, extract it, right-click `INSTALL.bat` → **Run as administrator**. That's it — click the desktop shortcut and go.
 
