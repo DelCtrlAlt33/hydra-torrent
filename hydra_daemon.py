@@ -349,6 +349,7 @@ class TorrentEngine:
         cfg = load_config()
         self.ses = lt.session({
             'listen_interfaces': f'{listen_ip}:{PEER_PORT}',
+            'outgoing_interfaces': listen_ip,
             'enable_dht': True,
             'enable_lsd': False,       # No LAN broadcast
             'enable_upnp': True,       # Auto-forward port on home router for inbound connections
@@ -396,13 +397,13 @@ class TorrentEngine:
                 self.vpn_ip = None
                 _public_ip = None
                 try:
-                    self.ses.apply_settings({'listen_interfaces': f'0.0.0.0:{PEER_PORT}'})
+                    self.ses.apply_settings({'listen_interfaces': f'0.0.0.0:{PEER_PORT}', 'outgoing_interfaces': ''})
                 except Exception as e:
                     logger.error(f"Failed to rebind on VPN drop: {e}")
                 return
             logger.warning("VPN DISCONNECTED — kill switch activated")
             try:
-                self.ses.apply_settings({'listen_interfaces': f'127.0.0.1:{PEER_PORT}'})
+                self.ses.apply_settings({'listen_interfaces': f'127.0.0.1:{PEER_PORT}', 'outgoing_interfaces': '127.0.0.1'})
             except Exception as e:
                 logger.error(f"Failed to rebind session on VPN drop: {e}")
 
@@ -424,7 +425,7 @@ class TorrentEngine:
             _public_ip = None
             threading.Thread(target=self._refresh_public_ip_sync, daemon=True).start()
             try:
-                self.ses.apply_settings({'listen_interfaces': f'{ip}:{PEER_PORT}'})
+                self.ses.apply_settings({'listen_interfaces': f'{ip}:{PEER_PORT}', 'outgoing_interfaces': ip})
             except Exception as e:
                 logger.error(f"Failed to rebind session on VPN reconnect: {e}")
 
@@ -1370,7 +1371,7 @@ def update_config(req: ConfigUpdate) -> dict:
     # Live-apply VPN kill switch — if just turned on and VPN is off, pause all
     if 'vpn_required' in updates and updates['vpn_required'] and not engine.vpn_ip:
         logger.warning("VPN kill switch enabled with no VPN — pausing all transfers")
-        engine.ses.apply_settings({'listen_interfaces': f'127.0.0.1:{PEER_PORT}'})
+        engine.ses.apply_settings({'listen_interfaces': f'127.0.0.1:{PEER_PORT}', 'outgoing_interfaces': '127.0.0.1'})
         for name in store.all_names():
             t = store.get(name)
             handle = store.get_handle(name)
