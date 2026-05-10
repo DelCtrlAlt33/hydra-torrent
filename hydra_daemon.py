@@ -352,8 +352,8 @@ class TorrentEngine:
             'outgoing_interfaces': listen_ip,
             'enable_dht': True,
             'enable_lsd': False,       # No LAN broadcast
-            'enable_upnp': True,       # Auto-forward port on home router for inbound connections
-            'enable_natpmp': True,     # Same — NAT-PMP fallback
+            'enable_upnp': False,      # Disabled — useless behind VPN, leaks real IP to router
+            'enable_natpmp': False,    # Disabled — same reason
             'anonymous_mode': False,   # Allow full tracker/peer communication
             'connections_limit': 200,
             'download_rate_limit': int(cfg.get('download_rate_limit', 0) or 0),
