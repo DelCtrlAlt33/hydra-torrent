@@ -1,5 +1,6 @@
 import os
 import socket
+import subprocess
 import threading
 import time
 import logging
@@ -39,12 +40,51 @@ _VPN_EXCLUDE = [
 ]
 
 
+_WG_HANDSHAKE_MAX_AGE = 180  # seconds — tunnel considered dead beyond this
+
+
+def _wg_handshake_ok(iface_name):
+    """
+    Returns True if a WireGuard interface has a live peer handshake.
+    A handshake timestamp of 0 means never connected; anything older than
+    _WG_HANDSHAKE_MAX_AGE seconds means the tunnel has silently died.
+    Falls back to True on any error so non-wg interfaces aren't affected.
+    Tries sudo if the direct call is denied (service may lack CAP_NET_ADMIN).
+    """
+    def _run(cmd):
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+
+    try:
+        result = _run(['wg', 'show', iface_name, 'latest-handshakes'])
+        if result.returncode != 0:
+            result = _run(['sudo', 'wg', 'show', iface_name, 'latest-handshakes'])
+        if result.returncode != 0:
+            return False
+        now = time.time()
+        for line in result.stdout.strip().splitlines():
+            parts = line.split()
+            if len(parts) >= 2:
+                ts = int(parts[1])
+                if ts > 0 and (now - ts) <= _WG_HANDSHAKE_MAX_AGE:
+                    return True
+        return False
+    except FileNotFoundError:
+        return True  # wg binary not available (Windows client), skip check
+    except Exception:
+        return True  # can't verify, assume ok
+
+
 def detect_vpn_interface():
     """
     Find any active VPN interface.
     Works with PIA, NordVPN, ExpressVPN, Mullvad, ProtonVPN, OpenVPN,
     WireGuard, Tailscale, Cisco AnyConnect, and any adapter whose name
     contains a known VPN keyword.
+
+    For WireGuard interfaces, also verifies that at least one peer has
+    completed a handshake within the last 3 minutes — a stale wg interface
+    that looks "up" but has a dead tunnel is treated as disconnected.
+
     Returns (interface_name, ip_address) or (None, None).
     """
     try:
@@ -64,6 +104,14 @@ def detect_vpn_interface():
 
             # Interface must be up
             if iface_name in stats and not stats[iface_name].isup:
+                continue
+
+            # For WireGuard interfaces, verify the tunnel is actually alive
+            if 'wg' in iface_lower and not _wg_handshake_ok(iface_name):
+                logger.warning(
+                    f"WireGuard interface {iface_name} is up but tunnel is dead "
+                    f"(no handshake in {_WG_HANDSHAKE_MAX_AGE}s) — treating as disconnected"
+                )
                 continue
 
             # Find the IPv4 address

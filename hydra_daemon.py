@@ -304,13 +304,22 @@ class TorrentEngine:
         if connected:
             logger.info(f"VPN connected: {iface} ({ip})")
         elif vpn_required:
-            logger.warning("No VPN detected at startup — binding to 0.0.0.0 (IP exposed)")
+            logger.warning("No VPN detected at startup — kill switch active, binding to 127.0.0.1")
         else:
             logger.info("No VPN detected at startup — kill switch off, binding to 0.0.0.0")
 
-        listen_ip = self.vpn_ip or '0.0.0.0'
+        # Kill switch: bind to loopback so no peers can connect without VPN
+        listen_ip = self.vpn_ip or ('127.0.0.1' if vpn_required else '0.0.0.0')
         self._create_session(listen_ip)
         self.store.load(_TRANSFERS_PATH)
+
+        # Mark all non-intentionally-paused transfers as vpn_paused at startup
+        if vpn_required and not connected:
+            for name in self.store.all_names():
+                t = self.store.get(name)
+                if t and not t.get('intended_pause', False):
+                    self.store.update(name, vpn_paused=True, paused=True)
+
         self._resume_persisted()
         self.vpn_guard.start(self._on_vpn_change)
         logger.info(f"TorrentEngine ready on {listen_ip}:{PEER_PORT}")
@@ -793,6 +802,7 @@ class TorrentEngine:
 
     def _resume_persisted(self) -> None:
         """Re-attach libtorrent handles for seeding torrents from transfers.json."""
+        kill_switch_active = load_config().get('vpn_required', False) and not self.vpn_ip
         names = self.store.all_names()
         for name in names:
             t = self.store.get(name)
@@ -807,7 +817,7 @@ class TorrentEngine:
             }
             try:
                 handle = lt.add_magnet_uri(self.ses, t['magnet'], params)
-                if t.get('intended_pause', False):
+                if t.get('intended_pause', False) or kill_switch_active:
                     handle.pause()
                 else:
                     handle.resume()

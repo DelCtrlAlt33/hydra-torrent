@@ -795,6 +795,60 @@
       from { transform: translateX(20px); opacity: 0; }
       to   { transform: translateX(0);    opacity: 1; }
     }
+
+    /* Auto-DL rule cards */
+    .rule-card { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 8px; }
+    .rule-main { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+    .rule-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .rule-info { flex: 1; min-width: 0; }
+    .rule-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rule-meta { font-size: 11px; color: var(--muted); }
+    .rule-badge { font-size: 11px; background: var(--card); border: 1px solid var(--border); padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
+    .rule-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+    @media (max-width: 768px) {
+      body { overflow-x: hidden; }
+
+      /* Header: compact logo, rates + dot all in one row */
+      header { padding: 0 12px; gap: 8px; }
+      .logo { font-size: 11px; letter-spacing: 0; }
+      .spacer { display: none; }
+      .header-rates { margin-left: auto; font-size: 11px; }
+
+      /* VPN badge: show status word, hide IP address */
+      .vpn-badge { padding: 3px 7px; min-width: 0; }
+      .vpn-ip { display: none; }
+      .vpn-dot { width: 8px; height: 8px; }
+
+      /* Tabs: 4 equal-width columns filling full row */
+      .tabs { padding: 0; }
+      .tab { flex: 1; text-align: center; padding: 10px 4px; font-size: 12px; white-space: nowrap; }
+
+      /* Upload row: stack vertically */
+      .upload-row { flex-direction: column; align-items: stretch; }
+      .upload-row input[type="file"] { min-width: 0; width: 100%; }
+      .upload-row button { width: 100%; }
+
+      /* Magnet row: wrap so input stays full width */
+      .add-row { flex-wrap: wrap; }
+      .add-row input { min-width: 0; width: 100%; }
+
+      /* Search row: input full width, then select + button below */
+      .search-row { flex-wrap: wrap; }
+      .search-row input { flex-basis: 100%; min-width: 0; }
+
+      /* Settings: stack label above input so nothing clips on the right */
+      .settings-row { flex-direction: column; align-items: stretch; gap: 6px; }
+      .settings-row > label:first-child { width: auto; text-align: left; }
+      .settings-row > label:first-child:empty { display: none; }
+      .settings-row input { min-width: 0; }
+      .settings-subtext { padding-left: 0 !important; }
+
+      /* Auto-DL rule cards: two-row layout */
+      .rule-card { flex-wrap: wrap; gap: 8px; }
+      .rule-main { width: 100%; }
+      .rule-actions { width: 100%; justify-content: flex-end; }
+    }
   </style>
 </head>
 <body>
@@ -825,6 +879,10 @@
   <div class="logo"><span class="brand">H Y D R A</span> &nbsp;<span class="sub">T O R R E N T</span></div>
   <div class="spacer"></div>
   <div class="header-rates" id="header-rates"></div>
+  <div class="vpn-badge checking" id="vpn-badge">
+    <div class="vpn-dot"></div>
+    <span id="vpn-text">Checking...</span>
+  </div>
 </header>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -833,13 +891,8 @@
 <div class="tabs">
   <div class="tab active" data-tab="transfers">Transfers</div>
   <div class="tab" data-tab="search">Search</div>
-  <div class="tab" data-tab="autodl">Auto-DL</div>
+  <div class="tab" data-tab="autodl">Auto&#8209;DL</div>
   <div class="tab" data-tab="settings">Settings</div>
-  <div style="flex:1"></div>
-  <div class="vpn-badge checking" id="vpn-badge">
-    <div class="vpn-dot"></div>
-    <span id="vpn-text">Checking...</span>
-  </div>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -1031,7 +1084,7 @@
         <button class="btn btn-sm btn-pause" onclick="copyApiKey()">Copy</button>
       </div>
     </div>
-    <div style="padding-left: 142px; font-size: 11px; color: var(--muted); margin-top: 6px;">
+    <div class="settings-subtext" style="padding-left: 142px; font-size: 11px; color: var(--muted); margin-top: 6px;">
       Auto-generated key for external access to Hydra's API. You only need this if you're using the tray app or controlling Hydra from scripts.
     </div>
   </div>
@@ -1519,19 +1572,19 @@ async function pollStatus() {
     badge.classList.remove('protected', 'exposed', 'checking');
     if (vpn.connected) {
       badge.classList.add('protected');
-      vpnTxt.textContent = vpn.public_ip ? 'Protected · ' + vpn.public_ip : 'Protected · checking...';
+      vpnTxt.innerHTML = `Protected<span class="vpn-ip"> · ${vpn.public_ip || 'checking...'}</span>`;
     } else {
       badge.classList.add('exposed');
-      vpnTxt.textContent = 'EXPOSED — No VPN';
+      vpnTxt.innerHTML = `EXPOSED<span class="vpn-ip"> — No VPN</span>`;
     }
 
     const dlRate = data.total_download_rate || 0;
     const ulRate = data.total_upload_rate || 0;
     const ratesEl = document.getElementById('header-rates');
     const titlebarRatesEl = document.getElementById('titlebar-rates');
-    const ratesHtml = (dlRate > 100 || ulRate > 100)
-      ? `<b>${fmtSpeed(dlRate)}</b> ↓ &nbsp; <b>${fmtSpeed(ulRate)}</b> ↑`
-      : '';
+    const dlStr = dlRate > 100 ? `<b>${fmtSpeed(dlRate)}</b> ↓` : '';
+    const ulStr = ulRate > 100 ? `<b>${fmtSpeed(ulRate)}</b> ↑` : '';
+    const ratesHtml = (dlStr || ulStr) ? [dlStr, ulStr].filter(Boolean).join(' &nbsp; ') : '';
     if (ratesEl) ratesEl.innerHTML = ratesHtml;
     if (titlebarRatesEl) titlebarRatesEl.innerHTML = ratesHtml;
   } catch (e) {
@@ -1862,17 +1915,20 @@ function renderRssRules(rules) {
     const startTag  = (r.start_episode && r.episode_mode === 'episodes')
                       ? ` from E${String(r.start_episode).padStart(2,'0')}` : '';
     const modeLbl = modeLabel[r.episode_mode] || r.episode_mode;
-    return `<div class="card" style="display:flex;align-items:center;gap:12px;padding:12px 16px;margin-bottom:8px">
-      <span style="width:8px;height:8px;border-radius:50%;background:${dot};flex-shrink:0"></span>
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(r.name)}</div>
-        <div style="font-size:11px;color:var(--muted)">Last checked: ${checked} &nbsp;·&nbsp; ${r.matched_count} added</div>
+    return `<div class="card rule-card">
+      <div class="rule-main">
+        <span class="rule-dot" style="background:${dot}"></span>
+        <div class="rule-info">
+          <div class="rule-name">${escHtml(r.name)}</div>
+          <div class="rule-meta">Last checked: ${checked} &nbsp;·&nbsp; ${r.matched_count} added</div>
+        </div>
       </div>
-      <span style="font-size:11px;background:var(--card);border:1px solid var(--border);padding:2px 7px;border-radius:4px">${escHtml(r.quality)}${seasonTag}${startTag} · ${modeLbl}</span>
-      <button class="btn btn-sm btn-pause" onclick="checkNowRule('${r.id}')" title="Check now">↺</button>
-      <button class="btn btn-sm ${r.enabled ? 'btn-pause' : 'btn-resume'}" onclick="toggleRule('${r.id}', ${!r.enabled})">
-        ${r.enabled ? 'Pause' : 'Resume'}</button>
-      <button class="btn btn-sm btn-remove" onclick="deleteRule('${r.id}')">×</button>
+      <div class="rule-actions">
+        <span class="rule-badge">${escHtml(r.quality)}${seasonTag}${startTag} · ${modeLbl}</span>
+        <button class="btn btn-sm btn-pause" onclick="checkNowRule('${r.id}')" title="Check now">↺</button>
+        <button class="btn btn-sm ${r.enabled ? 'btn-pause' : 'btn-resume'}" onclick="toggleRule('${r.id}', ${!r.enabled})">${r.enabled ? 'Pause' : 'Resume'}</button>
+        <button class="btn btn-sm btn-remove" onclick="deleteRule('${r.id}')">×</button>
+      </div>
     </div>`;
   }).join('');
 }
