@@ -145,9 +145,10 @@ class DaemonStore:
     API snapshots are built.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, path: str = None) -> None:
         self._data: dict = {}
         self._lock = threading.Lock()
+        self.path = path
         self.ws_queue: queue.SimpleQueue = queue.SimpleQueue()
 
     # ── Mutations ────────────────────────────────────────────────────────────
@@ -229,10 +230,11 @@ class DaemonStore:
     # ── Persistence ───────────────────────────────────────────────────────────
 
     def save(self, path: str) -> None:
+        _resumable = {'Seeding', 'Downloading', 'Paused', 'Waiting for VPN', 'Fetching metadata...'}
         with self._lock:
             data = {}
             for k, v in self._data.items():
-                if v.get('status') != 'Downloading':
+                if v.get('status') in _resumable:
                     data[k] = self._clean(v)
         try:
             with open(path, 'w', encoding='utf-8') as f:
@@ -271,6 +273,11 @@ class DaemonStore:
     def _push_snapshot(self) -> None:
         try:
             self.ws_queue.put_nowait(self.snapshot())
+            if self.path:
+                try:
+                    self.save(self.path)
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -492,13 +499,11 @@ class TorrentEngine:
 
         start_wait = time.time()
         while not handle.has_metadata():
-            if time.time() - start_wait > 120:
-                try:
-                    self.ses.remove_torrent(handle)
-                except Exception:
-                    pass
-                self.store.remove(placeholder)
-                raise TimeoutError("Metadata timeout — no peers responded in 120 s")
+            if time.time() - start_wait > 600:  # 10 minute timeout instead of 2 minutes
+                # Mark as timeout instead of deleting
+                self.store.update(placeholder, status='Metadata timeout', error='No peers responded after 10 minutes')
+                logger.warning(f"'{placeholder}' metadata timeout after 10 minutes")
+                return placeholder  # Return anyway so UI shows it
             time.sleep(0.5)
 
         ti = handle.get_torrent_info()
@@ -845,7 +850,7 @@ class TorrentEngine:
 # Global instances
 # ---------------------------------------------------------------------------
 
-store = DaemonStore()
+store = DaemonStore(path=_TRANSFERS_PATH)
 engine = TorrentEngine(store)
 rss_poller = RssPoller(engine.add_magnet)
 _ws_clients: Set[WebSocket] = set()
