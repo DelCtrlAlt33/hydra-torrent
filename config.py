@@ -105,5 +105,6 @@ def save_config(key, value):
 # Windows default: SMB share on TrueNAS
 # Linux LXC:  set "media_dir_movies": "/mnt/plex/movies" in hydra_config.json
 _cfg_media = load_config()
-MEDIA_DIR_MOVIES = _cfg_media.get('media_dir_movies', r'\\192.168.20.4\Plex\movies')
-MEDIA_DIR_TV     = _cfg_media.get('media_dir_tv',     r'\\192.168.20.4\Plex\tv')
+MEDIA_DIR_MOVIES  = _cfg_media.get('media_dir_movies',    r'\\192.168.20.4\Plex\movies')
+MEDIA_DIR_TV      = _cfg_media.get('media_dir_tv',        r'\\192.168.20.4\Plex\tv')
+DOWNLOAD_DIR_OTHER = _cfg_media.get('download_dir_other', '')

@@ -1748,9 +1748,12 @@ function renderResults(list) {
     const seeders   = r.seeders != null ? r.seeders : '?';
     const engine    = r.engine || '?';
     const hasmagnet = !!r.magnet;
+    const hasurl    = !!r.torrent_url;
     const addBtn    = hasmagnet
       ? `<button class="btn btn-sm btn-add" onclick="addFromSearch(${escHtml(JSON.stringify(r.magnet))})">+ Add</button>`
-      : `<span style="color:var(--muted);font-size:11px">No magnet</span>`;
+      : hasurl
+        ? `<button class="btn btn-sm btn-add" onclick="addFromSearchUrl(${escHtml(JSON.stringify(r.torrent_url))})">+ Add</button>`
+        : `<span style="color:var(--muted);font-size:11px">No magnet</span>`;
 
     return `<tr>
       <td class="result-name" title="${escHtml(r.name)}">${escHtml(r.name)}</td>
@@ -1786,6 +1789,28 @@ async function addFromSearch(magnet) {
     if (r.status === 202) {
       toast('Added — switching to Transfers', 'ok');
       // Switch to Transfers tab
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+      document.querySelector('[data-tab="transfers"]').classList.add('active');
+      document.getElementById('pane-transfers').classList.add('active');
+    } else {
+      const d = await r.json();
+      toast('Error: ' + (d.detail || r.status), 'err');
+    }
+  } catch (e) {
+    toast('Request failed: ' + e.message, 'err');
+  }
+}
+
+async function addFromSearchUrl(url) {
+  try {
+    const r = await fetch(BASE + '/transfers/url', {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ url }),
+    });
+    if (r.status === 202) {
+      toast('Added — switching to Transfers', 'ok');
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
       document.querySelector('[data-tab="transfers"]').classList.add('active');

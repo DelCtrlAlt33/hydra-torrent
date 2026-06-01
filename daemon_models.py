@@ -56,6 +56,11 @@ class AddMagnetRequest(BaseModel):
     save_path: Optional[str] = None  # override download directory
 
 
+class AddTorrentUrlRequest(BaseModel):
+    url: str
+    save_path: Optional[str] = None
+
+
 class SearchRequest(BaseModel):
     query: str
     mode: str = "online"            # "online" | "jackett" | "local"
@@ -70,6 +75,7 @@ class SearchResult(BaseModel):
     engine: str = ""
     engine_url: str = ""
     magnet: Optional[str] = None
+    torrent_url: Optional[str] = None
     published: Optional[str] = None
 
 

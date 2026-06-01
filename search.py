@@ -206,7 +206,6 @@ def search_jackett(server_url, keyword, api_key):
     params = {
         'q': keyword,
         'apikey': api_key,
-        'cat': '1000,2000,5000,5030,5040,5045',
         'extended': '1',
     }
 
@@ -235,7 +234,20 @@ def search_jackett(server_url, keyword, api_key):
             link_el = item.find('link')
             if link_el is not None and link_el.text and link_el.text.startswith('magnet:'):
                 magnet = link_el.text
+
+        # Fall back to Jackett proxy download URL (torrent file) when no magnet
+        torrent_url = None
         if not magnet:
+            for enc in item.findall('enclosure'):
+                u = enc.get('url', '')
+                if u and u.startswith('http'):
+                    torrent_url = u
+                    break
+            if not torrent_url:
+                link_el = item.find('link')
+                if link_el is not None and link_el.text and link_el.text.startswith('http'):
+                    torrent_url = link_el.text
+        if not magnet and not torrent_url:
             continue
 
         size = int(item.find('size').text or 0) if item.find('size') is not None else 0
@@ -289,6 +301,7 @@ def search_jackett(server_url, keyword, api_key):
             'size': size,
             'peers': [],
             'magnet': magnet,
+            'torrent_url': torrent_url,
             'seeders': seeders,
             'leechers': leechers,
             'piece_size': 0,

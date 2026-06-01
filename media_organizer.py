@@ -7,6 +7,7 @@ from config import (
     DOWNLOAD_DIR_COMPLETE,
     MEDIA_DIR_MOVIES,
     MEDIA_DIR_TV,
+    DOWNLOAD_DIR_OTHER,
     logger,
     load_config
 )
@@ -204,6 +205,17 @@ class MediaOrganizer:
                 return False, None, f"Source file not found: {source_path}"
 
             if not self.is_video_file(filename):
+                if DOWNLOAD_DIR_OTHER and os.path.isdir(DOWNLOAD_DIR_OTHER):
+                    dest_path = os.path.join(DOWNLOAD_DIR_OTHER, filename)
+                    if os.path.exists(dest_path):
+                        base, ext = os.path.splitext(dest_path)
+                        counter = 1
+                        while os.path.exists(f"{base} ({counter}){ext}"):
+                            counter += 1
+                        dest_path = f"{base} ({counter}){ext}"
+                    shutil.move(source_path, dest_path)
+                    logger.info(f"Non-video file moved to downloads: {dest_path}")
+                    return True, dest_path, None
                 logger.info(f"Skipping non-video file: {filename}")
                 return False, None, "Not a video file"
 

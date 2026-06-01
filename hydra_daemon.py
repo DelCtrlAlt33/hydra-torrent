@@ -65,6 +65,7 @@ from search import search_online_public, search_jackett, search_index_server
 from rss_poller import RssPoller
 from daemon_models import (
     AddMagnetRequest,
+    AddTorrentUrlRequest,
     AddRssRuleRequest,
     ConfigResponse,
     ConfigUpdate,
@@ -1121,6 +1122,34 @@ async def upload_torrent_file(background_tasks: BackgroundTasks, file: UploadFil
     return {"accepted": True}
 
 
+@app.post("/transfers/url", status_code=202, dependencies=[Depends(_require_api_key)])
+def add_torrent_from_url(req: AddTorrentUrlRequest, background_tasks: BackgroundTasks) -> dict:
+    """
+    Fetch a remote .torrent file URL and add it. Used for Jackett results that
+    provide a proxy download link instead of a magnet URI.
+    Returns 202 immediately; download runs in background.
+    """
+    import requests as _requests
+
+    def _add() -> None:
+        try:
+            resp = _requests.get(req.url, timeout=30, allow_redirects=True)
+            if resp.status_code != 200:
+                logger.error(f"Failed to fetch torrent URL {req.url}: HTTP {resp.status_code}")
+                return
+            data = resp.content
+            fname = req.url.split('/')[-1].split('?')[0] or 'download.torrent'
+            if not fname.lower().endswith('.torrent'):
+                fname += '.torrent'
+            name = engine.add_torrent_file(data, fname)
+            logger.info(f"Torrent URL added via API: '{name}'")
+        except Exception as e:
+            logger.error(f"Failed to add torrent from URL '{req.url}': {e}")
+
+    background_tasks.add_task(_add)
+    return {"accepted": True}
+
+
 @app.post("/transfers/{name}/pause", dependencies=[Depends(_require_api_key)])
 def pause_transfer(name: str) -> dict:
     """Pause a transfer."""
@@ -1420,6 +1449,7 @@ def do_search(req: SearchRequest) -> List[SearchResult]:
             engine=r.get('source') or r.get('engine', ''),
             engine_url=r.get('engine_url', ''),
             magnet=r.get('magnet'),
+            torrent_url=r.get('torrent_url'),
             published=r.get('published'),
         ))
     return results
