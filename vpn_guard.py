@@ -248,7 +248,12 @@ class VPNGuard:
     A 2-second polling loop runs as a fallback on all platforms.
     """
 
-    def __init__(self, check_interval=2):
+    def __init__(self, check_interval=None):
+        if check_interval is None:
+            # Windows: Win32 NotifyAddrChange fires instantly, 2s is just a safety fallback.
+            # Linux: pure polling — 30s is sufficient for a kill switch and avoids
+            # flooding journald with sudo PAM entries (~90 writes/min at 2s).
+            check_interval = 2 if os.name == 'nt' else 30
         self.check_interval = check_interval
         self._callback      = None
         self._thread        = None

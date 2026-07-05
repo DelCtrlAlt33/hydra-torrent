@@ -1,0 +1,12 @@
+{
+  "indexing_server": "http://127.0.0.1:9117",
+  "jackett_api_key": "ctw7uma2vrd4wi21evgbhc03lophm1vk",
+  "theme": "cyberpunk_neon",
+  "search_mode": "online",
+  "plex_url": "http://192.168.20.33:32400",
+  "plex_token": "8Jkzcq8frQYqxELDQV3K",
+  "daemon_api_key": "1bzcCATUGpSbpn-TZd_5odeUmHcubRZU2eJTZSnouMg",
+  "daemon_host": "127.0.0.1",
+  "daemon_use_ssl": false,
+  "daemon_port": 8766
+}
