@@ -1133,11 +1133,27 @@ def add_torrent_from_url(req: AddTorrentUrlRequest, background_tasks: Background
 
     def _add() -> None:
         try:
-            resp = _requests.get(req.url, timeout=30, allow_redirects=True)
+            # Do NOT auto-follow redirects: Jackett proxy links commonly 302 to a
+            # magnet: URI, which requests cannot fetch (no adapter for magnet:) and
+            # would silently fail. Follow http(s) hops manually; hand magnet: to add_magnet.
+            resp = _requests.get(req.url, timeout=30, allow_redirects=False)
+            hops = 0
+            while resp.is_redirect and hops < 6:
+                loc = resp.headers.get('Location', '')
+                if loc.startswith('magnet:'):
+                    name = engine.add_magnet(loc)
+                    logger.info(f"Torrent URL resolved to magnet, added: '{name}'")
+                    return
+                resp = _requests.get(loc, timeout=30, allow_redirects=False)
+                hops += 1
             if resp.status_code != 200:
                 logger.error(f"Failed to fetch torrent URL {req.url}: HTTP {resp.status_code}")
                 return
             data = resp.content
+            if data[:7] == b'magnet:':
+                name = engine.add_magnet(data.decode('utf-8', 'ignore').strip())
+                logger.info(f"Torrent URL body was a magnet, added: '{name}'")
+                return
             fname = req.url.split('/')[-1].split('?')[0] or 'download.torrent'
             if not fname.lower().endswith('.torrent'):
                 fname += '.torrent'
