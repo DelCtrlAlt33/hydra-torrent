@@ -30,7 +30,7 @@ BASE_DIR = get_base_dir()
 # whatever a stray print statement elsewhere might claim. Bump this as
 # part of cutting each release, alongside the git tag.
 # ----------------------------------------------------------------------
-VERSION = "1.0.4"
+VERSION = "1.1.0"
 GITHUB_REPO = "DelCtrlAlt33/hydra-torrent"
 
 # ----------------------------------------------------------------------

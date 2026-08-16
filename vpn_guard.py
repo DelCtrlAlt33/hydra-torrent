@@ -59,7 +59,16 @@ def _wg_handshake_ok(iface_name):
     Windows WireGuard tunnel as disconnected.
     """
     def _run(cmd):
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        # On Windows, spawning a console-subsystem program (wg.exe) from a
+        # windowed/no-console app briefly flashes a new console window for
+        # the child unless CREATE_NO_WINDOW is set. This runs on every
+        # VPNGuard poll (every 2s on Windows) whenever a wg-pattern
+        # interface is present — without this flag it's a visible flicker
+        # every couple of seconds, not a one-off.
+        kwargs = {}
+        if os.name == 'nt':
+            kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=5, **kwargs)
 
     try:
         result = _run(['wg', 'show', iface_name, 'latest-handshakes'])

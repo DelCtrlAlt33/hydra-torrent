@@ -165,6 +165,34 @@ def test_wg_handshake_false_when_never_connected():
         assert vpn_guard._wg_handshake_ok("wg0") is False
 
 
+def test_wg_handshake_suppresses_console_window_on_windows(monkeypatch):
+    # Regression test for a real, live bug found via manual testing:
+    # subprocess.run(['wg', 'show', ...]) without CREATE_NO_WINDOW briefly
+    # flashes a console window every time it's called — and VPNGuard calls
+    # this every 2 seconds on Windows whenever a wg-pattern interface is
+    # present, so without this flag it's a persistent visible flicker,
+    # not a one-off.
+    monkeypatch.setattr(vpn_guard.os, "name", "nt")
+    ok = _cmd_result(returncode=0, stdout=f"somepeer\t{int(time.time())}\n")
+    with patch("vpn_guard.subprocess.run", return_value=ok) as mock_run:
+        vpn_guard._wg_handshake_ok("wgpia0")
+
+    _, kwargs = mock_run.call_args
+    assert kwargs.get("creationflags") == vpn_guard.subprocess.CREATE_NO_WINDOW
+
+
+def test_wg_handshake_no_creationflags_on_non_windows(monkeypatch):
+    # CREATE_NO_WINDOW doesn't exist on non-Windows subprocess — must not
+    # be referenced there at all, or this raises AttributeError on Linux.
+    monkeypatch.setattr(vpn_guard.os, "name", "posix")
+    ok = _cmd_result(returncode=0, stdout=f"somepeer\t{int(time.time())}\n")
+    with patch("vpn_guard.subprocess.run", return_value=ok) as mock_run:
+        vpn_guard._wg_handshake_ok("wg0")
+
+    _, kwargs = mock_run.call_args
+    assert "creationflags" not in kwargs
+
+
 def test_wg_handshake_true_when_wg_binary_not_installed():
     with patch("vpn_guard.subprocess.run", side_effect=FileNotFoundError()):
         assert vpn_guard._wg_handshake_ok("wg0") is True
