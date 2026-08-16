@@ -7,6 +7,6 @@ cryptography
 fastapi
 python-multipart
 uvicorn[standard]
-pydantic>=2.0
+pydantic>=2.13.4
 websockets
 psutil
