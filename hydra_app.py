@@ -257,6 +257,17 @@ def _open_callback():
 def main():
     global _daemon_url
 
+    # WebView2's embedded Chromium process doesn't necessarily inherit the
+    # same color-management/rasterization path a standalone Edge/Chrome tab
+    # uses — reported as the UI looking visibly duller/less saturated in the
+    # wrapped desktop window than the identical page in a real browser.
+    # Must be set before the window (and its underlying WebView2 browser
+    # process) is created, so this goes as early in main() as possible.
+    os.environ.setdefault(
+        'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS',
+        '--force-color-profile=srgb --enable-gpu-rasterization',
+    )
+
     # Suppress InsecureRequestWarning
     try:
         import urllib3
