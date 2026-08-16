@@ -1,0 +1,181 @@
+"""
+Tests for vpn_guard.py's interface-detection logic — the core of Hydra's
+VPN kill switch. Everything downstream (pausing torrents, blocking real-IP
+traffic) depends on detect_vpn_interface() correctly identifying a live VPN
+adapter and correctly EXCLUDING look-alike virtual adapters (VMware,
+VirtualBox, Hyper-V, Bluetooth PAN) that would otherwise cause a false
+"VPN connected" reading — the one failure mode that actually matters here,
+since it's a silent privacy leak, not a crash.
+
+psutil and the `wg` subprocess call are mocked throughout — this must never
+depend on the machine actually running a VPN to pass.
+"""
+import socket
+import time
+from unittest.mock import Mock, patch
+
+import pytest
+
+import vpn_guard
+
+
+def _cmd_result(returncode=0, stdout="", stderr=""):
+    return Mock(returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+def _stats(isup=True):
+    return Mock(isup=isup)
+
+
+def _addr(ip="10.0.0.5"):
+    return Mock(family=socket.AF_INET, address=ip)
+
+
+@pytest.mark.parametrize("iface_name", [
+    "wg0",
+    "NordLynx",
+    "Mullvad",
+    "ProtonVPN",
+    "Tailscale",
+    "Cisco AnyConnect",
+    "ExpressVPN Tap Adapter",   # contains both 'tap' and 'expressvpn' — still a real VPN
+    "tun0",
+    "PIA WireGuard",
+])
+def test_detects_known_vpn_provider_interfaces(iface_name):
+    with patch("vpn_guard.psutil.net_if_stats", return_value={iface_name: _stats()}), \
+         patch("vpn_guard.psutil.net_if_addrs", return_value={iface_name: [_addr("10.8.0.2")]}), \
+         patch("vpn_guard._wg_handshake_ok", return_value=True):
+        iface, ip = vpn_guard.detect_vpn_interface()
+
+    assert iface == iface_name
+    assert ip == "10.8.0.2"
+
+
+@pytest.mark.parametrize("iface_name", [
+    "Ethernet",
+    "Wi-Fi",
+    "Loopback Pseudo-Interface 1",
+    "Bluetooth Network Connection",
+])
+def test_no_false_positive_on_ordinary_interfaces(iface_name):
+    with patch("vpn_guard.psutil.net_if_stats", return_value={iface_name: _stats()}), \
+         patch("vpn_guard.psutil.net_if_addrs", return_value={iface_name: [_addr()]}):
+        iface, ip = vpn_guard.detect_vpn_interface()
+
+    assert iface is None
+    assert ip is None
+
+
+@pytest.mark.parametrize("iface_name", [
+    "VMware Virtual TAP Adapter",       # matches 'tap' pattern, excluded by 'vmware'
+    "VirtualBox Host-Only TAP Adapter", # matches 'tap' pattern, excluded by 'virtualbox'
+    "Hyper-V Virtual Ethernet Adapter for VPN Switch",  # matches 'vpn' catch-all, excluded by 'hyper-v'
+])
+def test_excludes_virtual_adapters_that_look_like_vpns(iface_name):
+    with patch("vpn_guard.psutil.net_if_stats", return_value={iface_name: _stats()}), \
+         patch("vpn_guard.psutil.net_if_addrs", return_value={iface_name: [_addr()]}):
+        iface, ip = vpn_guard.detect_vpn_interface()
+
+    assert iface is None
+    assert ip is None
+
+
+def test_skips_matching_interface_that_is_administratively_down():
+    with patch("vpn_guard.psutil.net_if_stats", return_value={"tun0": _stats(isup=False)}), \
+         patch("vpn_guard.psutil.net_if_addrs", return_value={"tun0": [_addr()]}):
+        iface, ip = vpn_guard.detect_vpn_interface()
+
+    assert iface is None
+    assert ip is None
+
+
+def test_treats_wireguard_with_stale_handshake_as_disconnected():
+    # The critical kill-switch case: the OS reports the wg0 adapter as
+    # "up," but the tunnel has silently died (no recent peer handshake).
+    # Reporting this as connected would leave torrent traffic exposed on
+    # the real interface while the UI still shows "VPN: connected."
+    with patch("vpn_guard.psutil.net_if_stats", return_value={"wg0": _stats(isup=True)}), \
+         patch("vpn_guard.psutil.net_if_addrs", return_value={"wg0": [_addr()]}), \
+         patch("vpn_guard._wg_handshake_ok", return_value=False):
+        iface, ip = vpn_guard.detect_vpn_interface()
+
+    assert iface is None
+    assert ip is None
+
+
+def test_returns_none_none_on_psutil_error_instead_of_raising():
+    # A kill switch that crashes on a transient psutil error is worse than
+    # one that fails closed — detect_vpn_interface must degrade to "no
+    # VPN detected" rather than propagate the exception.
+    with patch("vpn_guard.psutil.net_if_stats", side_effect=OSError("boom")):
+        iface, ip = vpn_guard.detect_vpn_interface()
+
+    assert iface is None
+    assert ip is None
+
+
+
+# ---------------------------------------------------------------------------
+# _wg_handshake_ok — regression coverage for a real bug found via live
+# testing on this machine: WireGuard-for-Windows only answers `wg show`
+# from an elevated process. Hydra's daemon doesn't (and shouldn't) run
+# elevated, and the code's `sudo` fallback is Linux-only logic — on
+# Windows it used to fall through to "tunnel is dead" for every real,
+# working VPN connection. Confirmed with a real `wg show wgpia0
+# latest-handshakes` → "Permission denied" on this exact box before the fix.
+# ---------------------------------------------------------------------------
+
+def test_wg_handshake_windows_permission_denied_is_unknown_not_dead(monkeypatch):
+    monkeypatch.setattr(vpn_guard.os, "name", "nt")
+    denied = _cmd_result(returncode=1, stderr="Unable to access interface: Permission denied")
+    with patch("vpn_guard.subprocess.run", return_value=denied) as mock_run:
+        assert vpn_guard._wg_handshake_ok("wgpia0") is True
+    mock_run.assert_called_once()  # must NOT attempt the sudo fallback on Windows
+
+
+def test_wg_handshake_linux_permission_denied_still_tries_sudo_fallback(monkeypatch):
+    # The original Linux use case (CAP_NET_ADMIN missing, sudoers rule
+    # grants it) must keep working — the Windows fix must not break it.
+    monkeypatch.setattr(vpn_guard.os, "name", "posix")
+    denied = _cmd_result(returncode=1, stderr="Unable to access interface: Operation not permitted")
+    recent = _cmd_result(returncode=0, stdout=f"somepeer\t{int(time.time())}\n")
+    with patch("vpn_guard.subprocess.run", side_effect=[denied, recent]) as mock_run:
+        assert vpn_guard._wg_handshake_ok("wg0") is True
+    assert mock_run.call_count == 2
+    assert mock_run.call_args_list[1].args[0][0] == "sudo"
+
+
+def test_wg_handshake_true_for_recent_handshake():
+    recent = _cmd_result(returncode=0, stdout=f"somepeer\t{int(time.time())}\n")
+    with patch("vpn_guard.subprocess.run", return_value=recent):
+        assert vpn_guard._wg_handshake_ok("wg0") is True
+
+
+def test_wg_handshake_false_for_stale_handshake():
+    stale_ts = int(time.time()) - 999  # older than _WG_HANDSHAKE_MAX_AGE (180s)
+    stale = _cmd_result(returncode=0, stdout=f"somepeer\t{stale_ts}\n")
+    with patch("vpn_guard.subprocess.run", return_value=stale):
+        assert vpn_guard._wg_handshake_ok("wg0") is False
+
+
+def test_wg_handshake_false_when_never_connected():
+    never = _cmd_result(returncode=0, stdout="somepeer\t0\n")
+    with patch("vpn_guard.subprocess.run", return_value=never):
+        assert vpn_guard._wg_handshake_ok("wg0") is False
+
+
+def test_wg_handshake_true_when_wg_binary_not_installed():
+    with patch("vpn_guard.subprocess.run", side_effect=FileNotFoundError()):
+        assert vpn_guard._wg_handshake_ok("wg0") is True
+
+
+def test_prefers_first_ipv4_address_and_ignores_ipv6():
+    ipv6_addr = Mock(family=socket.AF_INET6, address="fe80::1")
+    ipv4_addr = _addr("10.8.0.9")
+    with patch("vpn_guard.psutil.net_if_stats", return_value={"wg0": _stats()}), \
+         patch("vpn_guard.psutil.net_if_addrs", return_value={"wg0": [ipv6_addr, ipv4_addr]}), \
+         patch("vpn_guard._wg_handshake_ok", return_value=True):
+        iface, ip = vpn_guard.detect_vpn_interface()
+
+    assert ip == "10.8.0.9"

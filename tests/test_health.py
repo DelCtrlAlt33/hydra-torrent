@@ -1,0 +1,122 @@
+"""
+Tests for health.py — the reachability checks behind /health. These are
+what let the UI show "Jackett: unreachable" the moment it happens instead
+of a user just seeing search silently return nothing, or a completed
+download silently never triggering a Plex scan.
+"""
+from unittest.mock import Mock, patch
+
+import pytest
+
+from health import check_jackett, check_plex
+
+
+def _response(status_code=200):
+    resp = Mock()
+    resp.status_code = status_code
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# check_jackett
+# ---------------------------------------------------------------------------
+
+def test_jackett_not_configured_when_no_url():
+    result = check_jackett("", "somekey")
+    assert result == {"configured": False, "reachable": False, "error": None}
+
+
+def test_jackett_reachable_on_200():
+    with patch("health.requests.get", return_value=_response(200)):
+        result = check_jackett("http://127.0.0.1:9117", "validkey")
+    assert result == {"configured": True, "reachable": True, "error": None}
+
+
+@pytest.mark.parametrize("status_code", [401, 403])
+def test_jackett_reports_invalid_api_key(status_code):
+    with patch("health.requests.get", return_value=_response(status_code)):
+        result = check_jackett("http://127.0.0.1:9117", "wrongkey")
+    assert result["configured"] is True
+    assert result["reachable"] is False
+    assert result["error"] == "invalid API key"
+
+
+def test_jackett_reports_other_http_errors():
+    with patch("health.requests.get", return_value=_response(500)):
+        result = check_jackett("http://127.0.0.1:9117", "key")
+    assert result["reachable"] is False
+    assert result["error"] == "HTTP 500"
+
+
+def test_jackett_reports_timeout_distinctly():
+    import requests
+    with patch("health.requests.get", side_effect=requests.exceptions.Timeout()):
+        result = check_jackett("http://127.0.0.1:9117", "key")
+    assert result["configured"] is True
+    assert result["reachable"] is False
+    assert result["error"] == "timeout"
+
+
+def test_jackett_reports_connection_refused_distinctly():
+    import requests
+    with patch("health.requests.get", side_effect=requests.exceptions.ConnectionError()):
+        result = check_jackett("http://127.0.0.1:9117", "key")
+    assert result["error"] == "connection refused"
+
+
+def test_jackett_never_raises_on_unexpected_error():
+    with patch("health.requests.get", side_effect=RuntimeError("something weird")):
+        result = check_jackett("http://127.0.0.1:9117", "key")
+    assert result["reachable"] is False
+    assert "something weird" in result["error"]
+
+
+def test_jackett_check_uses_caps_endpoint_not_a_real_search():
+    # The health check must be cheap and side-effect-free — it should hit
+    # Torznab's capability-discovery endpoint, not run an actual search
+    # against every configured indexer.
+    mock_get = Mock(return_value=_response(200))
+    with patch("health.requests.get", mock_get):
+        check_jackett("http://127.0.0.1:9117", "key")
+
+    args, kwargs = mock_get.call_args
+    assert "results/torznab" in args[0]
+    assert kwargs["params"]["t"] == "caps"
+
+
+# ---------------------------------------------------------------------------
+# check_plex
+# ---------------------------------------------------------------------------
+
+def test_plex_not_configured_when_url_or_token_missing():
+    assert check_plex("", "token")["configured"] is False
+    assert check_plex("http://192.168.1.5:32400", "")["configured"] is False
+
+
+def test_plex_reachable_on_200():
+    with patch("health.requests.get", return_value=_response(200)):
+        result = check_plex("http://192.168.1.5:32400", "validtoken")
+    assert result == {"configured": True, "reachable": True, "error": None}
+
+
+def test_plex_reports_invalid_token():
+    with patch("health.requests.get", return_value=_response(401)):
+        result = check_plex("http://192.168.1.5:32400", "badtoken")
+    assert result["error"] == "invalid token"
+
+
+def test_plex_reports_connection_refused_with_helpful_hint():
+    import requests
+    with patch("health.requests.get", side_effect=requests.exceptions.ConnectionError()):
+        result = check_plex("http://192.168.1.5:32400", "token")
+    assert "is Plex running" in result["error"]
+
+
+def test_plex_check_hits_library_sections_readonly():
+    mock_get = Mock(return_value=_response(200))
+    with patch("health.requests.get", mock_get):
+        check_plex("http://192.168.1.5:32400", "mytoken")
+
+    args, kwargs = mock_get.call_args
+    assert args[0].endswith("/library/sections")
+    assert kwargs["params"]["X-Plex-Token"] == "mytoken"

@@ -98,6 +98,29 @@ class DaemonStatus(BaseModel):
     num_torrents: int = 0
 
 
+class IntegrationHealth(BaseModel):
+    """Reachability of one optional integration (Jackett or Plex)."""
+    configured: bool           # False = no URL/key set — not an error, just unused
+    reachable: bool
+    error: Optional[str] = None
+
+
+class HealthStatus(BaseModel):
+    """Full picture of everything that can silently break without a user noticing."""
+    vpn: VPNStatus
+    jackett: IntegrationHealth
+    plex: IntegrationHealth
+
+
+class UpdateStatus(BaseModel):
+    """Phase 1 update check: tells you, never installs anything."""
+    update_available: bool
+    current_version: str
+    latest_version: Optional[str] = None
+    release_url: Optional[str] = None
+    error: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Config models
 # ---------------------------------------------------------------------------

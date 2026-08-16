@@ -53,8 +53,10 @@ from config import (
     CONFIG_FILE,
     DOWNLOAD_DIR_INCOMPLETE,
     FULLCHAIN_PATH,
+    GITHUB_REPO,
     PEER_PORT,
     PRIVKEY_PATH,
+    VERSION,
     load_config,
     save_config,
     logger,
@@ -62,6 +64,8 @@ from config import (
 from vpn_guard import VPNGuard, get_public_ip as _fetch_public_ip
 from media_organizer import auto_move_completed_download
 from search import search_online_public, search_jackett, search_index_server
+from health import check_jackett, check_plex
+from updater import check_for_update
 from rss_poller import RssPoller
 from daemon_models import (
     AddMagnetRequest,
@@ -71,7 +75,10 @@ from daemon_models import (
     ConfigUpdate,
     DaemonStatus,
     FilePriorityItem,
+    HealthStatus,
+    IntegrationHealth,
     PatchRssRuleRequest,
+    UpdateStatus,
     RssRule,
     SearchRequest,
     SearchResult,
@@ -1059,6 +1066,37 @@ def get_vpn() -> VPNStatus:
     return VPNStatus(connected=connected, iface=iface, vpn_ip=ip)
 
 
+@app.get("/health", dependencies=[Depends(_require_api_key)])
+def get_health() -> HealthStatus:
+    """
+    Live reachability of everything that can silently break without a
+    user noticing: VPN, Jackett, Plex. Each optional integration reports
+    'configured: false' rather than an error when unused, so the UI can
+    distinguish "not set up" from "set up but broken."
+    """
+    cfg = load_config()
+    vpn_connected, vpn_iface, vpn_ip = engine.vpn_guard.get_status()
+
+    jackett = check_jackett(cfg.get('indexing_server', ''), cfg.get('jackett_api_key', ''))
+    plex = check_plex(cfg.get('plex_url', ''), cfg.get('plex_token', ''))
+
+    return HealthStatus(
+        vpn=VPNStatus(connected=vpn_connected, iface=vpn_iface, vpn_ip=vpn_ip),
+        jackett=IntegrationHealth(**jackett),
+        plex=IntegrationHealth(**plex),
+    )
+
+
+@app.get("/update-check", dependencies=[Depends(_require_api_key)])
+def get_update_check() -> UpdateStatus:
+    """
+    Phase 1 update check — tells the UI whether a newer release exists on
+    GitHub. Does not download or install anything (see updater.py).
+    """
+    result = check_for_update(VERSION, GITHUB_REPO)
+    return UpdateStatus(**result)
+
+
 @app.get("/transfers", dependencies=[Depends(_require_api_key)])
 def list_transfers() -> List[TransferState]:
     """List all transfers."""
@@ -1491,7 +1529,7 @@ if __name__ == "__main__":
         }
 
     scheme = 'https' if use_ssl else 'http'
-    print(f"Hydra Daemon v0.1")
+    print(f"Hydra Daemon v{VERSION}")
     print(f"Listening on:  {scheme}://{host}:{port}")
     print(f"API key:       {API_KEY}")
     print(f"API docs:      {scheme}://{host}:{port}/docs")

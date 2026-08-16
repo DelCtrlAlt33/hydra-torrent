@@ -1,0 +1,33 @@
+version: 2
+updates:
+  # Python dependencies — requirements.txt, requirements-test.txt,
+  # requirements-docker.txt. This is the direct fix for the failure mode
+  # that killed Bobarr (the prior attempt at this same "all-in-one client"
+  # idea): its own dependency stack quietly drifted out of date over ~2.5
+  # years with nobody watching, until "up to date" meant a full rewrite
+  # instead of a routine bump. A weekly PR keeps that gap from ever opening.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+
+  # Versions pinned in .github/workflows/*.yml (actions/checkout, etc.)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci"
+
+  # Dockerfile base image
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "docker"

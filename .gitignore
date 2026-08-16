@@ -4,6 +4,9 @@ certs/
 *.part
 transfers.json
 hydra_config.json
+hydra_config_local.json
+hydra_config_test.json
+hydra_config_*.json
 rss_rules.json
 downloads/
 downloads_incomplete/
@@ -48,3 +51,15 @@ CLAUDE.md
 
 # IDE/Editor
 .claude/
+
+# Test/coverage artifacts
+.coverage
+
+# Runtime log
+hydra.log
+
+# Built release artifact / bundled third-party binaries — not source, too
+# large for git, and easy to accidentally re-download into the repo root
+HydraTorrent-Windows.zip
+Jackett/
+image8(1).ico

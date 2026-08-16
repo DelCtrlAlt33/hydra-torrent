@@ -1,4 +1,3 @@
-ttkbootstrap
 requests
 beautifulsoup4
 miniupnpc

@@ -20,6 +20,7 @@ class MediaOrganizer:
     TV_PATTERNS = [
         r'[Ss]\d{1,2}[Ee]\d{1,2}',      # S01E05, s01e05
         r'\d{1,2}x\d{1,2}',             # 1x05
+        r'\b[Ss]\d{1,2}\b',             # S01, S1 (season pack, no episode number)
         r'Season[\s._]*\d+',            # Season 1, Season.2, Season_3
         r'Episode[\s._]*\d+',           # Episode 5, Episode.05
         r'\bE\d{2,3}\b',               # E01, E001 (standalone, no S prefix)
@@ -109,6 +110,15 @@ class MediaOrganizer:
         m = re.search(r'(.+?)[.\s_]Season[.\s_]?(\d{1,2})', text, re.IGNORECASE)
         if m:
             return m.group(1).replace('.', ' ').strip(), int(m.group(2))
+
+        # Bare season pack, no episode number (e.g. "Show.Name.S01.COMPLETE")
+        # Negative lookahead excludes S01E05 — that's handled above already,
+        # but stays defensive in case this branch is ever reordered.
+        m = re.search(r'(.+?)[.\s_][Ss](\d{1,2})(?![Ee]\d)(?:[.\s_-]|$)', text)
+        if m:
+            show_name = self._strip_quality_tags(m.group(1).replace('.', ' ')).strip()
+            if show_name:
+                return show_name, int(m.group(2))
 
         # Anime fansub: [Group] Show Name - 001 [quality]
         # Strip the [Group] tag first, then parse "Show - 001"

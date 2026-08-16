@@ -181,6 +181,28 @@
       background: currentColor;
     }
 
+    /* Update badge — hidden unless an update actually exists, same
+       orange "worth a look, not urgent" language as .vpn-badge.checking */
+    .update-badge {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      margin-left: 14px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      border: 1px solid rgba(255, 165, 0, 0.3);
+      background: rgba(255, 165, 0, 0.15);
+      color: #ffa500;
+      text-decoration: none;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .update-badge:hover { background: rgba(255, 165, 0, 0.28); }
+    .update-badge.visible { display: inline-flex; }
+
     /* Tabs */
     .tabs {
       display: flex;
@@ -877,6 +899,7 @@
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <header>
   <div class="logo"><span class="brand">H Y D R A</span> &nbsp;<span class="sub">T O R R E N T</span></div>
+  <a class="update-badge" id="update-badge" href="#" target="_blank" rel="noopener" title="A newer version is available on GitHub"></a>
   <div class="spacer"></div>
   <div class="header-rates" id="header-rates"></div>
   <div class="vpn-badge checking" id="vpn-badge">
@@ -999,6 +1022,26 @@
 <!-- Settings Pane                                                             -->
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <div class="pane" id="pane-settings">
+
+  <div class="settings-section">
+    <div class="settings-section-title">Connection Health</div>
+    <div class="settings-row">
+      <label>VPN</label>
+      <div class="vpn-badge checking" id="health-vpn"><div class="vpn-dot"></div><span>Checking...</span></div>
+    </div>
+    <div class="settings-row">
+      <label>Jackett</label>
+      <div class="vpn-badge checking" id="health-jackett"><div class="vpn-dot"></div><span>Checking...</span></div>
+    </div>
+    <div class="settings-row">
+      <label>Plex</label>
+      <div class="vpn-badge checking" id="health-plex"><div class="vpn-dot"></div><span>Checking...</span></div>
+    </div>
+    <div class="settings-row">
+      <label></label>
+      <button class="btn btn-sm btn-pause" onclick="loadHealth()">Refresh</button>
+    </div>
+  </div>
 
   <div class="settings-section">
     <div class="settings-section-title">Plex</div>
@@ -1287,7 +1330,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
     tab.classList.add('active');
     document.getElementById('pane-' + tab.dataset.tab).classList.add('active');
-    if (tab.dataset.tab === 'settings') { loadSettings(); renderThemeGrid(); }
+    if (tab.dataset.tab === 'settings') { loadSettings(); renderThemeGrid(); loadHealth(); }
     if (tab.dataset.tab === 'autodl') loadRssRules();
   });
 });
@@ -1861,6 +1904,53 @@ async function loadSettings() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Connection health — /health hits VPN + Jackett + Plex on demand (real
+// outbound requests with timeouts), so this runs when Settings opens or on
+// Refresh, not on the same fast poll loop as the header VPN badge.
+// ═══════════════════════════════════════════════════════════════════════════
+async function loadHealth() {
+  try {
+    const r = await fetch(BASE + '/health', { headers: HEADERS });
+    if (!r.ok) throw new Error('status ' + r.status);
+    const data = await r.json();
+    renderHealthBadge('health-vpn', vpnHealthState(data.vpn));
+    renderHealthBadge('health-jackett', integrationHealthState(data.jackett));
+    renderHealthBadge('health-plex', integrationHealthState(data.plex));
+  } catch (e) {
+    const failed = { cls: 'exposed', text: 'Check failed' };
+    renderHealthBadge('health-vpn', failed);
+    renderHealthBadge('health-jackett', failed);
+    renderHealthBadge('health-plex', failed);
+  }
+}
+
+function vpnHealthState(vpn) {
+  if (vpn && vpn.connected) {
+    return { cls: 'protected', text: 'Connected' + (vpn.iface ? ' · ' + vpn.iface : '') };
+  }
+  return { cls: 'exposed', text: 'Not connected' };
+}
+
+function integrationHealthState(integration) {
+  if (!integration || !integration.configured) {
+    return { cls: 'checking', text: 'Not configured' };
+  }
+  if (integration.reachable) {
+    return { cls: 'protected', text: 'Connected' };
+  }
+  return { cls: 'exposed', text: integration.error ? ('Unreachable — ' + integration.error) : 'Unreachable' };
+}
+
+function renderHealthBadge(id, state) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('protected', 'exposed', 'checking');
+  el.classList.add(state.cls);
+  const span = el.querySelector('span');
+  if (span) span.textContent = state.text;
+}
+
 async function saveSettings(silent = false) {
   const body = {
     plex_url:         document.getElementById('cfg-plex-url').value.trim(),
@@ -2140,7 +2230,31 @@ document.addEventListener('DOMContentLoaded', () => {
   connectWebSocket();
   pollStatus();
   setInterval(pollStatus, 5000);
+  checkForUpdate();
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Update check — Phase 1 only: tell the user, link to the release, never
+// download or install anything. Checked once per app open, not polled —
+// this hits GitHub's API, not a local endpoint. Silent when there's
+// nothing to report, same as the health panel's "not configured" state.
+// ═══════════════════════════════════════════════════════════════════════════
+async function checkForUpdate() {
+  try {
+    const r = await fetch(BASE + '/update-check', { headers: HEADERS });
+    if (!r.ok) return;
+    const data = await r.json();
+    if (!data.update_available) return;
+
+    const badge = document.getElementById('update-badge');
+    if (!badge) return;
+    badge.textContent = 'Update available — ' + (data.latest_version || 'newer version');
+    badge.href = data.release_url || '#';
+    badge.classList.add('visible');
+  } catch (e) {
+    // Offline / GitHub unreachable — say nothing, don't nag.
+  }
+}
 </script>
 </body>
 </html>

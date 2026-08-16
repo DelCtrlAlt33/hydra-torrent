@@ -1,0 +1,13 @@
+[run]
+omit =
+    tests/*
+    miniconda3/*
+    build/*
+    dist/*
+    downloads/*
+    downloads_complete/*
+    downloads_incomplete/*
+    shared_files/*
+    installer_package/*
+    Jackett/*
+    */site-packages/*

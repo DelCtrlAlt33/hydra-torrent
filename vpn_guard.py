@@ -49,7 +49,14 @@ def _wg_handshake_ok(iface_name):
     A handshake timestamp of 0 means never connected; anything older than
     _WG_HANDSHAKE_MAX_AGE seconds means the tunnel has silently died.
     Falls back to True on any error so non-wg interfaces aren't affected.
-    Tries sudo if the direct call is denied (service may lack CAP_NET_ADMIN).
+    Tries sudo if the direct call is denied (service may lack CAP_NET_ADMIN)
+    — Linux only. WireGuard-for-Windows restricts `wg show` to an elevated
+    process instead, and Windows offers no reasonable non-interactive way
+    to escalate (its own `sudo` is disabled by default, and even enabled
+    it would block on a UAC prompt) — so on Windows, a denied query means
+    "can't verify," not "tunnel is dead." Getting this wrong was a real,
+    live bug: it made the kill switch treat every genuinely-connected
+    Windows WireGuard tunnel as disconnected.
     """
     def _run(cmd):
         return subprocess.run(cmd, capture_output=True, text=True, timeout=5)
@@ -57,6 +64,8 @@ def _wg_handshake_ok(iface_name):
     try:
         result = _run(['wg', 'show', iface_name, 'latest-handshakes'])
         if result.returncode != 0:
+            if os.name == 'nt':
+                return True  # can't elevate non-interactively — trust the OS-level "up" check
             result = _run(['sudo', 'wg', 'show', iface_name, 'latest-handshakes'])
         if result.returncode != 0:
             return False
@@ -248,7 +257,12 @@ class VPNGuard:
     A 2-second polling loop runs as a fallback on all platforms.
     """
 
-    def __init__(self, check_interval=2):
+    def __init__(self, check_interval=None):
+        if check_interval is None:
+            # Windows: Win32 NotifyAddrChange fires instantly, 2s is just a safety fallback.
+            # Linux: pure polling — 30s is sufficient for a kill switch and avoids
+            # flooding journald with sudo PAM entries (~90 writes/min at 2s).
+            check_interval = 2 if os.name == 'nt' else 30
         self.check_interval = check_interval
         self._callback      = None
         self._thread        = None

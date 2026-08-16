@@ -3,6 +3,7 @@ import sys
 import json
 import ctypes
 import logging
+from logging.handlers import RotatingFileHandler
 
 # ----------------------------------------------------------------------
 # Base directory - handle both script and PyInstaller exe
@@ -22,6 +23,15 @@ def get_base_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 BASE_DIR = get_base_dir()
+
+# ----------------------------------------------------------------------
+# Version — single source of truth. Matches the tag of the last published
+# GitHub release (checked via `gh release view` / the Releases API), NOT
+# whatever a stray print statement elsewhere might claim. Bump this as
+# part of cutting each release, alongside the git tag.
+# ----------------------------------------------------------------------
+VERSION = "1.0.4"
+GITHUB_REPO = "DelCtrlAlt33/hydra-torrent"
 
 # ----------------------------------------------------------------------
 # Paths
@@ -63,9 +73,16 @@ CHUNK_SIZE = 4 * 1024 * 1024  # 4 MiB pieces
 # ----------------------------------------------------------------------
 # Logging
 # ----------------------------------------------------------------------
+LOG_PATH = os.path.join(BASE_DIR, 'hydra.log')
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        # Console is hidden in the packaged .exe, so without this file handler
+        # every background error (e.g. a failed add_torrent) is silently lost.
+        RotatingFileHandler(LOG_PATH, maxBytes=5 * 1024 * 1024, backupCount=3, encoding='utf-8'),
+    ],
 )
 logger = logging.getLogger('hydra_torrent')
 
