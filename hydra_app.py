@@ -328,8 +328,13 @@ def main():
     w = webview.create_window(
         'Hydra Torrent',
         url=f'{_daemon_url}/ui',
-        width=1200,
-        height=800,
+        # Tall enough that the Transfers pane (map + activity log + the
+        # empty-state hero art below it) fits on first open with no
+        # scrolling on a normal 1080p+ display. Still just a starting
+        # size - min_size below is the only actual floor, resize/shrink
+        # works exactly as before.
+        width=1320,
+        height=1040,
         min_size=(800, 500),
         frameless=True,
         easy_drag=False,
