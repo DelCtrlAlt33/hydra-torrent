@@ -49,6 +49,31 @@
       font-weight: 400;
     }
 
+    /* The whole titlebar is a drag region (pywebview-drag-region), so
+       anything clickable inside it needs no-drag or a click just moves
+       the window instead of registering. Same trick .titlebar-controls
+       already uses for the min/max/close buttons. */
+    .titlebar-update-badge {
+      display: none;
+      align-items: center;
+      margin-left: 10px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+      white-space: nowrap;
+      border: 1px solid rgba(255, 165, 0, 0.3);
+      background: rgba(255, 165, 0, 0.15);
+      color: #ffa500;
+      text-decoration: none;
+      cursor: pointer;
+      -webkit-app-region: no-drag;
+      app-region: no-drag;
+      transition: background 0.2s;
+    }
+    .titlebar-update-badge:hover { background: rgba(255, 165, 0, 0.28); }
+    .titlebar-update-badge.visible { display: inline-flex; }
+
     .titlebar-spacer { flex: 1; }
 
     .titlebar-controls {
@@ -112,6 +137,16 @@
       display: flex;
       flex-direction: column;
     }
+
+    /* Page-level scroll (narrow/short windows) gets the same thin
+       scrollbar every internal panel already uses, instead of the
+       native OS one. html and body both styled since which element
+       actually owns the scrollbar is engine-dependent here. */
+    html { scrollbar-width: thin; }
+    html::-webkit-scrollbar, body::-webkit-scrollbar { width: 8px; }
+    html::-webkit-scrollbar-track, body::-webkit-scrollbar-track { background: transparent; }
+    html::-webkit-scrollbar-thumb, body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    html::-webkit-scrollbar-thumb:hover, body::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); }
 
 
     /* Header */
@@ -1397,6 +1432,7 @@
 <div class="titlebar pywebview-drag-region">
   <img class="titlebar-icon" src="/static/logo.png" alt="Hydra">
   <span class="titlebar-title">Hydra Torrent <span id="app-version" style="opacity:0.4;font-size:11px;font-weight:400;"></span></span>
+  <a class="titlebar-update-badge" id="titlebar-update-badge" href="#" target="_blank" rel="noopener" title="A newer version is available on GitHub"></a>
   <div class="titlebar-rates" id="titlebar-rates"></div>
   <div class="titlebar-spacer"></div>
   <div class="titlebar-controls">
@@ -4106,11 +4142,22 @@ async function checkForUpdate() {
 
     if (!data.update_available) return;
 
+    // The desktop app hides <header> entirely (body.frameless header {
+    // display: none }) in favor of the custom titlebar, so #update-badge
+    // living inside <header> is never visible there - this titlebar
+    // counterpart is the only one desktop users will ever see.
     const badge = document.getElementById('update-badge');
-    if (!badge) return;
-    badge.textContent = 'Update available: ' + (data.latest_version || 'newer version');
-    badge.href = data.release_url || '#';
-    badge.classList.add('visible');
+    if (badge) {
+      badge.textContent = 'Update available: ' + (data.latest_version || 'newer version');
+      badge.href = data.release_url || '#';
+      badge.classList.add('visible');
+    }
+    const titlebarBadge = document.getElementById('titlebar-update-badge');
+    if (titlebarBadge) {
+      titlebarBadge.textContent = 'Update: ' + (data.latest_version || 'new');
+      titlebarBadge.href = data.release_url || '#';
+      titlebarBadge.classList.add('visible');
+    }
   } catch (e) {
     // Offline / GitHub unreachable: say nothing, don't nag.
   }
