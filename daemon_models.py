@@ -88,6 +88,7 @@ class VPNStatus(BaseModel):
     iface: Optional[str] = None
     vpn_ip: Optional[str] = None
     public_ip: Optional[str] = None  # fetched lazily; may be None
+    country_code: Optional[str] = None  # ISO 2-letter, GeoIP on public_ip; None if not resolved yet
 
 
 class DaemonStatus(BaseModel):
@@ -173,6 +174,22 @@ class FilePriorityItem(BaseModel):
 
 class SetFilePrioritiesRequest(BaseModel):
     files: List[FilePriorityItem]
+
+
+class PeerInfo(BaseModel):
+    """A single peer we're currently exchanging data with on one transfer."""
+    ip: str
+    port: int
+    country: str            # full country name, "Unknown" if GeoIP lookup failed
+    country_code: str       # ISO 2-letter code, "" if unknown
+    client: str              # decoded client string, e.g. "qBittorrent/4.5.2"
+    connection_type: str     # "BT", "Web Seed", or "HTTP Seed"
+    down_speed: float        # bytes/sec, current
+    up_speed: float          # bytes/sec, current
+    total_downloaded: int    # bytes, this session
+    total_uploaded: int      # bytes, this session
+    progress: float          # 0-100, how much of the torrent this peer has
+    is_hydra: bool            # true if this peer is also running Hydra
 
 
 # ---------------------------------------------------------------------------

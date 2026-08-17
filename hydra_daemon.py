@@ -39,6 +39,7 @@ from contextlib import asynccontextmanager
 from typing import List, Optional, Set
 
 import libtorrent as lt
+import maxminddb
 import uvicorn
 from fastapi import (
     BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, Security,
@@ -78,6 +79,7 @@ from daemon_models import (
     HealthStatus,
     IntegrationHealth,
     PatchRssRuleRequest,
+    PeerInfo,
     UpdateStatus,
     RssRule,
     SearchRequest,
@@ -87,6 +89,23 @@ from daemon_models import (
     TransferState,
     VPNStatus,
 )
+
+
+# lt.peer_info.connection_type values -> display label
+_PEER_CONN_TYPE_LABELS = {
+    lt.peer_info.standard_bittorrent: 'BT',
+    lt.peer_info.web_seed: 'Web Seed',
+    lt.peer_info.http_seed: 'HTTP Seed',
+}
+
+
+def _resource_path(name: str) -> str:
+    """Resolve a bundled resource (works in both script and PyInstaller onefile)."""
+    try:
+        base = sys._MEIPASS  # type: ignore[attr-defined]
+    except AttributeError:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, name)
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +326,11 @@ class TorrentEngine:
         self.ses: Optional[lt.session] = None
         self.vpn_guard = VPNGuard()
         self.vpn_ip: Optional[str] = None
+        self.geo_reader = None
+        try:
+            self.geo_reader = maxminddb.open_database(_resource_path('GeoLite2-Country.mmdb'))
+        except Exception as e:
+            logger.warning(f"GeoIP DB load failed: {e} - peer country flags disabled")
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -373,6 +397,13 @@ class TorrentEngine:
             'connections_limit': 200,
             'download_rate_limit': int(cfg.get('download_rate_limit', 0) or 0),
             'upload_rate_limit': int(cfg.get('upload_rate_limit', 0) or 0),
+            # Identify Hydra to the swarm instead of hiding behind libtorrent's
+            # default fingerprint — lets the peer list recognize fellow Hydra
+            # users instead of showing every peer as an anonymous IP.
+            'peer_fingerprint': f'-HY{VERSION.replace(".", "")[:4].ljust(4, "0")}-',
+            'user_agent': f'HydraTorrent/{VERSION}',
+            'handshake_client_version': f'HydraTorrent/{VERSION}',
+            'always_send_user_agent': True,
         })
         self.ses.add_dht_router("router.utorrent.com", 6881)
         self.ses.add_dht_router("router.bittorrent.com", 6881)
@@ -385,7 +416,7 @@ class TorrentEngine:
                 'download_rate_limit': download_limit,
                 'upload_rate_limit': upload_limit,
             })
-            logger.info(f"Rate limits updated — DL: {download_limit} B/s, UL: {upload_limit} B/s")
+            logger.info(f"Rate limits updated: DL {download_limit} B/s, UL {upload_limit} B/s")
 
     def get_session_status(self) -> dict:
         if not self.ses:
@@ -401,6 +432,62 @@ class TorrentEngine:
             }
         except Exception:
             return {}
+
+    def _country_for_ip(self, ip: str):
+        """Offline GeoIP lookup. Returns (country_name, iso_code), ('Unknown', '') on any failure."""
+        if not self.geo_reader or not ip:
+            return ('Unknown', '')
+        try:
+            result = self.geo_reader.get(ip)
+            if result and 'country' in result:
+                name = result['country'].get('names', {}).get('en', 'Unknown')
+                code = result['country'].get('iso_code', '')
+                return (name, code)
+        except Exception:
+            pass
+        return ('Unknown', '')
+
+    def get_peer_info(self, name: str) -> list:
+        """
+        Live peer list for one transfer: IP, country, client, per-peer speed,
+        and whether that peer is also running Hydra (its client string will
+        contain "Hydra" since we set our own user_agent/handshake version to
+        that, and so does every other Hydra install).
+        """
+        handle = self.store.get_handle(name)
+        if handle is None:
+            return []
+        try:
+            peers = handle.get_peer_info()
+        except Exception:
+            return []
+
+        result = []
+        for p in peers:
+            ip = p.ip[0] if p.ip else ''
+            port = p.ip[1] if p.ip else 0
+            country, code = self._country_for_ip(ip)
+            raw_client = p.client
+            if isinstance(raw_client, bytes):
+                raw_client = raw_client.decode('utf-8', errors='replace')
+            client = raw_client or 'Unknown'
+            conn_type = _PEER_CONN_TYPE_LABELS.get(p.connection_type, 'BT')
+            result.append({
+                'ip': ip,
+                'port': port,
+                'country': country,
+                'country_code': code,
+                'client': client,
+                'connection_type': conn_type,
+                'down_speed': float(p.down_speed),
+                'up_speed': float(p.up_speed),
+                'total_downloaded': int(p.total_download),
+                'total_uploaded': int(p.total_upload),
+                'progress': round(p.progress * 100, 1),
+                'is_hydra': 'hydra' in client.lower(),
+            })
+        result.sort(key=lambda x: -(x['down_speed'] + x['up_speed']))
+        return result
 
     # ── VPN kill switch ────────────────────────────────────────────────────────
 
@@ -815,12 +902,20 @@ class TorrentEngine:
     # ── Resume persisted ──────────────────────────────────────────────────────
 
     def _resume_persisted(self) -> None:
-        """Re-attach libtorrent handles for seeding torrents from transfers.json."""
+        """
+        Re-attach libtorrent handles for persisted torrents from transfers.json.
+        Covers both seeding and still-downloading (or downloading-but-paused)
+        transfers — anything short of 'Failed' gets a real handle back, not
+        just seeds. Without this, a transfer that was mid-download (or paused
+        mid-download) when the daemon last restarted is left with no handle
+        at all: pause/resume/files/peers silently do nothing forever, since
+        there's no libtorrent object left to act on.
+        """
         kill_switch_active = load_config().get('vpn_required', False) and not self.vpn_ip
         names = self.store.all_names()
         for name in names:
             t = self.store.get(name)
-            if not t or t.get('status') != 'Seeding' or not t.get('magnet'):
+            if not t or not t.get('magnet') or t.get('status') == 'Failed':
                 continue
 
             save_path = t.get('plex_path') or DOWNLOAD_DIR_INCOMPLETE
@@ -840,13 +935,22 @@ class TorrentEngine:
                     prev_bytes=0,
                     prev_time=time.time(),
                 )
-                threading.Thread(
-                    target=self._monitor_seeding,
-                    args=(name, handle),
-                    daemon=True,
-                    name=f"seed-{name[:24]}",
-                ).start()
-                logger.info(f"Resumed seeding: '{name}'")
+                if t.get('status') == 'Seeding':
+                    threading.Thread(
+                        target=self._monitor_seeding,
+                        args=(name, handle),
+                        daemon=True,
+                        name=f"seed-{name[:24]}",
+                    ).start()
+                    logger.info(f"Resumed seeding: '{name}'")
+                else:
+                    threading.Thread(
+                        target=self._monitor_download,
+                        args=(name, handle, t.get('size', 0)),
+                        daemon=True,
+                        name=f"dl-{name[:24]}",
+                    ).start()
+                    logger.info(f"Resumed download: '{name}'")
             except Exception as e:
                 logger.error(f"Failed to resume '{name}': {e}")
 
@@ -1045,6 +1149,9 @@ def get_status() -> DaemonStatus:
     """Overall daemon status including VPN and aggregate transfer stats."""
     vpn_connected, vpn_iface, vpn_ip = engine.vpn_guard.get_status()
     ses_status = engine.get_session_status()
+    home_country_code = None
+    if vpn_connected and _public_ip:
+        home_country_code = engine._country_for_ip(_public_ip)[1] or None
     return DaemonStatus(
         running=engine.ses is not None,
         vpn=VPNStatus(
@@ -1052,6 +1159,7 @@ def get_status() -> DaemonStatus:
             iface=vpn_iface,
             vpn_ip=vpn_ip,
             public_ip=_public_ip if vpn_connected else None,
+            country_code=home_country_code,
         ),
         total_download_rate=float(ses_status.get('download_rate', 0)),
         total_upload_rate=float(ses_status.get('upload_rate', 0)),
@@ -1277,6 +1385,17 @@ def get_transfer_files(name: str) -> List[TorrentFile]:
         ))
 
     return result
+
+
+@app.get("/transfers/{name}/peers", dependencies=[Depends(_require_api_key)])
+def get_transfer_peers(name: str) -> List[PeerInfo]:
+    """
+    List currently connected peers for a transfer: IP, country, client,
+    per-peer speed, and whether they're also running Hydra.
+    """
+    if store.get(name) is None:
+        raise HTTPException(status_code=404, detail=f"Transfer '{name}' not found")
+    return [PeerInfo(**p) for p in engine.get_peer_info(name)]
 
 
 @app.post("/transfers/{name}/files", dependencies=[Depends(_require_api_key)])
