@@ -206,6 +206,19 @@ def apply_frameless(window, title='Hydra Torrent'):
         _old_proc[0] = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, callback_ptr)
         # Force redraw with new style
         ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0037)
+        # SWP_FRAMECHANGED recalculates the non-client area but doesn't
+        # trigger a real WM_SIZE, so the embedded WebView2 surface never
+        # gets told to repaint - it can be left showing solid black
+        # (background_color) even though the page is fully loaded and
+        # live underneath. A 1px grow-then-shrink forces an actual size
+        # change WebView2 has to repaint for, invisible to the user.
+        rect = ctypes.wintypes.RECT()
+        GetWindowRect(hwnd, ctypes.byref(rect))
+        win_w = rect.right - rect.left
+        win_h = rect.bottom - rect.top
+        SWP_NOMOVE_NOZORDER = 0x0002 | 0x0004
+        ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, win_w, win_h + 1, SWP_NOMOVE_NOZORDER)
+        ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, win_w, win_h, SWP_NOMOVE_NOZORDER)
 
     def _on_loaded():
         window.evaluate_js('document.body.classList.add("frameless")')
