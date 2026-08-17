@@ -5,8 +5,6 @@ omit =
     build/*
     dist/*
     downloads/*
-    downloads_complete/*
-    downloads_incomplete/*
     shared_files/*
     installer_package/*
     Jackett/*

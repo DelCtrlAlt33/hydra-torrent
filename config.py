@@ -25,12 +25,12 @@ def get_base_dir():
 BASE_DIR = get_base_dir()
 
 # ----------------------------------------------------------------------
-# Version — single source of truth. Matches the tag of the last published
+# Version - single source of truth. Matches the tag of the last published
 # GitHub release (checked via `gh release view` / the Releases API), NOT
 # whatever a stray print statement elsewhere might claim. Bump this as
 # part of cutting each release, alongside the git tag.
 # ----------------------------------------------------------------------
-VERSION = "1.3.1"
+VERSION = "1.3.2"
 GITHUB_REPO = "DelCtrlAlt33/hydra-torrent"
 
 # ----------------------------------------------------------------------
@@ -42,24 +42,42 @@ PRIVKEY_PATH = os.path.join(CERTS_DIR, 'privkey.pem')
 CHAIN_PATH = os.path.join(CERTS_DIR, 'chain.pem')
 SHARED_DIR = os.path.join(BASE_DIR, 'shared_files')
 
-# Download directories — configurable via hydra_config.json
+# Download directory - configurable via hydra_config.json.
 # Set "download_dir_incomplete" to an NFS path (e.g. /mnt/plex/incomplete) to avoid
 # saturating the local HDD with random I/O from multi-file torrent season packs.
 # When download_dir_incomplete is on the same NFS mount as media_dir_tv/movies,
 # the post-download Plex move becomes an instant os.rename() instead of a full copy.
 CONFIG_FILE = os.path.join(BASE_DIR, 'hydra_config.json')
 
+
+def _default_download_dir():
+    """The Windows desktop exe defaults outside the install folder (into
+    Downloads, same as a browser) so deleting/reinstalling the app never
+    risks the torrents themselves - %LOCALAPPDATA%\\HydraTorrent is BASE_DIR
+    there, and used to double as the save path too. Script/server
+    deployments (Linux, homelab NFS mounts) keep the original BASE_DIR
+    default; there's no "Downloads" folder convention there, and BASE_DIR is
+    often deliberately an NFS mount already, per the note above.
+
+    Folder is just named 'downloads', not 'downloads_incomplete': nothing
+    ever moves a finished torrent OUT of this folder into some other
+    'complete' location (that never got built, see the removed
+    DOWNLOAD_DIR_COMPLETE constant) - a still-downloading torrent and a
+    fully-seeded one both live here the whole time, so the old name was
+    actively misleading about what a user would actually find inside it."""
+    if getattr(sys, 'frozen', False):
+        return os.path.join(os.path.expanduser('~'), 'Downloads', 'HydraTorrent')
+    return os.path.join(BASE_DIR, 'downloads')
+
+
 _cfg_dirs = json.load(open(CONFIG_FILE)) if os.path.exists(CONFIG_FILE) else {}
-DOWNLOAD_DIR_INCOMPLETE = _cfg_dirs.get(
-    'download_dir_incomplete', os.path.join(BASE_DIR, 'downloads_incomplete'))
-DOWNLOAD_DIR_COMPLETE = os.path.join(BASE_DIR, 'downloads_complete')
+DOWNLOAD_DIR_INCOMPLETE = _cfg_dirs.get('download_dir_incomplete', _default_download_dir())
 
 # Legacy support
 DOWNLOAD_DIR = DOWNLOAD_DIR_INCOMPLETE
 
 os.makedirs(SHARED_DIR, exist_ok=True)
 os.makedirs(DOWNLOAD_DIR_INCOMPLETE, exist_ok=True)
-os.makedirs(DOWNLOAD_DIR_COMPLETE, exist_ok=True)
 # Don't auto-create network share directories (they already exist on TrueNAS)
 
 # ----------------------------------------------------------------------
@@ -118,7 +136,7 @@ def save_config(key, value):
         json.dump(config, f)
 
 
-# Plex media directories — configurable via hydra_config.json
+# Plex media directories - configurable via hydra_config.json
 # Windows default: SMB share on TrueNAS
 # Linux LXC:  set "media_dir_movies": "/mnt/plex/movies" in hydra_config.json
 _cfg_media = load_config()

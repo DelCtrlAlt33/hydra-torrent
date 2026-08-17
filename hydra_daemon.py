@@ -1774,8 +1774,9 @@ def download_tray() -> StreamingResponse:
 
 _EDITABLE_CONFIG_KEYS = frozenset({
     'plex_url', 'plex_token', 'jellyfin_url', 'jellyfin_api_key', 'jackett_api_key',
-    'indexing_server', 'media_dir_movies', 'media_dir_tv', 'auto_move_to_plex',
-    'vpn_required', 'seed_ratio', 'download_rate_limit', 'upload_rate_limit',
+    'indexing_server', 'download_dir_incomplete', 'media_dir_movies', 'media_dir_tv',
+    'auto_move_to_plex', 'vpn_required', 'seed_ratio', 'download_rate_limit',
+    'upload_rate_limit',
 })
 
 
@@ -1790,6 +1791,9 @@ def get_config() -> ConfigResponse:
         jellyfin_api_key=cfg.get('jellyfin_api_key', ''),
         jackett_api_key=cfg.get('jackett_api_key', ''),
         indexing_server=cfg.get('indexing_server', ''),
+        # Falls back to the resolved default (not blank) so the field shows
+        # where downloads actually land even before anyone customizes it.
+        download_dir_incomplete=cfg.get('download_dir_incomplete') or DOWNLOAD_DIR_INCOMPLETE,
         media_dir_movies=cfg.get('media_dir_movies', ''),
         media_dir_tv=cfg.get('media_dir_tv', ''),
         auto_move_to_plex=bool(cfg.get('auto_move_to_plex', True)),

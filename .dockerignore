@@ -2,8 +2,6 @@ __pycache__/
 *.pyc
 certs/
 downloads/
-downloads_incomplete/
-downloads_complete/
 data/
 build/
 dist/

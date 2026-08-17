@@ -9,8 +9,6 @@ hydra_config_test.json
 hydra_config_*.json
 rss_rules.json
 downloads/
-downloads_incomplete/
-downloads_complete/
 shared_files/
 flags/
 GeoLite2-Country.mmdb

@@ -1686,6 +1686,19 @@
     <div class="settings-section span2">
       <div class="settings-section-title">Downloads</div>
       <div class="settings-row">
+        <label>Download folder</label>
+        <div class="secret-row">
+          <input type="text" id="cfg-download-dir" placeholder="Downloads\HydraTorrent">
+          <button class="btn btn-sm btn-pause" onclick="browseDownloadDir()">Browse</button>
+        </div>
+      </div>
+      <div class="settings-subtext">
+        Where torrents land while downloading. Kept outside the app's own install folder on
+        purpose, same reason a browser saves to Downloads instead of its own program files -
+        deleting or reinstalling Hydra should never risk your actual downloads. Change takes
+        effect next time Hydra starts.
+      </div>
+      <div class="settings-row">
         <label>Movies path</label>
         <input type="text" id="cfg-movies-path" placeholder="/mnt/plex/movies">
       </div>
@@ -3445,6 +3458,7 @@ async function loadSettings() {
     document.getElementById('cfg-jellyfin-key').value = cfg.jellyfin_api_key || '';
     document.getElementById('cfg-indexer-url').value = cfg.indexing_server   || '';
     document.getElementById('cfg-jackett-key').value = cfg.jackett_api_key   || '';
+    document.getElementById('cfg-download-dir').value = cfg.download_dir_incomplete || '';
     document.getElementById('cfg-movies-path').value = cfg.media_dir_movies  || '';
     document.getElementById('cfg-tv-path').value     = cfg.media_dir_tv      || '';
     document.getElementById('cfg-auto-move').checked    = cfg.auto_move_to_plex !== false;
@@ -3513,6 +3527,7 @@ async function saveSettings(silent = false) {
     jellyfin_api_key: document.getElementById('cfg-jellyfin-key').value.trim(),
     indexing_server:  document.getElementById('cfg-indexer-url').value.trim(),
     jackett_api_key:  document.getElementById('cfg-jackett-key').value.trim(),
+    download_dir_incomplete: document.getElementById('cfg-download-dir').value.trim(),
     media_dir_movies: document.getElementById('cfg-movies-path').value.trim(),
     media_dir_tv:     document.getElementById('cfg-tv-path').value.trim(),
     auto_move_to_plex: document.getElementById('cfg-auto-move').checked,
@@ -3543,6 +3558,19 @@ async function saveSettings(silent = false) {
     }
   } catch (e) {
     toast('Save failed: ' + e.message, 'err');
+  }
+}
+
+async function browseDownloadDir() {
+  if (!window.pywebview?.api?.browse_folder) {
+    toast('Folder browsing is only available in the desktop app, type the path instead', 'info');
+    return;
+  }
+  const current = document.getElementById('cfg-download-dir')?.value || '';
+  const picked = await window.pywebview.api.browse_folder(current);
+  if (picked) {
+    document.getElementById('cfg-download-dir').value = picked;
+    saveSettings(true);
   }
 }
 

@@ -4,7 +4,7 @@ import shutil
 import requests
 from pathlib import Path
 from config import (
-    DOWNLOAD_DIR_COMPLETE,
+    DOWNLOAD_DIR_INCOMPLETE,
     MEDIA_DIR_MOVIES,
     MEDIA_DIR_TV,
     DOWNLOAD_DIR_OTHER,
@@ -200,7 +200,8 @@ class MediaOrganizer:
 
         Args:
             filename:     Basename of the file to move.
-            source_path:  Full source path (defaults to DOWNLOAD_DIR_COMPLETE/filename).
+            source_path:  Full source path (defaults to DOWNLOAD_DIR_INCOMPLETE/filename;
+                          torrents are downloaded and stay there until moved out).
             torrent_name: Name of the parent torrent - used as context when the
                           individual filename is ambiguous (e.g. "01.mkv").
 
@@ -209,7 +210,7 @@ class MediaOrganizer:
         """
         try:
             if not source_path:
-                source_path = os.path.join(DOWNLOAD_DIR_COMPLETE, filename)
+                source_path = os.path.join(DOWNLOAD_DIR_INCOMPLETE, filename)
 
             if not os.path.exists(source_path):
                 return False, None, f"Source file not found: {source_path}"

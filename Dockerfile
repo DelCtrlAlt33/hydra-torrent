@@ -9,7 +9,7 @@ COPY . .
 
 ENV HYDRA_BASE=/data
 
-RUN mkdir -p /data/certs /data/downloads_incomplete /data/downloads_complete
+RUN mkdir -p /data/certs /data/downloads
 
 EXPOSE 8765
 

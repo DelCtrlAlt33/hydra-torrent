@@ -145,6 +145,7 @@ class ConfigResponse(BaseModel):
     jellyfin_api_key: str = ""
     jackett_api_key: str = ""
     indexing_server: str = ""
+    download_dir_incomplete: str = ""
     media_dir_movies: str = ""
     media_dir_tv: str = ""
     auto_move_to_plex: bool = True
@@ -162,6 +163,7 @@ class ConfigUpdate(BaseModel):
     jellyfin_api_key: Optional[str] = None
     jackett_api_key: Optional[str] = None
     indexing_server: Optional[str] = None
+    download_dir_incomplete: Optional[str] = None
     media_dir_movies: Optional[str] = None
     media_dir_tv: Optional[str] = None
     auto_move_to_plex: Optional[bool] = None
