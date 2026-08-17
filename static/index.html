@@ -4153,13 +4153,19 @@ async function _sizeWindowToContent() {
   // and grow by exactly that much, repeating until nothing's left to
   // fix or a few attempts have passed (safety cap, not expected to be
   // hit in practice).
-  let height = document.documentElement.scrollHeight + 32;
-  for (let attempt = 0; attempt < 5; attempt++) {
+  // MARGIN is a deliberate landing buffer, not just a nudge - stopping
+  // the instant overflow reads <=0 was catching window.innerHeight
+  // before the native resize had actually finished settling, so it kept
+  // exiting a few px early. Requiring real headroom (not just "not
+  // overflowing yet") and a longer settle wait both guard against that.
+  const MARGIN = 20;
+  let height = document.documentElement.scrollHeight + MARGIN;
+  for (let attempt = 0; attempt < 6; attempt++) {
     await pywebview.api.size_to_content(_TARGET_WINDOW_WIDTH, height);
-    await new Promise(resolve => setTimeout(resolve, 150));
+    await new Promise(resolve => setTimeout(resolve, 300));
     const overflow = document.documentElement.scrollHeight - window.innerHeight;
-    if (overflow <= 0) return;
-    height += overflow + 16;
+    if (overflow <= -MARGIN) return;
+    height += overflow + MARGIN;
   }
 }
 
