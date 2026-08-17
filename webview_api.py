@@ -107,6 +107,19 @@ class WebViewAPI:
             else:
                 self._window.destroy()
 
+    def size_to_content(self, width, height):
+        """Resize the window to fit the page's actual rendered content
+        (called once on first load with document.documentElement.scrollHeight)
+        instead of guessing a fixed pixel size that's wrong on some
+        screen/DPI/content-state combination. No-op if already maximized -
+        respect that instead of fighting it."""
+        if not self._window or self._window.maximized:
+            return
+        try:
+            self._window.resize(int(width), int(height))
+        except Exception:
+            pass
+
     def browse_folder(self, current_path=''):
         """Native folder picker for the add-torrent dialog's Save at field.
         Returns the chosen path, or None if cancelled or no window/dialog

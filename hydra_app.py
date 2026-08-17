@@ -328,16 +328,17 @@ def main():
     w = webview.create_window(
         'Hydra Torrent',
         url=f'{_daemon_url}/ui',
-        width=1320,
-        height=1160,
-        # Opens maximized so the Transfers pane (map + activity log + the
-        # empty-state hero art below it) always fits with zero scrolling,
-        # regardless of screen size/DPI - pywebview handles the taskbar
-        # and work-area math itself instead of guessing pixel dimensions
-        # per monitor. width/height above are just the un-maximize
-        # fallback size. min_size is still the only real floor - resize/
-        # shrink works exactly as before once you un-maximize.
-        maximized=True,
+        # Fallback only - the frontend measures its own real content
+        # height on first load and calls pywebview.api.size_to_content()
+        # to resize precisely (see checkForUpdate's caller in
+        # static/index.html). Maximizing was tried and reverted: the
+        # Transfers pane has a deliberate max-width so it doesn't stretch
+        # absurdly wide on large monitors, which just left a big empty
+        # void past that cap instead. Width here matches that same
+        # max-width plus margin, so even if JS resize never fires this
+        # still looks reasonable rather than randomly guessed.
+        width=1440,
+        height=900,
         min_size=(800, 500),
         frameless=True,
         easy_drag=False,

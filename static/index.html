@@ -4103,6 +4103,13 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(refreshPulseMap, 5000);
   checkForUpdate();
 
+  // Desktop app only: size the window to the page's actual rendered
+  // content instead of guessing a fixed pixel height that's wrong for
+  // some screen/DPI/content-state combination (guessed 3 times, still
+  // wrong every time). Delay lets the transfer list / empty-state hero
+  // art settle first, since that's what determines the real height.
+  setTimeout(_sizeWindowToContent, 400);
+
   // Auto-DL matches should reach the ticker even when you're not looking
   // at that tab, so this polls regardless of which pane is active.
   loadRssRules();
@@ -4129,6 +4136,16 @@ document.addEventListener('DOMContentLoaded', () => {
 // this hits GitHub's API, not a local endpoint. Silent when there's
 // nothing to report, same as the health panel's "not configured" state.
 // ═══════════════════════════════════════════════════════════════════════════
+// Matches #pane-transfers' own max-width (1400px) plus margin for the
+// pane's horizontal padding, so the window fits the content edge-to-edge
+// without leaving a wide empty gap on large monitors (what maximizing did).
+const _TARGET_WINDOW_WIDTH = 1440;
+
+function _sizeWindowToContent() {
+  if (!(window.pywebview && pywebview.api && pywebview.api.size_to_content)) return;
+  pywebview.api.size_to_content(_TARGET_WINDOW_WIDTH, document.documentElement.scrollHeight);
+}
+
 async function checkForUpdate() {
   try {
     const r = await fetch(BASE + '/update-check', { headers: HEADERS });
