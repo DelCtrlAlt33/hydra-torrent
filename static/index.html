@@ -140,6 +140,22 @@
     .logo .brand { color: var(--accent); }
     .logo .sub   { color: var(--muted); font-weight: 400; }
 
+    /* Version number: hidden in the desktop app (the frameless custom
+       titlebar already shows it via #app-version), but this is the only
+       place Docker/Linux browser deployments ever see it, since they
+       never get the frameless titlebar at all. */
+    .header-version {
+      margin-left: 10px;
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--muted);
+      opacity: 0.6;
+      letter-spacing: 0;
+      text-transform: none;
+      font-family: Consolas, 'Courier New', monospace;
+    }
+    body.frameless .header-version { display: none; }
+
     .header-rates {
       color: var(--muted);
       font-size: 12px;
@@ -1401,13 +1417,10 @@
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <header>
   <div class="logo"><span class="brand">H Y D R A</span> &nbsp;<span class="sub">T O R R E N T</span></div>
+  <span class="header-version" id="header-app-version"></span>
   <a class="update-badge" id="update-badge" href="#" target="_blank" rel="noopener" title="A newer version is available on GitHub"></a>
   <div class="spacer"></div>
   <div class="header-rates" id="header-rates"></div>
-  <div class="vpn-badge checking" id="vpn-badge">
-    <div class="vpn-dot"></div>
-    <span id="vpn-text">Checking...</span>
-  </div>
 </header>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -2192,7 +2205,11 @@ const PulseTicker = (() => {
       // otherwise boot is just "hydra online" and nothing else for however
       // long it takes something else to happen.
       lastVpnConnected = connected;
-      log('vpn', connected ? 'protected · ' + (countryCode || '??') : 'unprotected');
+      // countryCode is fetched lazily on the backend (needs a public-IP
+      // lookup round-trip), so it's almost always still null on this very
+      // first status poll right after boot - showing '??' here would read
+      // as "lookup failed" when really it just hasn't arrived yet.
+      log('vpn', connected ? 'protected' + (countryCode ? ' · ' + countryCode : '') : 'unprotected');
       return;
     }
     if (connected !== lastVpnConnected) {
@@ -2889,28 +2906,21 @@ async function pollStatus() {
     const data = await r.json();
 
     const vpn = data.vpn || {};
-    const badge = document.getElementById('vpn-badge');
-    const vpnTxt = document.getElementById('vpn-text');
     const tabsBadge = document.getElementById('tabs-vpn-badge');
     const tabsVpnTxt = document.getElementById('tabs-vpn-text');
 
-    badge.classList.remove('protected', 'exposed', 'checking');
     if (tabsBadge) tabsBadge.classList.remove('protected', 'exposed', 'checking');
     const statusStripVpn = document.getElementById('status-strip-vpn');
     PulseTicker.onVpnUpdate(vpn.connected, vpn.country_code);
     if (vpn.connected) {
-      badge.classList.add('protected');
       if (tabsBadge) tabsBadge.classList.add('protected');
       const html = `Protected<span class="vpn-ip"> · ${vpn.public_ip || 'checking...'}</span>`;
-      vpnTxt.innerHTML = html;
       if (tabsVpnTxt) tabsVpnTxt.innerHTML = html;
       if (statusStripVpn) statusStripVpn.textContent = 'Protected';
       HydraMap.setHome(vpn.country_code);
     } else {
-      badge.classList.add('exposed');
       if (tabsBadge) tabsBadge.classList.add('exposed');
       const html = `EXPOSED<span class="vpn-ip"> (No VPN)</span>`;
-      vpnTxt.innerHTML = html;
       if (tabsVpnTxt) tabsVpnTxt.innerHTML = html;
       if (statusStripVpn) statusStripVpn.textContent = 'EXPOSED';
     }
@@ -4091,6 +4101,8 @@ async function checkForUpdate() {
 
     const versionLabel = document.getElementById('app-version');
     if (versionLabel && data.current_version) versionLabel.textContent = 'v' + data.current_version;
+    const headerVersionLabel = document.getElementById('header-app-version');
+    if (headerVersionLabel && data.current_version) headerVersionLabel.textContent = 'v' + data.current_version;
 
     if (!data.update_available) return;
 
