@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from health import check_jackett, check_plex
+from health import check_jackett, check_plex, check_jellyfin
 
 
 def _response(status_code=200):
@@ -120,3 +120,41 @@ def test_plex_check_hits_library_sections_readonly():
     args, kwargs = mock_get.call_args
     assert args[0].endswith("/library/sections")
     assert kwargs["params"]["X-Plex-Token"] == "mytoken"
+
+
+# ---------------------------------------------------------------------------
+# check_jellyfin
+# ---------------------------------------------------------------------------
+
+def test_jellyfin_not_configured_when_url_or_key_missing():
+    assert check_jellyfin("", "key")["configured"] is False
+    assert check_jellyfin("http://192.168.1.5:8096", "")["configured"] is False
+
+
+def test_jellyfin_reachable_on_200():
+    with patch("health.requests.get", return_value=_response(200)):
+        result = check_jellyfin("http://192.168.1.5:8096", "validkey")
+    assert result == {"configured": True, "reachable": True, "error": None}
+
+
+def test_jellyfin_reports_invalid_api_key():
+    with patch("health.requests.get", return_value=_response(401)):
+        result = check_jellyfin("http://192.168.1.5:8096", "badkey")
+    assert result["error"] == "invalid API key"
+
+
+def test_jellyfin_reports_connection_refused_with_helpful_hint():
+    import requests
+    with patch("health.requests.get", side_effect=requests.exceptions.ConnectionError()):
+        result = check_jellyfin("http://192.168.1.5:8096", "key")
+    assert "is Jellyfin running" in result["error"]
+
+
+def test_jellyfin_check_hits_system_info_readonly_with_token_header():
+    mock_get = Mock(return_value=_response(200))
+    with patch("health.requests.get", mock_get):
+        check_jellyfin("http://192.168.1.5:8096", "mykey")
+
+    args, kwargs = mock_get.call_args
+    assert args[0].endswith("/System/Info")
+    assert kwargs["headers"]["X-Emby-Token"] == "mykey"

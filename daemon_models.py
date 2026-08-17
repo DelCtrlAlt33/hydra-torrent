@@ -1,6 +1,6 @@
 """
 Pydantic v2 models for Hydra Torrent Daemon REST API.
-No imports from other hydra modules — keeps this file importable in any context.
+No imports from other hydra modules - keeps this file importable in any context.
 """
 
 from enum import Enum
@@ -32,7 +32,7 @@ class TransferState(BaseModel):
     magnet: Optional[str] = None
     size: int = 0                   # bytes
     bytes_done: int = 0             # bytes downloaded
-    progress: float = 0.0          # 0–100
+    progress: float = 0.0          # 0-100
     speed_down: float = 0.0        # bytes/sec
     speed_up: float = 0.0          # bytes/sec
     eta: str = "N/A"
@@ -58,6 +58,17 @@ class AddMagnetRequest(BaseModel):
 
 class AddTorrentUrlRequest(BaseModel):
     url: str
+    save_path: Optional[str] = None
+
+
+class PreviewTorrentRequest(BaseModel):
+    """Either magnet or url must be set; the other left as None."""
+    magnet: Optional[str] = None
+    url: Optional[str] = None
+    save_path: Optional[str] = None
+
+
+class CommitPreviewRequest(BaseModel):
     save_path: Optional[str] = None
 
 
@@ -100,8 +111,8 @@ class DaemonStatus(BaseModel):
 
 
 class IntegrationHealth(BaseModel):
-    """Reachability of one optional integration (Jackett or Plex)."""
-    configured: bool           # False = no URL/key set — not an error, just unused
+    """Reachability of one optional integration (Jackett, Plex, or Jellyfin)."""
+    configured: bool           # False = no URL/key set - not an error, just unused
     reachable: bool
     error: Optional[str] = None
 
@@ -111,6 +122,7 @@ class HealthStatus(BaseModel):
     vpn: VPNStatus
     jackett: IntegrationHealth
     plex: IntegrationHealth
+    jellyfin: IntegrationHealth
 
 
 class UpdateStatus(BaseModel):
@@ -129,6 +141,8 @@ class UpdateStatus(BaseModel):
 class ConfigResponse(BaseModel):
     plex_url: str = ""
     plex_token: str = ""
+    jellyfin_url: str = ""
+    jellyfin_api_key: str = ""
     jackett_api_key: str = ""
     indexing_server: str = ""
     media_dir_movies: str = ""
@@ -144,6 +158,8 @@ class ConfigResponse(BaseModel):
 class ConfigUpdate(BaseModel):
     plex_url: Optional[str] = None
     plex_token: Optional[str] = None
+    jellyfin_url: Optional[str] = None
+    jellyfin_api_key: Optional[str] = None
     jackett_api_key: Optional[str] = None
     indexing_server: Optional[str] = None
     media_dir_movies: Optional[str] = None

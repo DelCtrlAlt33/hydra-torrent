@@ -17,8 +17,8 @@ WS_THICKFRAME = 0x00040000
 WS_CAPTION = 0x00C00000
 HTCAPTION = 2
 HTCLIENT = 1
-TITLEBAR_HEIGHT = 33           # px — must match .titlebar height in index.html
-TITLEBAR_CONTROLS_WIDTH = 138  # px — space reserved for min/max/close buttons
+TITLEBAR_HEIGHT = 33           # px - must match .titlebar height in index.html
+TITLEBAR_CONTROLS_WIDTH = 138  # px - space reserved for min/max/close buttons
 
 # ── Win32 function signatures (64-bit) ───────────────────────────────────────
 
@@ -106,6 +106,19 @@ class WebViewAPI:
                 self._window.hide()
             else:
                 self._window.destroy()
+
+    def browse_folder(self, current_path=''):
+        """Native folder picker for the add-torrent dialog's Save at field.
+        Returns the chosen path, or None if cancelled or no window/dialog
+        support (e.g. accessed as a plain web page instead of the desktop app)."""
+        if not self._window:
+            return None
+        try:
+            result = self._window.create_file_dialog(
+                webview.FOLDER_DIALOG, directory=current_path or '')
+        except Exception:
+            return None
+        return result[0] if result else None
 
 
 # ── ResizeAPI ────────────────────────────────────────────────────────────────

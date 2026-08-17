@@ -196,10 +196,12 @@ def test_health_status_bundles_vpn_jackett_plex():
         vpn=VPNStatus(connected=True, iface="wg0", vpn_ip="10.0.0.5"),
         jackett=IntegrationHealth(configured=True, reachable=True),
         plex=IntegrationHealth(configured=False, reachable=False),
+        jellyfin=IntegrationHealth(configured=False, reachable=False),
     )
     assert status.vpn.connected is True
     assert status.jackett.reachable is True
     assert status.plex.configured is False
+    assert status.jellyfin.configured is False
 
 
 def test_update_status_requires_available_flag_and_current_version():

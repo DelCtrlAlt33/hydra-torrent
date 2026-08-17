@@ -16,7 +16,7 @@ from config import (
 class MediaOrganizer:
     """Handles automatic categorization and organization of downloaded media files."""
 
-    # Common TV show patterns — checked against filename AND torrent name
+    # Common TV show patterns - checked against filename AND torrent name
     TV_PATTERNS = [
         r'[Ss]\d{1,2}[Ee]\d{1,2}',      # S01E05, s01e05
         r'\d{1,2}x\d{1,2}',             # 1x05
@@ -78,7 +78,7 @@ class MediaOrganizer:
     def extract_tv_info(self, filename, torrent_name=None):
         """
         Extract show name and season number from filename (or torrent_name fallback).
-        Returns: (show_name, season_number)  — season defaults to 1 for anime.
+        Returns: (show_name, season_number)  - season defaults to 1 for anime.
         """
         for candidate in filter(None, [filename, torrent_name]):
             result = self._parse_tv_info(candidate)
@@ -112,7 +112,7 @@ class MediaOrganizer:
             return m.group(1).replace('.', ' ').strip(), int(m.group(2))
 
         # Bare season pack, no episode number (e.g. "Show.Name.S01.COMPLETE")
-        # Negative lookahead excludes S01E05 — that's handled above already,
+        # Negative lookahead excludes S01E05 - that's handled above already,
         # but stays defensive in case this branch is ever reordered.
         m = re.search(r'(.+?)[.\s_][Ss](\d{1,2})(?![Ee]\d)(?:[.\s_-]|$)', text)
         if m:
@@ -201,7 +201,7 @@ class MediaOrganizer:
         Args:
             filename:     Basename of the file to move.
             source_path:  Full source path (defaults to DOWNLOAD_DIR_COMPLETE/filename).
-            torrent_name: Name of the parent torrent — used as context when the
+            torrent_name: Name of the parent torrent - used as context when the
                           individual filename is ambiguous (e.g. "01.mkv").
 
         Returns:
@@ -248,6 +248,7 @@ class MediaOrganizer:
             shutil.move(source_path, dest_path)
             logger.info(f"Moved OK: {dest_path}")
             self.notify_plex()
+            self.notify_jellyfin()
             return True, dest_path, None
 
         except Exception as e:
@@ -288,12 +289,44 @@ class MediaOrganizer:
         except Exception as e:
             logger.error(f"✗ Plex scan failed: {str(e)}")
 
+    def notify_jellyfin(self):
+        """
+        Trigger a Jellyfin library scan (optional).
+        Requires Jellyfin URL and API key to be configured.
+        """
+        jellyfin_url = self.config.get('jellyfin_url', '')
+        try:
+            jellyfin_key = self.config.get('jellyfin_api_key', '')
+
+            if not jellyfin_url or not jellyfin_key:
+                logger.warning("Jellyfin auto-scan disabled: URL/API key not configured in settings")
+                return
+
+            scan_url = f"{jellyfin_url.rstrip('/')}/Library/Refresh"
+            logger.info(f"Triggering Jellyfin scan at: {jellyfin_url}")
+
+            response = requests.post(scan_url, headers={"X-Emby-Token": jellyfin_key}, timeout=10)
+
+            if response.status_code in (200, 204):
+                logger.info("✓ Jellyfin library scan triggered successfully")
+            elif response.status_code == 401:
+                logger.error("✗ Jellyfin scan failed: Invalid API key (check jellyfin_api_key in settings)")
+            else:
+                logger.warning(f"✗ Jellyfin scan returned status {response.status_code}")
+
+        except requests.exceptions.Timeout:
+            logger.error(f"✗ Jellyfin scan failed: Connection timeout to {jellyfin_url}")
+        except requests.exceptions.ConnectionError:
+            logger.error(f"✗ Jellyfin scan failed: Cannot connect to {jellyfin_url} (is Jellyfin running?)")
+        except Exception as e:
+            logger.error(f"✗ Jellyfin scan failed: {str(e)}")
+
 
 # Convenience function
 def auto_move_completed_download(filename, source_path=None, torrent_name=None):
     """
     Convenience function to auto-move a completed download.
-    torrent_name is the libtorrent torrent name — used as context when
+    torrent_name is the libtorrent torrent name - used as context when
     individual filenames are too bare to classify (e.g. "01.mkv").
     Returns: (success: bool, dest_path: str, error: str)
     """

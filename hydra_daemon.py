@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hydra Torrent Daemon — headless libtorrent engine + FastAPI REST + WebSocket.
+Hydra Torrent Daemon - headless libtorrent engine + FastAPI REST + WebSocket.
 
 Runs independently of peer.pyw (no tkinter required).
 
@@ -28,6 +28,7 @@ import sys
 import json
 import time
 import queue
+import shutil
 import secrets
 import logging
 import threading
@@ -65,13 +66,14 @@ from config import (
 from vpn_guard import VPNGuard, get_public_ip as _fetch_public_ip
 from media_organizer import auto_move_completed_download
 from search import search_online_public, search_jackett, search_index_server
-from health import check_jackett, check_plex
+from health import check_jackett, check_plex, check_jellyfin
 from updater import check_for_update
 from rss_poller import RssPoller
 from daemon_models import (
     AddMagnetRequest,
     AddTorrentUrlRequest,
     AddRssRuleRequest,
+    CommitPreviewRequest,
     ConfigResponse,
     ConfigUpdate,
     DaemonStatus,
@@ -80,6 +82,7 @@ from daemon_models import (
     IntegrationHealth,
     PatchRssRuleRequest,
     PeerInfo,
+    PreviewTorrentRequest,
     UpdateStatus,
     RssRule,
     SearchRequest,
@@ -127,7 +130,7 @@ _TRACKERS: List[str] = [
 ]
 
 # Fields kept internally but never sent over the API
-_INTERNAL_FIELDS = frozenset({'handle', 'prev_bytes', 'prev_time'})
+_INTERNAL_FIELDS = frozenset({'handle', 'prev_bytes', 'prev_time', 'hidden'})
 
 # Path to persisted transfer state (mirrors transfer_manager.py)
 _TRANSFERS_PATH = os.path.join(BASE_DIR, 'transfers.json')
@@ -167,7 +170,7 @@ class DaemonStore:
     """
     Thread-safe transfer state dictionary.
 
-    Replaces TransferManager for the daemon context — no tkinter dependencies.
+    Replaces TransferManager for the daemon context - no tkinter dependencies.
     Internal engine fields (handle, prev_bytes, prev_time) are stripped before
     API snapshots are built.
     """
@@ -247,12 +250,18 @@ class DaemonStore:
             return list(self._data.keys())
 
     def snapshot(self, name: Optional[str] = None) -> list:
-        """Return API-safe list of transfer dicts (handle/internals stripped)."""
+        """
+        Return API-safe list of transfer dicts (handle/internals stripped).
+        A single-name lookup always finds it regardless of 'hidden' (used
+        by the add-torrent preview dialog while polling for metadata); the
+        bulk listing excludes hidden entries, since a torrent that's only
+        being previewed and hasn't been committed yet isn't a real transfer.
+        """
         with self._lock:
             if name is not None:
                 entry = self._data.get(name)
                 return [self._clean(entry)] if entry else []
-            return [self._clean(v) for v in self._data.values()]
+            return [self._clean(v) for v in self._data.values() if not v.get('hidden')]
 
     # ── Persistence ───────────────────────────────────────────────────────────
 
@@ -261,7 +270,11 @@ class DaemonStore:
         with self._lock:
             data = {}
             for k, v in self._data.items():
-                if v.get('status') in _resumable:
+                # A hidden (preview, not yet committed) entry must never survive
+                # a restart: if the daemon restarted mid-preview, _resume_persisted
+                # would otherwise reattach and reveal a torrent the user never
+                # actually confirmed adding.
+                if v.get('status') in _resumable and not v.get('hidden'):
                     data[k] = self._clean(v)
         try:
             with open(path, 'w', encoding='utf-8') as f:
@@ -343,9 +356,9 @@ class TorrentEngine:
         if connected:
             logger.info(f"VPN connected: {iface} ({ip})")
         elif vpn_required:
-            logger.warning("No VPN detected at startup — kill switch active, binding to 127.0.0.1")
+            logger.warning("No VPN detected at startup - kill switch active, binding to 127.0.0.1")
         else:
-            logger.info("No VPN detected at startup — kill switch off, binding to 0.0.0.0")
+            logger.info("No VPN detected at startup - kill switch off, binding to 0.0.0.0")
 
         # Kill switch: bind to loopback so no peers can connect without VPN
         listen_ip = self.vpn_ip or ('127.0.0.1' if vpn_required else '0.0.0.0')
@@ -364,7 +377,7 @@ class TorrentEngine:
         logger.info(f"TorrentEngine ready on {listen_ip}:{PEER_PORT}")
 
     def _refresh_public_ip_sync(self) -> None:
-        """Blocking fetch of public IP — run in a thread after VPN reconnects."""
+        """Blocking fetch of public IP - run in a thread after VPN reconnects."""
         global _public_ip, _public_ip_ts
         try:
             time.sleep(2)  # brief delay for VPN tunnel to stabilise
@@ -391,14 +404,14 @@ class TorrentEngine:
             'outgoing_interfaces': listen_ip,
             'enable_dht': True,
             'enable_lsd': False,       # No LAN broadcast
-            'enable_upnp': False,      # Disabled — useless behind VPN, leaks real IP to router
-            'enable_natpmp': False,    # Disabled — same reason
+            'enable_upnp': False,      # Disabled - useless behind VPN, leaks real IP to router
+            'enable_natpmp': False,    # Disabled - same reason
             'anonymous_mode': False,   # Allow full tracker/peer communication
             'connections_limit': 200,
             'download_rate_limit': int(cfg.get('download_rate_limit', 0) or 0),
             'upload_rate_limit': int(cfg.get('upload_rate_limit', 0) or 0),
             # Identify Hydra to the swarm instead of hiding behind libtorrent's
-            # default fingerprint — lets the peer list recognize fellow Hydra
+            # default fingerprint - lets the peer list recognize fellow Hydra
             # users instead of showing every peer as an anonymous IP.
             'peer_fingerprint': f'-HY{VERSION.replace(".", "")[:4].ljust(4, "0")}-',
             'user_agent': f'HydraTorrent/{VERSION}',
@@ -495,7 +508,7 @@ class TorrentEngine:
         global _public_ip
         if not connected:
             if not load_config().get('vpn_required', False):
-                logger.info("VPN disconnected — kill switch is off, rebinding to 0.0.0.0")
+                logger.info("VPN disconnected - kill switch is off, rebinding to 0.0.0.0")
                 self.vpn_ip = None
                 _public_ip = None
                 try:
@@ -503,7 +516,7 @@ class TorrentEngine:
                 except Exception as e:
                     logger.error(f"Failed to rebind on VPN drop: {e}")
                 return
-            logger.warning("VPN DISCONNECTED — kill switch activated")
+            logger.warning("VPN DISCONNECTED - kill switch activated")
             try:
                 self.ses.apply_settings({'listen_interfaces': f'127.0.0.1:{PEER_PORT}', 'outgoing_interfaces': '127.0.0.1'})
             except Exception as e:
@@ -522,7 +535,7 @@ class TorrentEngine:
             self.vpn_ip = None
             _public_ip = None
         else:
-            logger.info(f"VPN reconnected ({ip}) — kill switch deactivated, rebinding session")
+            logger.info(f"VPN reconnected ({ip}) - kill switch deactivated, rebinding session")
             self.vpn_ip = ip
             _public_ip = None
             threading.Thread(target=self._refresh_public_ip_sync, daemon=True).start()
@@ -552,7 +565,7 @@ class TorrentEngine:
         Raises RuntimeError if the libtorrent session is not yet ready.
         """
         if self.ses is None:
-            raise RuntimeError("libtorrent session not ready yet — try again shortly")
+            raise RuntimeError("libtorrent session not ready yet - try again shortly")
 
         if save_path is None:
             save_path = DOWNLOAD_DIR_INCOMPLETE
@@ -578,7 +591,7 @@ class TorrentEngine:
             handle.pause()
             self.store.add(placeholder, magnet_uri, 0, handle)
             self.store.update(placeholder, vpn_paused=True, paused=True, status='Waiting for VPN')
-            logger.warning(f"'{placeholder}' added paused — kill switch on, no VPN")
+            logger.warning(f"'{placeholder}' added paused - kill switch on, no VPN")
             threading.Thread(
                 target=self._monitor_download,
                 args=(placeholder, handle, 0),
@@ -631,7 +644,7 @@ class TorrentEngine:
         Raises RuntimeError if the libtorrent session is not yet ready.
         """
         if self.ses is None:
-            raise RuntimeError("libtorrent session not ready yet — try again shortly")
+            raise RuntimeError("libtorrent session not ready yet - try again shortly")
 
         try:
             ti = lt.torrent_info(data)
@@ -661,10 +674,165 @@ class TorrentEngine:
         ).start()
         return real_name
 
+    # ── Add-torrent preview (metadata + file picker before committing) ─────────
+    #
+    # Powers the Search-tab "double-click a result" dialog: the torrent is
+    # added paused and marked hidden, so it never shows up in the Transfers
+    # list or gets persisted across a restart, but the frontend can still
+    # poll it by name and call the existing files endpoints against it to
+    # show real size/file-list metadata and let the user pick what to grab.
+    # commit_preview() turns it into a real transfer; DELETE (same endpoint
+    # as any other transfer) discards it with nothing ever downloaded.
+
+    def _unique_store_name(self, base: str) -> str:
+        name = base
+        n = 2
+        while self.store.get(name) is not None:
+            name = f"{base} ({n})"
+            n += 1
+        return name
+
+    def preview_magnet(self, magnet_uri: str, save_path: Optional[str] = None) -> str:
+        if self.ses is None:
+            raise RuntimeError("libtorrent session not ready yet - try again shortly")
+        if save_path is None:
+            save_path = DOWNLOAD_DIR_INCOMPLETE
+
+        params = {
+            'url': magnet_uri,
+            'save_path': save_path,
+            'storage_mode': lt.storage_mode_t(2),
+        }
+        handle = lt.add_magnet_uri(self.ses, magnet_uri, params)
+        handle.pause()
+
+        import urllib.parse
+        parsed = urllib.parse.parse_qs(urllib.parse.urlparse(magnet_uri).query)
+        placeholder = self._unique_store_name(
+            parsed.get('dn', [''])[0]
+            or parsed.get('xt', [''])[0].split(':')[-1][:16]
+            or 'unknown_torrent'
+        )
+
+        self.store.add(placeholder, magnet_uri, 0, handle)
+        self.store.update(placeholder, hidden=True, paused=True,
+                           status='Fetching metadata...', save_path=save_path)
+        logger.info(f"Preview '{placeholder}' → fetching metadata...")
+
+        def _wait() -> None:
+            start = time.time()
+            while not handle.has_metadata():
+                if self.store.get(placeholder) is None:
+                    return  # cancelled while waiting
+                if time.time() - start > 90:
+                    self.store.update(placeholder, status='Metadata timeout',
+                                       error='No peers responded')
+                    return
+                time.sleep(0.5)
+            if self.store.get(placeholder) is None:
+                return  # cancelled right as metadata arrived
+            ti = handle.get_torrent_info()
+            self.store.update(placeholder, size=ti.total_size(), status='Metadata ready')
+            logger.info(f"Preview '{placeholder}' metadata ready ({ti.total_size():,} bytes)")
+
+        threading.Thread(target=_wait, daemon=True, name=f"preview-{placeholder[:24]}").start()
+        return placeholder
+
+    def preview_torrent_url(self, url: str, save_path: Optional[str] = None) -> str:
+        import requests as _requests
+
+        resp = _requests.get(url, timeout=30, allow_redirects=False)
+        hops = 0
+        while resp.is_redirect and hops < 6:
+            loc = resp.headers.get('Location', '')
+            if loc.startswith('magnet:'):
+                return self.preview_magnet(loc, save_path)
+            resp = _requests.get(loc, timeout=30, allow_redirects=False)
+            hops += 1
+        if resp.status_code != 200:
+            raise RuntimeError(f"Failed to fetch torrent URL: HTTP {resp.status_code}")
+
+        data = resp.content
+        if data[:7] == b'magnet:':
+            return self.preview_magnet(data.decode('utf-8', 'ignore').strip(), save_path)
+
+        if self.ses is None:
+            raise RuntimeError("libtorrent session not ready yet - try again shortly")
+        try:
+            ti = lt.torrent_info(data)
+        except Exception:
+            ti = lt.torrent_info(lt.bdecode(data))
+
+        if save_path is None:
+            save_path = DOWNLOAD_DIR_INCOMPLETE
+
+        params = lt.add_torrent_params()
+        params.ti = ti
+        params.save_path = save_path
+        params.storage_mode = lt.storage_mode_t(2)
+        handle = self.ses.add_torrent(params)
+        handle.pause()
+
+        real_name = self._unique_store_name(ti.name() or "unnamed_torrent")
+        self.store.add(real_name, None, ti.total_size(), handle)
+        self.store.update(real_name, hidden=True, paused=True,
+                           status='Metadata ready', save_path=save_path)
+        logger.info(f"Preview '{real_name}' metadata ready from URL ({ti.total_size():,} bytes)")
+        return real_name
+
+    def commit_preview(self, name: str, save_path: Optional[str] = None) -> str:
+        """Turn a previewed (hidden, paused) torrent into a real, visible,
+        downloading transfer. File priorities are expected to already be
+        set via POST /transfers/{name}/files before this is called."""
+        entry = self.store.get(name)
+        if entry is None:
+            raise KeyError(name)
+        handle = entry.get('handle')
+        if handle is None or not handle.has_metadata():
+            raise RuntimeError("metadata not ready yet")
+
+        if save_path and save_path != entry.get('save_path'):
+            try:
+                handle.move_storage(save_path)
+            except Exception as e:
+                logger.warning(f"move_storage failed for '{name}': {e}")
+
+        ti = handle.get_torrent_info()
+        real_name = ti.name() or name
+        total_size = ti.total_size()
+
+        for tracker in _TRACKERS:
+            handle.add_tracker({'url': tracker})
+        handle.force_reannounce()
+
+        if real_name != name:
+            real_name = self._unique_store_name(real_name) if self.store.get(real_name) else real_name
+            self.store.rename(name, real_name)
+
+        vpn_required = load_config().get('vpn_required', False)
+        if vpn_required and not self.vpn_ip:
+            handle.pause()
+            self.store.update(real_name, hidden=False, size=total_size,
+                               vpn_paused=True, paused=True, status='Waiting for VPN')
+            logger.info(f"Committed preview '{real_name}' - paused, kill switch on, no VPN")
+        else:
+            handle.resume()
+            self.store.update(real_name, hidden=False, size=total_size,
+                               paused=False, status='Downloading')
+            logger.info(f"Committed preview → downloading '{real_name}'")
+
+        threading.Thread(
+            target=self._monitor_download,
+            args=(real_name, handle, total_size),
+            daemon=True,
+            name=f"dl-{real_name[:24]}",
+        ).start()
+        return real_name
+
     # ── Download monitor ──────────────────────────────────────────────────────
 
     def _monitor_download(self, name: str, handle, total_size: int) -> None:
-        """2-second poll loop — updates store stats, detects completion."""
+        """2-second poll loop - updates store stats, detects completion."""
         _state_map = {
             0: 'Queued', 1: 'Checking', 2: 'DL Metadata',
             3: 'Downloading', 4: 'Finished', 5: 'Seeding',
@@ -856,7 +1024,7 @@ class TorrentEngine:
             if seed_ratio > 0 and ratio >= seed_ratio:
                 logger.info(
                     f"'{name}' reached seed ratio {ratio:.2f} "
-                    f"(target {seed_ratio}) — auto-removing"
+                    f"(target {seed_ratio}) - auto-removing"
                 )
                 self.remove(name, delete_files=False)
                 break
@@ -887,7 +1055,7 @@ class TorrentEngine:
                 pass
             self.store.update(name, paused=False)
         else:
-            logger.warning(f"Cannot resume '{name}' — VPN not connected")
+            logger.warning(f"Cannot resume '{name}' - VPN not connected")
 
     def remove(self, name: str, delete_files: bool = False) -> None:
         handle = self.store.get_handle(name)
@@ -905,7 +1073,7 @@ class TorrentEngine:
         """
         Re-attach libtorrent handles for persisted torrents from transfers.json.
         Covers both seeding and still-downloading (or downloading-but-paused)
-        transfers — anything short of 'Failed' gets a real handle back, not
+        transfers - anything short of 'Failed' gets a real handle back, not
         just seeds. Without this, a transfer that was mid-download (or paused
         mid-download) when the daemon last restarted is left with no handle
         at all: pause/resume/files/peers silently do nothing forever, since
@@ -1005,12 +1173,12 @@ async def _public_ip_refresher() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup — engine blocks on VPN detection so run in a thread
+    # Startup - engine blocks on VPN detection so run in a thread
     threading.Thread(target=engine.start, daemon=True, name="engine-start").start()
     rss_poller.start()
     broadcaster_task = asyncio.create_task(_ws_broadcaster())
     public_ip_task = asyncio.create_task(_public_ip_refresher())
-    logger.info(f"Hydra Daemon starting — API key: {API_KEY}")
+    logger.info(f"Hydra Daemon starting - API key: {API_KEY}")
     yield
     # Shutdown
     broadcaster_task.cancel()
@@ -1116,7 +1284,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             await websocket.close(code=4001, reason="Invalid API key")
             return
     except asyncio.TimeoutError:
-        await websocket.close(code=4002, reason="Auth timeout — send {\"auth\":\"<key>\"} within 5 s")
+        await websocket.close(code=4002, reason="Auth timeout - send {\"auth\":\"<key>\"} within 5 s")
         return
     except Exception:
         await websocket.close(code=4003, reason="Auth failed")
@@ -1178,27 +1346,29 @@ def get_vpn() -> VPNStatus:
 def get_health() -> HealthStatus:
     """
     Live reachability of everything that can silently break without a
-    user noticing: VPN, Jackett, Plex. Each optional integration reports
-    'configured: false' rather than an error when unused, so the UI can
-    distinguish "not set up" from "set up but broken."
+    user noticing: VPN, Jackett, Plex, Jellyfin. Each optional integration
+    reports 'configured: false' rather than an error when unused, so the
+    UI can distinguish "not set up" from "set up but broken."
     """
     cfg = load_config()
     vpn_connected, vpn_iface, vpn_ip = engine.vpn_guard.get_status()
 
     jackett = check_jackett(cfg.get('indexing_server', ''), cfg.get('jackett_api_key', ''))
     plex = check_plex(cfg.get('plex_url', ''), cfg.get('plex_token', ''))
+    jellyfin = check_jellyfin(cfg.get('jellyfin_url', ''), cfg.get('jellyfin_api_key', ''))
 
     return HealthStatus(
         vpn=VPNStatus(connected=vpn_connected, iface=vpn_iface, vpn_ip=vpn_ip),
         jackett=IntegrationHealth(**jackett),
         plex=IntegrationHealth(**plex),
+        jellyfin=IntegrationHealth(**jellyfin),
     )
 
 
 @app.get("/update-check", dependencies=[Depends(_require_api_key)])
 def get_update_check() -> UpdateStatus:
     """
-    Phase 1 update check — tells the UI whether a newer release exists on
+    Phase 1 update check - tells the UI whether a newer release exists on
     GitHub. Does not download or install anything (see updater.py).
     """
     result = check_for_update(VERSION, GITHUB_REPO)
@@ -1228,7 +1398,7 @@ def add_transfer(req: AddMagnetRequest, background_tasks: BackgroundTasks) -> di
     Monitor progress via GET /transfers or the WebSocket.
     """
     if not req.magnet.startswith("magnet:?"):
-        raise HTTPException(status_code=400, detail="Invalid magnet link — must start with 'magnet:?'")
+        raise HTTPException(status_code=400, detail="Invalid magnet link - must start with 'magnet:?'")
 
     def _add() -> None:
         try:
@@ -1312,6 +1482,71 @@ def add_torrent_from_url(req: AddTorrentUrlRequest, background_tasks: Background
     return {"accepted": True}
 
 
+@app.post("/transfers/preview", dependencies=[Depends(_require_api_key)])
+def preview_transfer(req: PreviewTorrentRequest) -> dict:
+    """
+    Add a torrent paused and hidden from the transfer list, for the
+    Search-tab add dialog: lets the UI show real size/file-list metadata
+    and let the user pick files and a save location before anything
+    actually starts downloading. Returns immediately with a name to poll
+    GET /transfers/{name} against (status becomes 'Metadata ready' once
+    the file list is available). Nothing here is visible in the Transfers
+    list or persisted across a restart until POST .../commit is called;
+    DELETE /transfers/{name} discards it same as any other transfer, safe
+    since nothing was ever downloaded.
+    """
+    if not req.magnet and not req.url:
+        raise HTTPException(status_code=400, detail="magnet or url is required")
+    try:
+        if req.magnet:
+            if not req.magnet.startswith("magnet:?"):
+                raise HTTPException(status_code=400, detail="Invalid magnet link - must start with 'magnet:?'")
+            name = engine.preview_magnet(req.magnet, req.save_path)
+        else:
+            name = engine.preview_torrent_url(req.url, req.save_path)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"name": name}
+
+
+@app.post("/transfers/{name}/commit", dependencies=[Depends(_require_api_key)])
+def commit_transfer(name: str, req: CommitPreviewRequest) -> dict:
+    """Turn a previewed torrent (see POST /transfers/preview) into a real,
+    visible, downloading transfer."""
+    if store.get(name) is None:
+        raise HTTPException(status_code=404, detail=f"Transfer '{name}' not found")
+    try:
+        real_name = engine.commit_preview(name, req.save_path)
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Transfer '{name}' not found")
+    return {"name": real_name}
+
+
+@app.get("/disk-space", dependencies=[Depends(_require_api_key)])
+def get_disk_space(path: Optional[str] = None) -> dict:
+    """
+    Free/total bytes for a save-location path, defaulting to Hydra's
+    configured download directory when no path is given. Walks up to the
+    nearest existing parent directory if the exact path doesn't exist yet
+    (e.g. the user is still typing it).
+    """
+    check_path = path or DOWNLOAD_DIR_INCOMPLETE
+    seen = set()
+    while check_path and not os.path.isdir(check_path) and check_path not in seen:
+        seen.add(check_path)
+        parent = os.path.dirname(check_path.rstrip('\\/'))
+        check_path = parent if parent and parent != check_path else DOWNLOAD_DIR_INCOMPLETE
+    try:
+        usage = shutil.disk_usage(check_path)
+        return {"path": path or DOWNLOAD_DIR_INCOMPLETE, "free": usage.free, "total": usage.total}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/transfers/{name}/pause", dependencies=[Depends(_require_api_key)])
 def pause_transfer(name: str) -> dict:
     """Pause a transfer."""
@@ -1360,7 +1595,7 @@ def get_transfer_files(name: str) -> List[TorrentFile]:
 
     handle = store.get_handle(name)
     if handle is None:
-        raise HTTPException(status_code=409, detail="Torrent handle not available — metadata may still be fetching")
+        raise HTTPException(status_code=409, detail="Torrent handle not available - metadata may still be fetching")
 
     try:
         ti = handle.get_torrent_info()
@@ -1443,6 +1678,16 @@ def list_rss_rules() -> List[RssRule]:
         RssRule(**{k: v for k, v in r.items() if k != 'matched_titles'}, matched_titles=[])
         for r in rules
     ]
+
+
+@app.get("/rss/rules/{rule_id}", dependencies=[Depends(_require_api_key)])
+def get_rss_rule(rule_id: str) -> RssRule:
+    """Get a single rule, including its full matched_titles history (the
+    list view strips that field to keep the list payload small)."""
+    rule = rss_poller.get_one(rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return RssRule(**rule)
 
 
 @app.post("/rss/rules", status_code=201, dependencies=[Depends(_require_api_key)])
@@ -1528,7 +1773,7 @@ def download_tray() -> StreamingResponse:
 # ---------------------------------------------------------------------------
 
 _EDITABLE_CONFIG_KEYS = frozenset({
-    'plex_url', 'plex_token', 'jackett_api_key',
+    'plex_url', 'plex_token', 'jellyfin_url', 'jellyfin_api_key', 'jackett_api_key',
     'indexing_server', 'media_dir_movies', 'media_dir_tv', 'auto_move_to_plex',
     'vpn_required', 'seed_ratio', 'download_rate_limit', 'upload_rate_limit',
 })
@@ -1541,6 +1786,8 @@ def get_config() -> ConfigResponse:
     return ConfigResponse(
         plex_url=cfg.get('plex_url', ''),
         plex_token=cfg.get('plex_token', ''),
+        jellyfin_url=cfg.get('jellyfin_url', ''),
+        jellyfin_api_key=cfg.get('jellyfin_api_key', ''),
         jackett_api_key=cfg.get('jackett_api_key', ''),
         indexing_server=cfg.get('indexing_server', ''),
         media_dir_movies=cfg.get('media_dir_movies', ''),
@@ -1575,9 +1822,9 @@ def update_config(req: ConfigUpdate) -> dict:
             int(cfg.get('download_rate_limit', 0) or 0),
             int(cfg.get('upload_rate_limit', 0) or 0),
         )
-    # Live-apply VPN kill switch — if just turned on and VPN is off, pause all
+    # Live-apply VPN kill switch - if just turned on and VPN is off, pause all
     if 'vpn_required' in updates and updates['vpn_required'] and not engine.vpn_ip:
-        logger.warning("VPN kill switch enabled with no VPN — pausing all transfers")
+        logger.warning("VPN kill switch enabled with no VPN - pausing all transfers")
         engine.ses.apply_settings({'listen_interfaces': f'127.0.0.1:{PEER_PORT}', 'outgoing_interfaces': '127.0.0.1'})
         for name in store.all_names():
             t = store.get(name)
