@@ -328,13 +328,16 @@ def main():
     w = webview.create_window(
         'Hydra Torrent',
         url=f'{_daemon_url}/ui',
-        # Tall enough that the Transfers pane (map + activity log + the
-        # empty-state hero art below it) fits on first open with no
-        # scrolling on a normal 1080p+ display. Still just a starting
-        # size - min_size below is the only actual floor, resize/shrink
-        # works exactly as before.
         width=1320,
-        height=1040,
+        height=1160,
+        # Opens maximized so the Transfers pane (map + activity log + the
+        # empty-state hero art below it) always fits with zero scrolling,
+        # regardless of screen size/DPI - pywebview handles the taskbar
+        # and work-area math itself instead of guessing pixel dimensions
+        # per monitor. width/height above are just the un-maximize
+        # fallback size. min_size is still the only real floor - resize/
+        # shrink works exactly as before once you un-maximize.
+        maximized=True,
         min_size=(800, 500),
         frameless=True,
         easy_drag=False,
