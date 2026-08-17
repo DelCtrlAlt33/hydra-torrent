@@ -57,11 +57,11 @@ pyinstaller_cmd = [
     "--add-data=network.py;.",
     "--add-data=health.py;.",
     "--add-data=updater.py;.",
-    # Hidden imports — pywebview + GUI
+    # Hidden imports - pywebview + GUI
     "--hidden-import=webview",
     "--hidden-import=pystray",
     "--hidden-import=PIL",
-    # Hidden imports — daemon
+    # Hidden imports - daemon
     "--hidden-import=uvicorn",
     "--hidden-import=uvicorn.logging",
     "--hidden-import=uvicorn.loops",
@@ -92,14 +92,17 @@ if result.returncode != 0:
 
 print("\n[OK] Executable built successfully!")
 
-# Package the output
+# Package the output. Just the exe: --icon bakes the window/taskbar icon
+# into the exe's own PE resources at build time, and --add-data embeds
+# image8.ico + GeoLite2-Country.mmdb inside the onefile bundle itself
+# (extracted internally at runtime, see hydra_daemon._resource_path()) -
+# nothing reads either file from beside the exe, so shipping them as loose
+# sibling files (and a zip to hold them) was dead weight. One .exe,
+# nothing to extract first.
 print("\n[3/3] Packaging...")
 os.makedirs("installer_package", exist_ok=True)
 
 shutil.copy("dist/HydraTorrent.exe", "installer_package/HydraTorrent.exe")
-for f in ["image8.ico", "GeoLite2-Country.mmdb"]:
-    if os.path.exists(f):
-        shutil.copy(f, f"installer_package/{f}")
 
 print("\n" + "=" * 70)
 print("BUILD COMPLETE!")
@@ -109,6 +112,6 @@ print("\nContents:")
 for f in os.listdir("installer_package"):
     size = os.path.getsize(os.path.join("installer_package", f))
     print(f"  {f} ({size:,} bytes)")
-print("\nUsers just double-click HydraTorrent.exe — it self-installs on first run.")
+print("\nUsers just double-click HydraTorrent.exe - it self-installs on first run.")
 print("(Creates desktop shortcut, Start Menu entry, config, and firewall rules)")
 print("\n" + "=" * 70)

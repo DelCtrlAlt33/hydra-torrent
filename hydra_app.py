@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hydra Torrent — Desktop App Launcher
+Hydra Torrent - Desktop App Launcher
 
 This is the entry point for desktop users who install Hydra Torrent as an app.
 It starts the daemon in-process, opens the Web UI in a frameless pywebview
@@ -88,9 +88,19 @@ def _load_config() -> dict:
 # First-run self-install
 # ---------------------------------------------------------------------------
 
-def _is_installed() -> bool:
-    """Check if Hydra is installed in the proper location."""
-    return os.path.isfile(os.path.join(_INSTALL_DIR, 'HydraTorrent.exe'))
+def _needs_install() -> bool:
+    """True if there's no installed copy yet, or the exe currently running
+    isn't the installed one - i.e. this is a freshly downloaded build the
+    user launched directly (from Downloads, an extracted zip, etc.)
+    rather than via the Desktop/Start Menu shortcut. Either way the
+    install dir needs to be (re)synced, otherwise the shortcut keeps
+    pointing at whatever version happened to install first and silently
+    never gets updated, no matter how many newer releases get run."""
+    installed_exe = os.path.join(_INSTALL_DIR, 'HydraTorrent.exe')
+    if not os.path.isfile(installed_exe):
+        return True
+    running_exe = sys.executable if getattr(sys, 'frozen', False) else __file__
+    return os.path.abspath(running_exe) != os.path.abspath(installed_exe)
 
 
 def _self_install() -> None:
@@ -139,7 +149,7 @@ def _self_install() -> None:
             exe_dst, _INSTALL_DIR, icon_path,
         )
 
-    # Add firewall rules (best-effort, requires admin — silently skip if not admin)
+    # Add firewall rules (best-effort, requires admin - silently skip if not admin)
     try:
         subprocess.run(
             ['netsh', 'advfirewall', 'firewall', 'delete', 'rule', 'name=Hydra Torrent'],
@@ -161,7 +171,7 @@ def _self_install() -> None:
             capture_output=True, timeout=5,
         )
     except Exception:
-        pass  # not admin — firewall rules skipped, user will get the Windows prompt instead
+        pass  # not admin - firewall rules skipped, user will get the Windows prompt instead
 
 
 def _create_shortcut(lnk_path: str, target: str, workdir: str, icon: str) -> None:
@@ -259,7 +269,7 @@ def main():
 
     # WebView2's embedded Chromium process doesn't necessarily inherit the
     # same color-management/rasterization path a standalone Edge/Chrome tab
-    # uses — reported as the UI looking visibly duller/less saturated in the
+    # uses - reported as the UI looking visibly duller/less saturated in the
     # wrapped desktop window than the identical page in a real browser.
     # Must be set before the window (and its underlying WebView2 browser
     # process) is created, so this goes as early in main() as possible.
@@ -275,8 +285,8 @@ def main():
     except Exception:
         pass
 
-    # 0. First-run self-install
-    if getattr(sys, 'frozen', False) and not _is_installed():
+    # 0. First-run self-install / update-in-place if a newer exe was just run
+    if getattr(sys, 'frozen', False) and _needs_install():
         _self_install()
 
     # 1. Load config
@@ -305,7 +315,7 @@ def main():
     print("[app] Waiting for daemon to start...")
     if not _wait_for_daemon(_daemon_url, api_key):
         print("[app] ERROR: Daemon failed to start within 15s", file=sys.stderr)
-        # Still try to open — the page will show an error but at least the app opens
+        # Still try to open - the page will show an error but at least the app opens
     else:
         print("[app] Daemon is ready")
 
@@ -330,7 +340,7 @@ def main():
     apply_frameless(w)
     _window = w
 
-    # Intercept Alt+F4 / taskbar close — hide instead of destroy
+    # Intercept Alt+F4 / taskbar close - hide instead of destroy
     def _on_closing():
         w.hide()
         return False  # prevent actual destruction
@@ -347,7 +357,7 @@ def main():
     ).start()
 
     # 6. Run pywebview on the main thread (blocks forever because the window
-    #    is never destroyed — it just hides/shows). Tray "Exit" calls
+    #    is never destroyed - it just hides/shows). Tray "Exit" calls
     #    os._exit(0) to terminate the process.
     webview.start()
 
