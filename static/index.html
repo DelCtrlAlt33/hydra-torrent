@@ -4143,7 +4143,11 @@ const _TARGET_WINDOW_WIDTH = 1440;
 
 function _sizeWindowToContent() {
   if (!(window.pywebview && pywebview.api && pywebview.api.size_to_content)) return;
-  pywebview.api.size_to_content(_TARGET_WINDOW_WIDTH, document.documentElement.scrollHeight);
+  // +32px buffer: resize() sets the native window's outer size (shadow/
+  // border included on Windows), which measured out a few px short of
+  // document.documentElement.scrollHeight in testing - overshoot slightly
+  // rather than risk a sliver of scroll again.
+  pywebview.api.size_to_content(_TARGET_WINDOW_WIDTH, document.documentElement.scrollHeight + 32);
 }
 
 async function checkForUpdate() {
