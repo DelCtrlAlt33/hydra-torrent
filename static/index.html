@@ -4141,13 +4141,26 @@ document.addEventListener('DOMContentLoaded', () => {
 // without leaving a wide empty gap on large monitors (what maximizing did).
 const _TARGET_WINDOW_WIDTH = 1440;
 
-function _sizeWindowToContent() {
+async function _sizeWindowToContent() {
   if (!(window.pywebview && pywebview.api && pywebview.api.size_to_content)) return;
-  // +32px buffer: resize() sets the native window's outer size (shadow/
-  // border included on Windows), which measured out a few px short of
-  // document.documentElement.scrollHeight in testing - overshoot slightly
-  // rather than risk a sliver of scroll again.
-  pywebview.api.size_to_content(_TARGET_WINDOW_WIDTH, document.documentElement.scrollHeight + 32);
+  // Predicting the right height up front (scrollHeight + a guessed
+  // buffer) kept landing a few px short - window.resize() sets the
+  // native window's outer size (shadow/border etc.), which isn't in a
+  // fixed, predictable relationship with the web content's own
+  // scrollHeight. Self-correcting instead: after each resize, check how
+  // much the page is STILL overflowing its own viewport (via
+  // window.innerHeight, which reflects the real post-resize viewport)
+  // and grow by exactly that much, repeating until nothing's left to
+  // fix or a few attempts have passed (safety cap, not expected to be
+  // hit in practice).
+  let height = document.documentElement.scrollHeight + 32;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await pywebview.api.size_to_content(_TARGET_WINDOW_WIDTH, height);
+    await new Promise(resolve => setTimeout(resolve, 150));
+    const overflow = document.documentElement.scrollHeight - window.innerHeight;
+    if (overflow <= 0) return;
+    height += overflow + 16;
+  }
 }
 
 async function checkForUpdate() {
