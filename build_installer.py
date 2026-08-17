@@ -29,6 +29,12 @@ if os.path.exists("dist"):
 if os.path.exists("installer_package"):
     shutil.rmtree("installer_package")
 
+# GeoIP database: not committed to git (see fetch_geoip.py for why), so
+# any machine building this for the first time needs it fetched before
+# PyInstaller can bundle it.
+import fetch_geoip
+fetch_geoip.fetch()
+
 # Build the .exe
 print("\n[2/3] Building Hydra Torrent executable...")
 print("This may take a few minutes...\n")
@@ -41,7 +47,7 @@ pyinstaller_cmd = [
     "--icon=image8.ico",
     # Data files
     "--add-data=image8.ico;.",
-    "--add-data=GeoLite2-Country.mmdb;.",
+    "--add-data=geoip-country.mmdb;.",
     "--add-data=static;static",
     # Local modules (daemon + dependencies)
     "--add-data=hydra_daemon.py;.",
@@ -94,7 +100,7 @@ print("\n[OK] Executable built successfully!")
 
 # Package the output. Just the exe: --icon bakes the window/taskbar icon
 # into the exe's own PE resources at build time, and --add-data embeds
-# image8.ico + GeoLite2-Country.mmdb inside the onefile bundle itself
+# image8.ico + geoip-country.mmdb inside the onefile bundle itself
 # (extracted internally at runtime, see hydra_daemon._resource_path()) -
 # nothing reads either file from beside the exe, so shipping them as loose
 # sibling files (and a zip to hold them) was dead weight. One .exe,

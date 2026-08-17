@@ -118,7 +118,7 @@ def _self_install() -> None:
         shutil.copy2(exe_src, exe_dst)
 
     # Copy bundled assets next to installed exe
-    for asset in ('image8.ico', 'GeoLite2-Country.mmdb'):
+    for asset in ('image8.ico', 'geoip-country.mmdb'):
         src = os.path.join(_BUNDLE_DIR, asset) if getattr(sys, 'frozen', False) else os.path.join(_EXE_DIR, asset)
         if os.path.isfile(src):
             shutil.copy2(src, os.path.join(_INSTALL_DIR, asset))

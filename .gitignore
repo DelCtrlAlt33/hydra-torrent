@@ -11,6 +11,7 @@ rss_rules.json
 downloads/
 shared_files/
 flags/
+geoip-country.mmdb
 GeoLite2-Country.mmdb
 
 # Screenshots and images (except static assets and README screenshots)
@@ -56,7 +57,7 @@ CLAUDE.md
 # Runtime log
 hydra.log
 
-# Built release artifact / bundled third-party binaries — not source, too
+# Built release artifact / bundled third-party binaries - not source, too
 # large for git, and easy to accidentally re-download into the repo root
 HydraTorrent-Windows.zip
 Jackett/

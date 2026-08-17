@@ -15,6 +15,7 @@ miniconda3/
 hydra_config.json
 transfers.json
 rss_rules.json
+geoip-country.mmdb
 screenshots/
 *.png
 *.jpg

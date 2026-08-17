@@ -182,3 +182,5 @@ Works. Runs on Docker, bare metal Linux, or Windows. Battle-tested on my homelab
 ## License
 
 MIT
+
+IP-to-country data for peer/VPN country flags is from [DB-IP](https://db-ip.com), licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Fetched automatically on install/build (`fetch_geoip.py`) - nothing to configure.

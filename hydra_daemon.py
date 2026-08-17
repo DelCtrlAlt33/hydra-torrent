@@ -341,7 +341,7 @@ class TorrentEngine:
         self.vpn_ip: Optional[str] = None
         self.geo_reader = None
         try:
-            self.geo_reader = maxminddb.open_database(_resource_path('GeoLite2-Country.mmdb'))
+            self.geo_reader = maxminddb.open_database(_resource_path('geoip-country.mmdb'))
         except Exception as e:
             logger.warning(f"GeoIP DB load failed: {e} - peer country flags disabled")
 

@@ -50,6 +50,12 @@ python3 -m pip install -r "$INSTALL_DIR/requirements.txt" --break-system-package
   || python3 -m pip install -r "$INSTALL_DIR/requirements.txt"
 echo -e "${GREEN}Dependencies installed${NC}"
 
+# GeoIP database for peer/VPN country flags on the map (optional feature -
+# install continues fine if this fails, just without that data)
+echo ""
+echo -n "Fetching GeoIP database... "
+python3 "$INSTALL_DIR/fetch_geoip.py" && echo -e "${GREEN}ok${NC}" || echo -e "${YELLOW}skipped (network issue) - country flags/map marker will be disabled${NC}"
+
 # Create hydra user if it doesn't exist
 echo ""
 echo -n "Setting up hydra user... "
@@ -109,7 +115,7 @@ echo ""
 echo -e "  Open in your browser:"
 echo -e "  ${YELLOW}https://$IP:8765/ui${NC}"
 echo ""
-echo -e "  Accept the certificate warning — it's a"
+echo -e "  Accept the certificate warning - it's a"
 echo -e "  self-signed cert generated on first run."
 echo ""
 echo -e "  Commands:"
