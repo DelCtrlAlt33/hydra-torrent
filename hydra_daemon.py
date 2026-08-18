@@ -698,13 +698,24 @@ class TorrentEngine:
         if save_path is None:
             save_path = DOWNLOAD_DIR_INCOMPLETE
 
-        params = {
-            'url': magnet_uri,
-            'save_path': save_path,
-            'storage_mode': lt.storage_mode_t(2),
-        }
-        handle = lt.add_magnet_uri(self.ses, magnet_uri, params)
-        handle.pause()
+        # handle.pause() called right after add used to be relied on to
+        # keep a preview from downloading real data, but it doesn't
+        # reliably hold - the torrent isn't fully registered in the
+        # session yet at that exact call, and once metadata arrives
+        # auto_managed silently overrides the pause and downloading
+        # starts anyway (confirmed live: real file bytes on disk within
+        # seconds of opening a preview, before ever clicking commit).
+        # default_dont_download is the correct tool for this: peers
+        # still connect and metadata still exchanges normally (fast -
+        # it's a small handshake, not the file itself), but every file's
+        # priority defaults to 0 so the piece picker never requests
+        # actual data. commit_preview is what turns real priorities on.
+        params = lt.parse_magnet_uri(magnet_uri)
+        params.save_path = save_path
+        params.storage_mode = lt.storage_mode_t(2)
+        params.flags = (lt.torrent_flags.default_flags
+                         | lt.torrent_flags.default_dont_download) & ~lt.torrent_flags.paused
+        handle = self.ses.add_torrent(params)
 
         import urllib.parse
         parsed = urllib.parse.parse_qs(urllib.parse.urlparse(magnet_uri).query)
@@ -770,8 +781,12 @@ class TorrentEngine:
         params.ti = ti
         params.save_path = save_path
         params.storage_mode = lt.storage_mode_t(2)
+        # See preview_magnet's comment - pause() after add doesn't reliably
+        # hold, default_dont_download is what actually prevents real data
+        # from downloading during preview.
+        params.flags = (lt.torrent_flags.default_flags
+                         | lt.torrent_flags.default_dont_download) & ~lt.torrent_flags.paused
         handle = self.ses.add_torrent(params)
-        handle.pause()
 
         real_name = self._unique_store_name(ti.name() or "unnamed_torrent")
         self.store.add(real_name, None, ti.total_size(), handle)
@@ -790,6 +805,24 @@ class TorrentEngine:
         handle = entry.get('handle')
         if handle is None or not handle.has_metadata():
             raise RuntimeError("metadata not ready yet")
+
+        # Every file sits at priority 0 for the whole preview (that's
+        # what stops real data downloading before commit - see
+        # preview_magnet). The frontend syncs the user's actual file
+        # selection here via POST /files right before calling this, but
+        # that's a separate call this one shouldn't have to trust blindly
+        # - if it was skipped, raced, or never happened for any reason,
+        # every file staying at 0 would otherwise make libtorrent
+        # consider this "instantly finished" with nothing ever
+        # downloaded, silently. If literally nothing was ever explicitly
+        # set (the common case - most people never touch file
+        # selection), default to downloading everything instead.
+        try:
+            priorities = list(handle.file_priorities())
+            if priorities and not any(priorities):
+                handle.prioritize_files([1] * len(priorities))
+        except Exception:
+            pass
 
         if save_path and save_path != entry.get('save_path'):
             try:

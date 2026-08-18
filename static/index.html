@@ -3416,7 +3416,12 @@ async function _loadModalFiles() {
     const r = await fetch(`${BASE}/transfers/${encodeURIComponent(_previewName)}/files`, { headers: HEADERS });
     if (!r.ok) { _setModalFilesError('Files unavailable'); return; }
     const files = await r.json();
-    _fileData[_previewName] = files;
+    // Preview torrents now genuinely sit at priority 0 for every file
+    // (that's what stops real data downloading before commit) - that's
+    // a backend implementation detail, not a user choice, so default
+    // the local copy to checked/normal here. Actual exclusions the user
+    // makes via checkboxes below still update this normally afterward.
+    _fileData[_previewName] = files.map(f => ({ ...f, priority: f.priority || 1 }));
     const el = document.getElementById('modal-file-table');
     if (el) el.innerHTML = _filesHtml(_previewName, files);
     const links = document.getElementById('modal-select-links');
@@ -3445,6 +3450,21 @@ async function _confirmAddTorrent() {
   if (okBtn) { okBtn.disabled = true; okBtn.textContent = 'Adding…'; }
   const savePath = document.getElementById('modal-save-path')?.value.trim() || null;
   try {
+    // Every file sits at real priority 0 on the backend throughout
+    // preview (that's what stops it downloading early) - _fileData is
+    // the actual source of truth for what the user wants, and only
+    // individually-toggled files have ever been synced to the real
+    // handle. Push the complete selection now so anything left at its
+    // checked-by-default state actually turns on before commit starts
+    // the real download - otherwise everything untouched would just
+    // silently download nothing forever.
+    const files = _fileData[_previewName];
+    if (files && files.length) {
+      await fetch(`${BASE}/transfers/${encodeURIComponent(_previewName)}/files`, {
+        method: 'POST', headers: HEADERS,
+        body: JSON.stringify({ files: files.map(f => ({ index: f.index, priority: f.priority })) }),
+      });
+    }
     const r = await fetch(`${BASE}/transfers/${encodeURIComponent(_previewName)}/commit`, {
       method: 'POST', headers: HEADERS, body: JSON.stringify({ save_path: savePath }),
     });
