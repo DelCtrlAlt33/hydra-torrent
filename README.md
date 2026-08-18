@@ -34,6 +34,34 @@ python hydra_daemon.py
 ```
 Open `http://127.0.0.1:8765/ui` in your browser.
 
+## Updating
+
+**Windows:** the app checks GitHub on launch and shows an update badge (top-right in the browser/web UI, top-left of the title bar in the desktop app) when a newer version is out. Click it, download the new `HydraTorrent.exe`, and run it - but fully quit the running instance first (right-click the tray icon and choose Exit, not just the window's close button, which only hides it to the tray). Otherwise the still-running old version just refocuses itself and the update never applies.
+
+**Docker:**
+```bash
+cd hydra-torrent
+git pull
+docker compose up -d --build
+```
+`./data` stays mounted as a volume, so config/certs/transfers survive the rebuild untouched.
+
+**Linux:**
+```bash
+cd hydra-torrent
+git pull
+sudo systemctl restart hydra-torrent
+```
+No need to re-run `install.sh` - that's only for first-time setup. If a release ever adds a new dependency, run `pip install -r requirements.txt` first; if `geoip-country.mmdb` is somehow missing, `python3 fetch_geoip.py` fetches it (harmless no-op if it's already there).
+
+**Manual:**
+```bash
+cd hydra-torrent
+git pull
+pip install -r requirements.txt
+python hydra_daemon.py
+```
+
 ---
 
 **Everything works out of the box as a torrent client.** A config file is created automatically. Add Plex, Jackett, VPN whenever you want - all optional.
