@@ -30,7 +30,7 @@ BASE_DIR = get_base_dir()
 # whatever a stray print statement elsewhere might claim. Bump this as
 # part of cutting each release, alongside the git tag.
 # ----------------------------------------------------------------------
-VERSION = "1.3.14"
+VERSION = "1.4.0"
 GITHUB_REPO = "DelCtrlAlt33/hydra-torrent"
 
 # ----------------------------------------------------------------------
@@ -76,8 +76,24 @@ DOWNLOAD_DIR_INCOMPLETE = _cfg_dirs.get('download_dir_incomplete', _default_down
 # Legacy support
 DOWNLOAD_DIR = DOWNLOAD_DIR_INCOMPLETE
 
-os.makedirs(SHARED_DIR, exist_ok=True)
-os.makedirs(DOWNLOAD_DIR_INCOMPLETE, exist_ok=True)
+def _ensure_dir(path, label):
+    """Auto-create a required directory, raising a message that actually
+    says what to fix instead of a raw PermissionError/OSError traceback -
+    this runs at import time before logging is configured, so a plain
+    stack trace would be the only thing anyone ever sees. More people hit
+    this path now that download/library folders can come from auto-detect
+    instead of always being hand-typed and pre-created."""
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError as e:
+        raise RuntimeError(
+            f"Can't create {label} at '{path}': {e}. "
+            f"Check that this path is correct and Hydra has permission to write there."
+        ) from e
+
+
+_ensure_dir(SHARED_DIR, 'shared files directory')
+_ensure_dir(DOWNLOAD_DIR_INCOMPLETE, 'download folder')
 # Don't auto-create network share directories (they already exist on TrueNAS)
 
 # ----------------------------------------------------------------------

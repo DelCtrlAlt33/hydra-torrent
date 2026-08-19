@@ -1058,6 +1058,15 @@
     .settings-row input:focus { border-color: var(--accent); }
     .settings-row input[readonly] { color: var(--muted); cursor: default; }
 
+    /* Live feedback for Movies/TV path: does this folder actually exist
+       from Hydra's own point of view, not just "does it look like a
+       path." Matters most for auto-detected paths, since a media server
+       running in Docker reports its own container-internal path, which
+       often isn't the real path on the host Hydra runs on. */
+    .path-status { font-size: 11px; margin-top: 4px; min-height: 14px; }
+    .path-status.ok { color: var(--accent); }
+    .path-status.warn { color: #ffa500; }
+
     .secret-row {
       flex: 1;
       display: flex;
@@ -1747,19 +1756,30 @@
         deleting or reinstalling Hydra should never risk your actual downloads. Change takes
         effect next time Hydra starts.
       </div>
+      <div class="settings-indent" style="padding-left:0;">
+        <button class="btn btn-sm btn-pause" onclick="detectLibraries('plex')" id="detect-plex-btn">Detect from Plex</button>
+        <button class="btn btn-sm btn-pause" onclick="detectLibraries('jellyfin')" id="detect-jellyfin-btn">Detect from Jellyfin</button>
+      </div>
       <div class="settings-row">
         <label>Movies path</label>
-        <input type="text" id="cfg-movies-path" placeholder="/mnt/plex/movies">
+        <div style="flex:1;">
+          <input type="text" id="cfg-movies-path" placeholder="/mnt/plex/movies" oninput="_checkLibraryPath('movies')" style="width:100%; box-sizing:border-box;">
+          <div class="path-status" id="movies-path-status"></div>
+        </div>
       </div>
       <div class="settings-row">
         <label>TV path</label>
-        <input type="text" id="cfg-tv-path" placeholder="/mnt/plex/tv">
+        <div style="flex:1;">
+          <input type="text" id="cfg-tv-path" placeholder="/mnt/plex/tv" oninput="_checkLibraryPath('tv')" style="width:100%; box-sizing:border-box;">
+          <div class="path-status" id="tv-path-status"></div>
+        </div>
       </div>
       <div class="settings-subtext">
         Downloads land in the folder above first while transferring, then move here
         automatically once complete (if auto-move below is on) - Plex/Jellyfin gets
         notified to scan right after. Put these on the same drive/NFS mount as the
-        download folder above and that move is instant instead of a slow copy.
+        download folder above and that move is instant instead of a slow copy. Don't
+        know the exact path? Use Detect above if Plex/Jellyfin is already set up below.
       </div>
       <div class="settings-row">
         <label>Seed ratio</label>
@@ -3644,6 +3664,107 @@ async function browseDownloadDir() {
     document.getElementById('cfg-download-dir').value = picked;
     saveSettings(true);
   }
+}
+
+// Pulls the real library names + paths straight from Plex/Jellyfin's own
+// API (using whatever URL/token is already saved below) instead of making
+// someone hand-type a folder path they may not know off the top of their
+// head. Matches by library type (movie vs show/tvshows) - if a server has
+// more than one library of the same type, picks the first one found.
+async function detectLibraries(source) {
+  const btn = document.getElementById(`detect-${source}-btn`);
+  const label = source === 'plex' ? 'Plex' : 'Jellyfin';
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Detecting…';
+  try {
+    const r = await fetch(`${BASE}/${source}/libraries`, { headers: HEADERS });
+    const d = await r.json();
+    if (!r.ok) {
+      toast(d.detail || `Couldn't reach ${label}`, 'err');
+      return;
+    }
+    const libs = d.libraries || [];
+    const movieLib = libs.find(l => ['movie', 'movies'].includes((l.type || '').toLowerCase()));
+    const tvLib = libs.find(l => ['show', 'tvshows', 'shows'].includes((l.type || '').toLowerCase()));
+
+    const found = [];
+    if (movieLib) {
+      document.getElementById('cfg-movies-path').value = movieLib.path;
+      found.push(`${movieLib.name} → Movies path`);
+      await _checkLibraryPath('movies', movieLib.path);
+    }
+    if (tvLib) {
+      document.getElementById('cfg-tv-path').value = tvLib.path;
+      found.push(`${tvLib.name} → TV path`);
+      await _checkLibraryPath('tv', tvLib.path);
+    }
+
+    if (!movieLib && !tvLib) {
+      toast(`No Movies or TV library found on ${label}`, 'info');
+    } else {
+      toast(`Found: ${found.join(', ')}`, 'ok');
+      _suggestDownloadFolder();
+    }
+  } catch (e) {
+    toast(`Couldn't reach ${label}: ${e.message}`, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+}
+
+// Debounced live check (typing) vs. immediate check (right after
+// detectLibraries fills a field) - same underlying /check-path call
+// either way. A path a media server reports isn't guaranteed to exist
+// from Hydra's own point of view (see /check-path's docstring), so this
+// is real verification, not just cosmetic.
+const _pathCheckTimers = {};
+function _checkLibraryPath(which, overridePath) {
+  const run = async () => {
+    const inputId = which === 'movies' ? 'cfg-movies-path' : 'cfg-tv-path';
+    const statusId = which === 'movies' ? 'movies-path-status' : 'tv-path-status';
+    const path = overridePath !== undefined ? overridePath : document.getElementById(inputId).value.trim();
+    const statusEl = document.getElementById(statusId);
+    if (!statusEl) return;
+    if (!path) { statusEl.textContent = ''; statusEl.className = 'path-status'; return; }
+    try {
+      const r = await fetch(`${BASE}/check-path?path=${encodeURIComponent(path)}`, { headers: HEADERS });
+      const d = await r.json();
+      if (d.exists) {
+        statusEl.textContent = '✓ Found';
+        statusEl.className = 'path-status ok';
+      } else {
+        statusEl.textContent = "⚠ Can't find this folder here - if Plex/Jellyfin runs in Docker, this may be its path inside the container, not the real one on this machine";
+        statusEl.className = 'path-status warn';
+      }
+    } catch (e) {
+      statusEl.textContent = '';
+      statusEl.className = 'path-status';
+    }
+  };
+  if (overridePath !== undefined) return run();
+  clearTimeout(_pathCheckTimers[which]);
+  _pathCheckTimers[which] = setTimeout(run, 500);
+}
+
+// Once Movies path is known, suggest a sibling "incomplete" folder as the
+// download folder - same mount means the completion move is an instant
+// rename instead of a slow cross-filesystem copy (see the subtext above
+// the Movies/TV fields). Only fills it in if it's currently empty, never
+// overwrites a value someone already set.
+function _suggestDownloadFolder() {
+  const dlInput = document.getElementById('cfg-download-dir');
+  const moviesPath = document.getElementById('cfg-movies-path')?.value.trim();
+  if (!dlInput || dlInput.value.trim() || !moviesPath) return;
+  const sep = moviesPath.includes('\\') ? '\\' : '/';
+  const cut = moviesPath.lastIndexOf(sep);
+  if (cut <= 0) return;  // no separator at all, or path is just "/movies" with nothing above it
+  const parent = moviesPath.slice(0, cut);
+  dlInput.value = parent + sep + 'incomplete';
+  dlInput.style.transition = 'background-color 1.5s';
+  dlInput.style.backgroundColor = 'rgba(0,255,65,0.12)';
+  setTimeout(() => { dlInput.style.backgroundColor = ''; }, 1500);
 }
 
 function toggleSecret(id, btn) {

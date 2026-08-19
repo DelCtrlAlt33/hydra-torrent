@@ -1580,6 +1580,98 @@ def get_disk_space(path: Optional[str] = None) -> dict:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/check-path", dependencies=[Depends(_require_api_key)])
+def check_path(path: str) -> dict:
+    """Does this exact folder exist and is it a directory, from Hydra's own
+    point of view. Used to verify Movies/TV/download-folder fields in
+    Settings - especially the ones auto-filled from Plex/Jellyfin, since
+    a path a media server reports (e.g. from inside its own Docker
+    container) is not guaranteed to be a real path on the host Hydra
+    actually runs on."""
+    return {"path": path, "exists": bool(path) and os.path.isdir(path)}
+
+
+@app.get("/plex/libraries", dependencies=[Depends(_require_api_key)])
+def plex_libraries() -> dict:
+    """List the current Plex server's libraries (name, type, path) using
+    the Plex URL/token already saved in Settings - powers the 'Detect
+    from Plex' button so nobody has to hand-type a library folder path
+    they may not even know off the top of their head.
+
+    The path Plex reports is Plex's own view of it, which for a
+    Dockerized Plex (extremely common - LinuxServer.io images, TrueNAS
+    Scale apps, Unraid, Synology) is the path *inside its container*,
+    not necessarily the real path on the host Hydra runs on. Returned
+    as-is; the frontend checks it against /check-path and explains the
+    mismatch if there is one, rather than silently trusting it."""
+    import requests as _requests
+    cfg = load_config()
+    url = (cfg.get('plex_url') or '').rstrip('/')
+    token = cfg.get('plex_token') or ''
+    if not url or not token:
+        raise HTTPException(status_code=400, detail="Plex URL and token must be set in Settings first")
+
+    try:
+        resp = _requests.get(
+            f"{url}/library/sections",
+            params={"X-Plex-Token": token},
+            headers={"Accept": "application/json"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        sections = resp.json().get('MediaContainer', {}).get('Directory', [])
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Couldn't reach Plex: {e}")
+
+    libraries = []
+    for s in sections:
+        locations = s.get('Location') or []
+        if not locations:
+            continue
+        libraries.append({
+            'name': s.get('title', ''),
+            'type': s.get('type', ''),  # 'movie', 'show', etc.
+            'path': locations[0].get('path', ''),
+        })
+    return {"libraries": libraries}
+
+
+@app.get("/jellyfin/libraries", dependencies=[Depends(_require_api_key)])
+def jellyfin_libraries() -> dict:
+    """Same as /plex/libraries but for Jellyfin - lists libraries via
+    /Library/VirtualFolders using the Jellyfin URL/API key already saved
+    in Settings. Same Docker-path caveat applies."""
+    import requests as _requests
+    cfg = load_config()
+    url = (cfg.get('jellyfin_url') or '').rstrip('/')
+    api_key = cfg.get('jellyfin_api_key') or ''
+    if not url or not api_key:
+        raise HTTPException(status_code=400, detail="Jellyfin URL and API key must be set in Settings first")
+
+    try:
+        resp = _requests.get(
+            f"{url}/Library/VirtualFolders",
+            headers={"X-Emby-Token": api_key},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        folders = resp.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Couldn't reach Jellyfin: {e}")
+
+    libraries = []
+    for f in folders if isinstance(folders, list) else []:
+        locations = f.get('Locations') or []
+        if not locations:
+            continue
+        libraries.append({
+            'name': f.get('Name', ''),
+            'type': (f.get('CollectionType') or '').lower(),  # 'movies', 'tvshows', etc.
+            'path': locations[0],
+        })
+    return {"libraries": libraries}
+
+
 @app.post("/transfers/{name}/pause", dependencies=[Depends(_require_api_key)])
 def pause_transfer(name: str) -> dict:
     """Pause a transfer."""
