@@ -183,15 +183,12 @@ Hydra searches torrents through [Jackett](https://github.com/Jackett/Jackett) - 
 
 That's it - the Search tab and Auto-DL rules will work. If you don't use Jackett, everything else still works fine - you just add torrents manually via magnet links or .torrent files.
 
-## Plex (optional)
+## Plex & Jellyfin (optional)
 
-If you use Plex, Hydra can automatically move completed downloads into your Plex library and trigger a scan.
+If you use Plex or Jellyfin, Hydra can automatically move completed downloads into your library and trigger a scan.
 
-1. In Hydra's Settings tab, set your **Plex URL** (e.g. `http://localhost:32400`)
-2. Set your **Plex Token** - to find it, open any media in Plex web, click "Get Info", click "View XML", and look for `X-Plex-Token=` in the URL ([Plex's guide](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/))
-3. Set your **movie and TV folder paths** - these should match the folders your Plex libraries point to. For example:
-   - Movies path: `/mnt/media/movies` (or `\\nas\media\movies` on Windows)
-   - TV path: `/mnt/media/tv`
+1. In Hydra's Settings tab, set your **Plex URL** (e.g. `http://localhost:32400`) and **Plex Token** - to find the token, open any media in Plex web, click "Get Info", click "View XML", and look for `X-Plex-Token=` in the URL ([Plex's guide](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)). For Jellyfin, set the **Jellyfin URL** and an **API key** (Dashboard → API Keys).
+2. Set your **Movies path** and **TV path** - these have to be the exact same folders your Plex/Jellyfin library already points to, not just folders with similar names. Click **Detect from Plex** / **Detect from Jellyfin** to pull them automatically instead of typing them by hand.
 
 When a download finishes, Hydra looks at the filename and figures out what it is:
 
@@ -199,9 +196,29 @@ When a download finishes, Hydra looks at the filename and figures out what it is
 - Has a year like `(2024)` → **Movie** → moves to `Movies path/Movie Name (2024)/`
 - Anime with fansub tags like `[SubGroup]` → detected as TV automatically
 
-Plex library scan triggers after every move, so new content shows up in Plex within seconds.
+A library scan triggers after every move, so new content shows up within seconds.
 
-If you don't use Plex, skip this - downloads stay in the downloads directory and you can move them yourself.
+If you don't use Plex or Jellyfin, skip this - downloads stay in the download folder and you can move them yourself.
+
+### Docker path mapping (read this if Plex/Jellyfin runs in Docker)
+
+This is the single most common setup mistake, so it gets its own section. The short version: **auto-move only works if Hydra and your media server agree on what a folder is called.** If Plex is in Docker, Plex reports its library path as seen *inside its own container*, which is often not the real path on disk - Detect will fill it in anyway and then flag it with a warning if it doesn't check out, rather than silently pointing somewhere wrong.
+
+Which setup you're in determines the fix:
+
+- **Plex/Jellyfin and Hydra both installed directly on the same machine (no Docker at all).** Nothing to do - the paths already match. This is the common case for Windows users running the desktop app.
+
+- **Plex/Jellyfin on a NAS or separate machine, Hydra elsewhere (e.g. the Windows desktop app).** Use whatever network path both can actually reach - a mapped drive letter or a UNC path like `\\nas\media\movies`. It just has to be the same share both sides are pointed at.
+
+- **Plex/Jellyfin runs in Docker, Hydra runs natively on the same host** (installed via `install.sh`, or the desktop app on the same box) - this is the case Detect's warning is built for. Docker remaps a host folder to a different path inside the container (e.g. `/mnt/plex/movies` on the host becomes `/data/movies` inside Plex's container). Hydra needs the **host** path, not what Plex reports. Find it with:
+  ```bash
+  docker inspect <plex-container-name> --format '{{json .Mounts}}'
+  ```
+  The `"Source"` field is the real host path - use that in Hydra's Movies/TV fields instead of whatever Detect filled in.
+
+- **Hydra itself also runs in Docker, alongside Plex/Jellyfin.** Mount the same host folder to the *same* internal container path in both services' `docker-compose.yml`. If Plex has `- /mnt/plex:/data`, give Hydra the identical line - `- /mnt/plex:/data` - not a different internal path. With matching mounts, Detect works with zero manual fixing, container or not. This is the same "consistent path mapping" principle [TRaSH-Guides](https://trash-guides.info/) recommends for Sonarr/Radarr/qBittorrent, applied to Hydra.
+
+Rule of thumb either way: if Detect shows a green checkmark, you're done. If it shows the Docker warning, you're in one of the mixed setups above - follow the matching fix, not a guess.
 
 ## Status
 
