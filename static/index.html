@@ -1709,7 +1709,8 @@
       <div class="settings-row">
         <label>API Key</label>
         <div class="secret-row">
-          <input type="text" id="cfg-api-key" readonly placeholder="loading...">
+          <input type="password" id="cfg-api-key" readonly placeholder="loading...">
+          <button class="btn btn-sm btn-pause" onclick="toggleSecret('cfg-api-key', this)">Show</button>
           <button class="btn btn-sm btn-pause" onclick="copyApiKey()">Copy</button>
         </div>
       </div>
