@@ -69,6 +69,9 @@ def create_server_ssl_context():
     ensure_certificates()
     ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     ctx.load_cert_chain(certfile=FULLCHAIN_PATH, keyfile=PRIVKEY_PATH)
+    # Same reasoning as create_client_ssl_context below - don't rely on
+    # ssl.create_default_context()'s implicit minimum version.
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     return ctx
 
 
