@@ -2318,6 +2318,7 @@ const PulseTicker = (() => {
 function renderTransfers(list) {
   PulseTicker.onTransfersUpdate(_lastTransfers, list || []);
   _lastTransfers = list;
+  updateStatusStripCounts();
   const container = document.getElementById('transfers-list');
   if (!list || list.length === 0) {
     container.innerHTML = `<div class="empty">
@@ -2911,13 +2912,36 @@ function toggleMapPanel() {
   if (!collapsed) requestAnimationFrame(() => HydraMap.resize());
 }
 
+// The transfer count and "No active transfers"/"Idle" label don't need a
+// network call - they're derived entirely from _lastTransfers, which the
+// WebSocket already keeps current in real time. Previously these only
+// updated on refreshPulseMap's 5-second timer, so the status strip could
+// read "0 transfers" / "No active transfers" for up to 5 seconds (longer
+// on the very first load, which races the first WS message) after a
+// transfer had already started and was rendering correctly in the list
+// below it - genuinely contradictory-looking, not just stale. Called
+// synchronously from renderTransfers() on every update, in addition to
+// refreshPulseMap's own use of it, so the count/label track the list
+// immediately; only the per-transfer peer fetch below stays on the
+// slower timer, since that's a real network call per active transfer.
+function updateStatusStripCounts() {
+  const active = _lastTransfers.filter(t =>
+    !t.vpn_paused && t.status !== 'Failed' && t.status !== 'Paused'
+  );
+  document.getElementById('status-strip-count').textContent = _lastTransfers.length;
+  if (active.length === 0) {
+    document.getElementById('status-strip-peers').textContent = '0';
+    document.getElementById('map-panel-label').textContent =
+      _lastTransfers.length === 0 ? 'No active transfers' : 'Idle';
+  }
+  return active;
+}
+
 // Aggregates peers across every currently active transfer into one set of
 // country codes for the dashboard map, then refreshes the status strip.
 let _mapAutoDefaultApplied = false;
 async function refreshPulseMap() {
-  const active = _lastTransfers.filter(t =>
-    !t.vpn_paused && t.status !== 'Failed' && t.status !== 'Paused'
-  );
+  const active = updateStatusStripCounts();
 
   // First real data after load: if the user has never explicitly toggled
   // the map, default it collapsed when there's already something to manage
@@ -2931,13 +2955,9 @@ async function refreshPulseMap() {
     }
   }
 
-  document.getElementById('status-strip-count').textContent = _lastTransfers.length;
-
   const label = document.getElementById('map-panel-label');
   if (active.length === 0) {
     HydraMap.clear();
-    document.getElementById('status-strip-peers').textContent = '0';
-    label.textContent = _lastTransfers.length === 0 ? 'No active transfers' : 'Idle';
     return;
   }
 
