@@ -9,6 +9,7 @@ hydra_config_test.json
 hydra_config_*.json
 rss_rules.json
 downloads/
+downloads_incomplete/
 shared_files/
 flags/
 geoip-country.mmdb
