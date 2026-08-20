@@ -204,6 +204,7 @@ class DaemonStore:
                 'vpn_paused': False,
                 'moved_to_plex': False,
                 'plex_path': None,
+                'moved_files': [],
                 'error': None,
                 'start_time': time.time(),
                 'intended_pause': False,
@@ -297,6 +298,7 @@ class DaemonStore:
                     v.setdefault('vpn_paused', False)
                     v.setdefault('moved_to_plex', False)
                     v.setdefault('plex_path', None)
+                    v.setdefault('moved_files', [])
                     v.setdefault('error', None)
                     v.setdefault('ratio', 0.0)
                     v.setdefault('total_uploaded', 0)
@@ -973,6 +975,15 @@ class TorrentEngine:
             logger.error(f"Cannot get torrent info for Plex move of '{name}': {e}")
             return
 
+        # media_organizer moves files with a plain filesystem move, not
+        # handle.move_storage() - libtorrent's own bookkeeping still
+        # thinks everything lives at the original download path, so its
+        # delete_files flag becomes a no-op against the real (moved)
+        # location. Tracking the exact destination of every file we move
+        # is what lets remove()'s delete-files path actually clean up
+        # for real, instead of reporting success while quietly leaving
+        # the media behind.
+        moved_files = list(self.store.get(name).get('moved_files') or [])
         for file_info in files:
             file_path = os.path.join(DOWNLOAD_DIR_INCOMPLETE, file_info.path)
             if not os.path.exists(file_path):
@@ -983,7 +994,8 @@ class TorrentEngine:
             )
             if success:
                 plex_dir = os.path.dirname(dest_path)
-                self.store.update(name, moved_to_plex=True, plex_path=plex_dir)
+                moved_files.append(dest_path)
+                self.store.update(name, moved_to_plex=True, plex_path=plex_dir, moved_files=moved_files)
                 logger.info(f"Moved to Plex: {dest_path}")
             elif error and "Not a video file" not in error:
                 logger.warning(f"Could not move '{name}': {error}")
@@ -1091,13 +1103,38 @@ class TorrentEngine:
             logger.warning(f"Cannot resume '{name}' - VPN not connected")
 
     def remove(self, name: str, delete_files: bool = False) -> None:
+        entry = self.store.get(name)
         handle = self.store.get_handle(name)
         if handle and self.ses:
             try:
+                # Still tell libtorrent to delete too - harmless no-op if
+                # the files already moved away from its original save
+                # path (the common case once auto-move is on), but a
+                # real cleanup for anything that finished without ever
+                # being moved.
                 flags = lt.options_t.delete_files if delete_files else 0
                 self.ses.remove_torrent(handle, flags)
             except Exception as e:
                 logger.warning(f"remove_torrent error for '{name}': {e}")
+
+        if delete_files and entry:
+            for moved_path in entry.get('moved_files') or []:
+                try:
+                    if os.path.isfile(moved_path):
+                        os.remove(moved_path)
+                        # Clean up the now-possibly-empty folder around it
+                        # (a movie's own dedicated folder), but never a
+                        # non-empty one - a TV show's "Season 01" folder
+                        # is shared across every other episode already
+                        # downloaded into it, and os.rmdir() simply fails
+                        # harmlessly if anything else is still in there.
+                        try:
+                            os.rmdir(os.path.dirname(moved_path))
+                        except OSError:
+                            pass
+                except OSError as e:
+                    logger.warning(f"Could not delete moved file '{moved_path}' for '{name}': {e}")
+
         self.store.remove(name)
 
     # ── Resume persisted ──────────────────────────────────────────────────────
