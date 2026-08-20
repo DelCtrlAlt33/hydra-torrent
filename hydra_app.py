@@ -53,6 +53,8 @@ if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
 import requests
 import webview
 
+from cert_pinning import verify_daemon_identity
+
 # ---------------------------------------------------------------------------
 # Hide console immediately
 # ---------------------------------------------------------------------------
@@ -82,6 +84,28 @@ def _load_config() -> dict:
             return json.load(f)
     except Exception:
         return {}
+
+
+def _save_config(cfg: dict) -> None:
+    try:
+        with open(_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(cfg, f)
+    except Exception:
+        pass
+
+
+def _verify_daemon_identity(cfg: dict, host: str, port) -> bool:
+    """Wraps cert_pinning.verify_daemon_identity: prints the result and
+    persists a newly-pinned fingerprint. See that module's docstring for
+    why this exists - the short version is that verify=False on its own
+    accepts any certificate, and daemon_host is user-configurable."""
+    trusted, updated_cfg, message = verify_daemon_identity(cfg, host, port)
+    if message:
+        print(f"[app] {message}", file=sys.stderr if not trusted else sys.stdout)
+    if updated_cfg is not cfg:
+        cfg.update(updated_cfg)
+        _save_config(cfg)
+    return trusted
 
 
 # ---------------------------------------------------------------------------
@@ -226,8 +250,14 @@ def _start_daemon(host: str, port: int, use_ssl: bool) -> None:
     )
 
 
-def _wait_for_daemon(url: str, api_key: str, timeout: float = 15.0) -> bool:
-    """Poll the daemon until it responds or timeout is reached."""
+def _wait_for_daemon(url: str, api_key: str, cfg: dict, host: str, port,
+                      timeout: float = 15.0) -> bool:
+    """Poll the daemon until it responds or timeout is reached.
+
+    Returns False (refuses to proceed) if the daemon does come up but its
+    TLS certificate doesn't match what was pinned on an earlier run - see
+    _verify_daemon_identity.
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
@@ -238,7 +268,7 @@ def _wait_for_daemon(url: str, api_key: str, timeout: float = 15.0) -> bool:
                 verify=False,
             )
             if r.status_code in (200, 401):
-                return True
+                return _verify_daemon_identity(cfg, host, port)
         except Exception:
             pass
         time.sleep(0.5)
@@ -313,8 +343,10 @@ def main():
 
     # 3. Wait for daemon to be ready
     print("[app] Waiting for daemon to start...")
-    if not _wait_for_daemon(_daemon_url, api_key):
-        print("[app] ERROR: Daemon failed to start within 15s", file=sys.stderr)
+    if not _wait_for_daemon(_daemon_url, api_key, cfg, host, port):
+        print("[app] ERROR: daemon failed to start within 15s, or its TLS "
+              "certificate didn't match what was pinned on an earlier run "
+              "(see the WARNING above)", file=sys.stderr)
         # Still try to open - the page will show an error but at least the app opens
     else:
         print("[app] Daemon is ready")

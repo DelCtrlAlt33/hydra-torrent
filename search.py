@@ -5,7 +5,7 @@ import random
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import quote
-from xml.etree import ElementTree as ET
+from defusedxml import ElementTree as ET
 
 from config import SERVER_PORT, logger
 from certs import create_client_ssl_context

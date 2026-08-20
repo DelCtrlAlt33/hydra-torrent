@@ -34,6 +34,8 @@ import requests
 from PIL import Image, ImageDraw
 from pystray import MenuItem as Item, Menu
 
+from cert_pinning import verify_daemon_identity
+
 # Suppress InsecureRequestWarning - we use self-signed cert with verify=False
 try:
     import urllib3
@@ -121,6 +123,29 @@ def _build_daemon_url(cfg: dict) -> str:
     port = cfg.get('daemon_port', 8765)
     scheme = 'https' if cfg.get('daemon_use_ssl', False) else 'http'
     return f"{scheme}://{host}:{port}"
+
+
+def _save_config(cfg: dict) -> None:
+    try:
+        with open(_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(cfg, f)
+    except Exception:
+        pass
+
+
+def _verify_daemon_identity(cfg: dict, host: str, port) -> bool:
+    """Wraps cert_pinning.verify_daemon_identity: prints the result and
+    persists a newly-pinned fingerprint. See that module's docstring for
+    why this matters here specifically - this tray's default mode is
+    Remote/Server (daemon on a different machine), exactly where
+    verify=False's blanket cert-acceptance is a real problem."""
+    trusted, updated_cfg, message = verify_daemon_identity(cfg, host, port)
+    if message:
+        print(f"[tray] {message}")
+    if updated_cfg is not cfg:
+        cfg.update(updated_cfg)
+        _save_config(cfg)
+    return trusted
 
 
 # ---------------------------------------------------------------------------
@@ -429,6 +454,27 @@ class HydraTray:
 
         label = "Local" if self._desktop_mode else "Remote"
         print(f"[tray] Connecting to daemon at {self._daemon_url} ({label} mode)")
+
+        # 1b. Pin (or verify) the daemon's TLS certificate before trusting it
+        # with the API key - see _verify_daemon_identity's docstring. Only
+        # blocks startup on an actual mismatch, never on "can't check yet".
+        host = cfg.get('daemon_host', '127.0.0.1')
+        if host == '0.0.0.0':
+            host = '127.0.0.1'
+        port = cfg.get('daemon_port', 8765)
+        if not _verify_daemon_identity(cfg, host, port):
+            self._status = _STATUS_DEAD
+            self._icon = pystray.Icon(
+                name="HydraTorrent",
+                icon=_make_icon(self._status),
+                title="Hydra Torrent (certificate changed - see console)",
+                menu=pystray.Menu(
+                    Item("Daemon certificate changed - refusing to connect", None, enabled=False),
+                    Item("Exit", self._action_exit),
+                ),
+            )
+            self._icon.run()
+            return
 
         # 2. Refresh startup registry entry
         _enable_startup()

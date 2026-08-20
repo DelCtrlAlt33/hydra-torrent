@@ -40,7 +40,7 @@ jobs:
           # `pip install -r requirements.txt` and accept that tradeoff
           # deliberately, not by accident.
           pip install -r requirements-test.txt
-          pip install requests beautifulsoup4 psutil pydantic
+          pip install requests beautifulsoup4 psutil pydantic defusedxml cryptography
 
       - name: Run tests
         run: python -m pytest -v --cov=. --cov-report=term-missing

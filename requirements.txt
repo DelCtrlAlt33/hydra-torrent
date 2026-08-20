@@ -1,5 +1,6 @@
 requests
 beautifulsoup4
+defusedxml
 miniupnpc
 aiofiles
 libtorrent>=2.0.11
