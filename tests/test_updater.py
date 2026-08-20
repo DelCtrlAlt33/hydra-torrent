@@ -1,5 +1,5 @@
 """
-Tests for updater.py — the Phase 1 "tell them, don't touch anything"
+Tests for updater.py - the Phase 1 "tell them, don't touch anything"
 update check. Deliberately dumb on purpose: no downloading, no installing,
 just an honest comparison against GitHub's latest published release.
 """
@@ -27,7 +27,7 @@ def test_parse_version(raw, expected):
 
 
 def test_parse_version_ordering_is_numeric_not_lexicographic():
-    # "1.9.0" must be LESS than "1.10.0" — a naive string compare gets
+    # "1.9.0" must be LESS than "1.10.0" - a naive string compare gets
     # this backwards ("1.10.0" < "1.9.0" lexicographically).
     assert _parse_version("1.9.0") < _parse_version("1.10.0")
 
@@ -64,7 +64,7 @@ def test_no_update_when_current_is_latest():
 
 
 def test_no_update_when_running_a_version_ahead_of_latest_release():
-    # This is genuinely the daemon's actual state most of the time — local
+    # This is genuinely the daemon's actual state most of the time - local
     # changes ahead of the last tagged release must never show as "behind."
     with patch("updater.requests.get", return_value=_release_response("v1.0.4")):
         result = check_for_update("1.1.0", "DelCtrlAlt33/hydra-torrent")

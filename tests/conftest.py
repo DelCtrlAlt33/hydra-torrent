@@ -9,7 +9,7 @@ log files inside the project folder, and could pick up a developer's live
 hydra_config.json (which, on this machine, holds real Plex/Jackett API keys).
 
 config.py already supports redirecting BASE_DIR via the HYDRA_BASE env var
-(added for the systemd/Linux LXC deployment) — we reuse that same hook here.
+(added for the systemd/Linux LXC deployment) - we reuse that same hook here.
 It must be set before ANY hydra module is imported, so this happens at
 conftest module level (pytest loads conftest.py before collecting test
 files), not inside a fixture.

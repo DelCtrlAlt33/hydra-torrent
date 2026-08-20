@@ -4,13 +4,13 @@ and search_jackett (pure XML parsing once the HTTP call is mocked out).
 
 Deliberately NOT covered here: search_online_public(), which scrapes
 1337x/Nyaa/TPB HTML directly. That function is exactly the kind of
-site-structure-dependent code Jackett exists to insulate Hydra from —
+site-structure-dependent code Jackett exists to insulate Hydra from -
 Hydra reimplements it independently for "online" search mode, which means
 it carries the same drift risk Jackett's community-maintained indexer
 definitions solve for the Jackett-backed path. It's excluded from
 automated coverage here because the fix for that risk is architectural
 (routing "online" mode through Jackett/Prowlarr too, or accepting it as a
-lower-priority best-effort mode), not a unit test — see project notes.
+lower-priority best-effort mode), not a unit test - see project notes.
 """
 from unittest.mock import Mock, patch
 
@@ -40,13 +40,13 @@ def test_parse_size_to_bytes(size_str, expected):
 
 
 def test_parse_size_to_bytes_never_raises_on_garbage():
-    # This runs on untrusted, external HTML/XML text — it must degrade to
+    # This runs on untrusted, external HTML/XML text - it must degrade to
     # 0 rather than crash the whole search pipeline over one bad row.
     assert parse_size_to_bytes("¯\\_(ツ)_/¯") == 0
 
 
 # ---------------------------------------------------------------------------
-# search_jackett — mocked HTTP, real XML parsing
+# search_jackett - mocked HTTP, real XML parsing
 # ---------------------------------------------------------------------------
 
 TORZNAB_NS = "http://torznab.com/schemas/2015/feed"
@@ -111,7 +111,7 @@ def test_search_jackett_falls_back_to_torrent_url_when_no_magnet():
 
 
 def test_search_jackett_derives_leechers_from_peers_minus_seeders():
-    # The first item has seeders=42, peers=55, no explicit leechers attr —
+    # The first item has seeders=42, peers=55, no explicit leechers attr -
     # search_jackett must derive leechers = peers - seeders rather than
     # leaving it at 0.
     with patch("search.requests.get", return_value=_mock_response(SAMPLE_TORZNAB_XML)):

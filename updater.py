@@ -1,11 +1,11 @@
 """
 Update-availability check against GitHub Releases. Pure function, same
-shape as health.py's reachability checks — no daemon/GUI references.
+shape as health.py's reachability checks - no daemon/GUI references.
 
 This is deliberately "Phase 1" only: tell the user they're behind and
 link to the release, nothing more. It does not download or install
 anything. See PITCH.md / project notes for why the full silent
-auto-update ("Phase 2") is intentionally not built yet — the added
+auto-update ("Phase 2") is intentionally not built yet - the added
 complexity (safely replacing a running Windows executable, code signing,
 avoiding false-positive AV flags) isn't worth it before Hydra has an
 external user base to justify it.
@@ -35,7 +35,7 @@ def check_for_update(current_version: str, repo: str, timeout: float = 5.0) -> d
         'release_url': str | None,
         'error': str | None,
     }
-    Never raises — a failed check (offline, GitHub down, rate-limited)
+    Never raises - a failed check (offline, GitHub down, rate-limited)
     just means "couldn't tell," not a daemon startup failure.
     """
     result = {
@@ -52,7 +52,7 @@ def check_for_update(current_version: str, repo: str, timeout: float = 5.0) -> d
             timeout=timeout,
         )
         if resp.status_code == 404:
-            # No releases published yet — not an error, just nothing to compare.
+            # No releases published yet - not an error, just nothing to compare.
             return result
         if resp.status_code != 200:
             result["error"] = f"HTTP {resp.status_code}"

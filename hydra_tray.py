@@ -34,7 +34,7 @@ import requests
 from PIL import Image, ImageDraw
 from pystray import MenuItem as Item, Menu
 
-# Suppress InsecureRequestWarning — we use self-signed cert with verify=False
+# Suppress InsecureRequestWarning - we use self-signed cert with verify=False
 try:
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -84,10 +84,10 @@ _ICON_SIZE = 64    # tray icon canvas size (px)
 _DOT_RADIUS = 8    # status dot radius (px)
 
 # Status sentinel values
-_STATUS_STARTING = 'starting'   # daemon not yet responding — orange
-_STATUS_HEALTHY  = 'healthy'    # VPN connected — green
-_STATUS_NO_VPN   = 'no_vpn'    # daemon up, VPN gone — red
-_STATUS_DEAD     = 'dead'       # daemon not responding — red
+_STATUS_STARTING = 'starting'   # daemon not yet responding - orange
+_STATUS_HEALTHY  = 'healthy'    # VPN connected - green
+_STATUS_NO_VPN   = 'no_vpn'    # daemon up, VPN gone - red
+_STATUS_DEAD     = 'dead'       # daemon not responding - red
 
 _DOT_COLOUR = {
     _STATUS_STARTING: '#FFA500',
@@ -141,7 +141,7 @@ def _make_icon(status: str) -> Image.Image:
         d.ellipse([4, 4, _ICON_SIZE - 4, _ICON_SIZE - 4], fill=(60, 120, 200, 255))
         d.text((_ICON_SIZE // 2 - 6, _ICON_SIZE // 2 - 10), 'H', fill='white')
 
-    # Status dot — bottom-right corner
+    # Status dot - bottom-right corner
     draw = ImageDraw.Draw(base)
     colour = _DOT_COLOUR.get(status, '#888888')
     margin = 4
@@ -321,10 +321,10 @@ class HydraTray:
         if changed and self._icon:
             self._icon.icon = _make_icon(new_status)
             self._icon.title = {
-                _STATUS_HEALTHY:  f"Hydra Torrent ({label}) — OK",
-                _STATUS_NO_VPN:   f"Hydra Torrent ({label}) — VPN DOWN",
-                _STATUS_DEAD:     f"Hydra Torrent ({label}) — DAEMON UNREACHABLE",
-                _STATUS_STARTING: f"Hydra Torrent ({label}) — Connecting...",
+                _STATUS_HEALTHY:  f"Hydra Torrent ({label}) - OK",
+                _STATUS_NO_VPN:   f"Hydra Torrent ({label}) - VPN DOWN",
+                _STATUS_DEAD:     f"Hydra Torrent ({label}) - DAEMON UNREACHABLE",
+                _STATUS_STARTING: f"Hydra Torrent ({label}) - Connecting...",
             }.get(new_status, f"Hydra Torrent ({label})")
             self._icon.update_menu()
 
@@ -397,7 +397,7 @@ class HydraTray:
         if self._icon:
             self._icon.stop()
         if self._desktop_mode:
-            # Kill everything — daemon thread, pywebview, the lot
+            # Kill everything - daemon thread, pywebview, the lot
             os._exit(0)
 
     # ── Menu building ──────────────────────────────────────────────────────────

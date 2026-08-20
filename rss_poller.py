@@ -1,7 +1,7 @@
-"""rss_poller.py — RSS/Jackett Auto-DL poller.
+"""rss_poller.py - RSS/Jackett Auto-DL poller.
 
 Shared between peer.pyw (GUI) and hydra_daemon.py (headless daemon).
-Has no FastAPI or tkinter dependency — pure threading + stdlib.
+Has no FastAPI or tkinter dependency - pure threading + stdlib.
 
 Usage:
     poller = RssPoller(add_magnet_fn=my_callback)
@@ -116,7 +116,7 @@ class RssPoller:
                 continue
             candidates.append(r)
 
-        # Sort by seeders desc — pick healthiest release per slot
+        # Sort by seeders desc - pick healthiest release per slot
         candidates.sort(key=lambda x: x.get('seeders', 0), reverse=True)
 
         # Dedup within one check by season slot (prevents double-adding same ep)
@@ -174,8 +174,8 @@ class RssPoller:
         if season is None:
             return True
         n = name.lower()
-        # (?<![a-z]) — don't match mid-word 's' (e.g. "kingdoms")
-        # (?!\d)     — don't partially match a longer number
+        # (?<![a-z]) - don't match mid-word 's' (e.g. "kingdoms")
+        # (?!\d)     - don't partially match a longer number
         # This handles both S01E05 (episode) and S01.COMPLETE (pack)
         m = re.search(r'(?<![a-z])s(\d{1,2})(?!\d)', n)
         if m and int(m.group(1)) == season:

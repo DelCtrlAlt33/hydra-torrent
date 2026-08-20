@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # Python dependencies — requirements.txt, requirements-test.txt,
+  # Python dependencies - requirements.txt, requirements-test.txt,
   # requirements-docker.txt. This is the direct fix for the failure mode
   # that killed Bobarr (the prior attempt at this same "all-in-one client"
   # idea): its own dependency stack quietly drifted out of date over ~2.5

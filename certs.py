@@ -11,7 +11,7 @@ def ensure_certificates():
         return  # certs already present
 
     os.makedirs(CERTS_DIR, exist_ok=True)
-    logger.info("No TLS certificates found — generating self-signed cert …")
+    logger.info("No TLS certificates found - generating self-signed cert …")
 
     from cryptography import x509
     from cryptography.x509.oid import NameOID

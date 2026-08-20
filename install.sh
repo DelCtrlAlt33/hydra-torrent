@@ -9,7 +9,8 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
+SOURCE_DIR="$(cd "$(dirname "$0")" && pwd)"
+INSTALL_DIR="/opt/hydra"
 
 echo ""
 echo -e "${GREEN}Hydra Torrent Installer${NC}"
@@ -20,6 +21,23 @@ echo ""
 if [ "$EUID" -ne 0 ]; then
   echo -e "${RED}Run this as root: sudo bash install.sh${NC}"
   exit 1
+fi
+
+# Installs to a fixed system location instead of running in place
+# wherever it was cloned. Running in place broke for anyone who cloned
+# into a directory the restricted "hydra" service user can't reach -
+# most commonly /root itself, since that's 700 by default and blocks a
+# non-root user from even traversing into it, no matter what
+# permissions the cloned folder has (confirmed live: systemd's own
+# error is just "Permission denied" with no hint that the real cause is
+# the parent directory, not the one it's actually trying to enter).
+# /opt is standard, world-traversable, and every other Linux service
+# expects to live there.
+if [ "$SOURCE_DIR" != "$INSTALL_DIR" ]; then
+  echo -n "Installing to $INSTALL_DIR... "
+  mkdir -p "$INSTALL_DIR"
+  cp -a "$SOURCE_DIR"/. "$INSTALL_DIR"/
+  echo -e "${GREEN}ok${NC}"
 fi
 
 # Check Python

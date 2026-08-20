@@ -1,12 +1,12 @@
 """
-Tests for media_organizer.py — Hydra's filename classification and
+Tests for media_organizer.py - Hydra's filename classification and
 Plex-folder-structure logic. This is the single most important module to
 keep covered: it's pure regex/string logic unique to Hydra (not something
 Jackett or any upstream project maintains for us), and it's the exact kind
 of "own glue code" that rotted, unnoticed, in Bobarr (the one prior project
 that attempted this same all-in-one thesis) until it needed a full rewrite.
 
-These tests are pure-function tests — no network, no real filesystem writes
+These tests are pure-function tests - no network, no real filesystem writes
 except where explicitly noted (organize_* creates directories under the
 isolated HYDRA_BASE set up in conftest.py).
 """
@@ -41,7 +41,7 @@ def test_is_video_file(organizer, filename, expected):
 
 
 # ---------------------------------------------------------------------------
-# detect_media_type — every documented pattern from the README, plus the
+# detect_media_type - every documented pattern from the README, plus the
 # ambiguous/ordering cases that make this function worth testing at all.
 # ---------------------------------------------------------------------------
 
@@ -71,18 +71,18 @@ def test_detect_media_type_movie_patterns(organizer, filename):
 
 def test_detect_media_type_tv_wins_over_year_when_both_present(organizer):
     # A TV episode from a show whose title/season contains a year-like
-    # number must still classify as TV — TV patterns are checked first.
+    # number must still classify as TV - TV patterns are checked first.
     assert organizer.detect_media_type("Show.Name.2024.S01E01.mkv") == "tv"
 
 
 def test_detect_media_type_falls_back_to_movie_with_no_match(organizer):
-    # No TV pattern, no year — must not raise, must default to 'movie'
+    # No TV pattern, no year - must not raise, must default to 'movie'
     # (this is the documented, deliberate fallback behavior).
     assert organizer.detect_media_type("random_download_file.mkv") == "movie"
 
 
 def test_detect_media_type_uses_torrent_name_as_fallback_context(organizer):
-    # A bare filename like "01.mkv" carries no info on its own — Hydra is
+    # A bare filename like "01.mkv" carries no info on its own - Hydra is
     # supposed to fall back to the parent torrent name for context.
     assert organizer.detect_media_type(
         "01.mkv", torrent_name="Show.Name.S01E01.1080p.WEB-DL"
@@ -92,8 +92,8 @@ def test_detect_media_type_uses_torrent_name_as_fallback_context(organizer):
 def test_detect_media_type_season_pack_without_episode_number(organizer):
     # Season packs (a whole season released as one torrent, no per-episode
     # number in the name) are a common release format and previously fell
-    # through every TV_PATTERNS entry — all of which required season+episode
-    # together, "Season N", or "Episode N" — silently misclassifying as a
+    # through every TV_PATTERNS entry - all of which required season+episode
+    # together, "Season N", or "Episode N" - silently misclassifying as a
     # movie and breaking Plex auto-sort for anyone grabbing a full season.
     # Fixed via the bare "S01" pattern; pinned here as a regression guard.
     assert organizer.detect_media_type(
@@ -125,7 +125,7 @@ def test_three_digit_number_does_not_false_positive_as_resolution(organizer):
 
 
 # ---------------------------------------------------------------------------
-# extract_tv_info — show name + season extraction
+# extract_tv_info - show name + season extraction
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("filename,expected_show,expected_season", [
@@ -148,7 +148,7 @@ def test_extract_tv_info_fansub_anime_defaults_season_1(organizer):
 
 def test_extract_tv_info_strips_quality_tags_from_show_name(organizer):
     # Standalone-E pattern path runs the extracted name through
-    # _strip_quality_tags — a resolution/codec tag stuck to the show name
+    # _strip_quality_tags - a resolution/codec tag stuck to the show name
     # must not leak into the folder name.
     show, season = organizer.extract_tv_info("Show.Name.1080p.E07.mkv")
     assert "1080p" not in show
@@ -169,12 +169,12 @@ def test_extract_tv_info_falls_back_to_cleaned_torrent_name(organizer):
     show, season = organizer.extract_tv_info(
         "01.mkv", torrent_name="Show.Name.Complete.1080p.WEB-DL"
     )
-    assert show  # non-empty — some reasonable name was recovered
+    assert show  # non-empty - some reasonable name was recovered
     assert "1080p" not in show
 
 
 # ---------------------------------------------------------------------------
-# organize_tv_show / organize_movie — destination path construction
+# organize_tv_show / organize_movie - destination path construction
 # ---------------------------------------------------------------------------
 
 def test_organize_tv_show_builds_expected_path(organizer):
@@ -195,7 +195,7 @@ def test_organize_tv_show_double_digit_season_no_extra_padding(organizer):
 
 
 def test_organize_tv_show_falls_back_to_filename_stem_when_unparseable(organizer):
-    # A completely unparseable filename must not raise — it should fall
+    # A completely unparseable filename must not raise - it should fall
     # back to using the filename itself (minus extension) as the show
     # folder, so a download never silently fails to land somewhere.
     dest = organizer.organize_tv_show("weird_file_no_pattern.mkv", source_path="/tmp/src")
@@ -216,7 +216,7 @@ def test_organize_movie_without_year_omits_parens(organizer):
 
 
 # ---------------------------------------------------------------------------
-# move_to_plex — the actual filesystem side effect, isolated to tmp_path
+# move_to_plex - the actual filesystem side effect, isolated to tmp_path
 # ---------------------------------------------------------------------------
 
 def test_move_to_plex_missing_source_returns_error(organizer, tmp_path):

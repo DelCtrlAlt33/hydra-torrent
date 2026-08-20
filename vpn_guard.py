@@ -34,13 +34,13 @@ _VPN_PATTERNS = [
     'vpn',
 ]
 
-# Adapters that match the patterns above but are NOT VPNs — excluded.
+# Adapters that match the patterns above but are NOT VPNs - excluded.
 _VPN_EXCLUDE = [
     'vmware', 'virtualbox', 'vbox', 'hyper-v', 'loopback', 'bluetooth',
 ]
 
 
-_WG_HANDSHAKE_MAX_AGE = 180  # seconds — tunnel considered dead beyond this
+_WG_HANDSHAKE_MAX_AGE = 180  # seconds - tunnel considered dead beyond this
 
 
 def _wg_handshake_ok(iface_name):
@@ -50,10 +50,10 @@ def _wg_handshake_ok(iface_name):
     _WG_HANDSHAKE_MAX_AGE seconds means the tunnel has silently died.
     Falls back to True on any error so non-wg interfaces aren't affected.
     Tries sudo if the direct call is denied (service may lack CAP_NET_ADMIN)
-    — Linux only. WireGuard-for-Windows restricts `wg show` to an elevated
+    - Linux only. WireGuard-for-Windows restricts `wg show` to an elevated
     process instead, and Windows offers no reasonable non-interactive way
     to escalate (its own `sudo` is disabled by default, and even enabled
-    it would block on a UAC prompt) — so on Windows, a denied query means
+    it would block on a UAC prompt) - so on Windows, a denied query means
     "can't verify," not "tunnel is dead." Getting this wrong was a real,
     live bug: it made the kill switch treat every genuinely-connected
     Windows WireGuard tunnel as disconnected.
@@ -63,7 +63,7 @@ def _wg_handshake_ok(iface_name):
         # windowed/no-console app briefly flashes a new console window for
         # the child unless CREATE_NO_WINDOW is set. This runs on every
         # VPNGuard poll (every 2s on Windows) whenever a wg-pattern
-        # interface is present — without this flag it's a visible flicker
+        # interface is present - without this flag it's a visible flicker
         # every couple of seconds, not a one-off.
         kwargs = {}
         if os.name == 'nt':
@@ -74,7 +74,7 @@ def _wg_handshake_ok(iface_name):
         result = _run(['wg', 'show', iface_name, 'latest-handshakes'])
         if result.returncode != 0:
             if os.name == 'nt':
-                return True  # can't elevate non-interactively — trust the OS-level "up" check
+                return True  # can't elevate non-interactively - trust the OS-level "up" check
             result = _run(['sudo', 'wg', 'show', iface_name, 'latest-handshakes'])
         if result.returncode != 0:
             return False
@@ -100,7 +100,7 @@ def detect_vpn_interface():
     contains a known VPN keyword.
 
     For WireGuard interfaces, also verifies that at least one peer has
-    completed a handshake within the last 3 minutes — a stale wg interface
+    completed a handshake within the last 3 minutes - a stale wg interface
     that looks "up" but has a dead tunnel is treated as disconnected.
 
     Returns (interface_name, ip_address) or (None, None).
@@ -128,7 +128,7 @@ def detect_vpn_interface():
             if 'wg' in iface_lower and not _wg_handshake_ok(iface_name):
                 logger.warning(
                     f"WireGuard interface {iface_name} is up but tunnel is dead "
-                    f"(no handshake in {_WG_HANDSHAKE_MAX_AGE}s) — treating as disconnected"
+                    f"(no handshake in {_WG_HANDSHAKE_MAX_AGE}s) - treating as disconnected"
                 )
                 continue
 
@@ -188,7 +188,7 @@ def _win_notify_thread(wake_event, stop_event):
     """
     Windows-only daemon thread.
 
-    Calls NotifyAddrChange() in a loop — each call blocks until Windows
+    Calls NotifyAddrChange() in a loop - each call blocks until Windows
     detects any IP address change (interface up/down, DHCP renewal, VPN
     connect/disconnect).  Sets wake_event immediately so the monitor loop
     fires within milliseconds instead of waiting for the next poll cycle.
@@ -231,7 +231,7 @@ def _win_notify_thread(wake_event, stop_event):
             overlapped.hEvent = h_event
             handle            = wt.HANDLE()
 
-            # Arms an async notification — returns ERROR_IO_PENDING (997)
+            # Arms an async notification - returns ERROR_IO_PENDING (997)
             iphlpapi.NotifyAddrChange(ctypes.byref(handle), ctypes.byref(overlapped))
 
             # Use a 30 s timeout so the loop can respond to stop_event without
@@ -239,7 +239,7 @@ def _win_notify_thread(wake_event, stop_event):
             wait_result = kernel32.WaitForSingleObject(h_event, 30000)
 
             if wait_result != WAIT_OBJECT_0:
-                # Timed out (or error) — the kernel still has a pointer to
+                # Timed out (or error) - the kernel still has a pointer to
                 # `overlapped`.  Cancel the pending IO BEFORE this local
                 # variable goes out of scope, otherwise we get a crash when
                 # the next network event fires.
@@ -251,7 +251,7 @@ def _win_notify_thread(wake_event, stop_event):
                 break
 
             if wait_result == WAIT_OBJECT_0:
-                # Windows just told us an IP address changed — wake the monitor NOW
+                # Windows just told us an IP address changed - wake the monitor NOW
                 wake_event.set()
 
     except Exception as e:
@@ -269,7 +269,7 @@ class VPNGuard:
     def __init__(self, check_interval=None):
         if check_interval is None:
             # Windows: Win32 NotifyAddrChange fires instantly, 2s is just a safety fallback.
-            # Linux: pure polling — 30s is sufficient for a kill switch and avoids
+            # Linux: pure polling - 30s is sufficient for a kill switch and avoids
             # flooding journald with sudo PAM entries (~90 writes/min at 2s).
             check_interval = 2 if os.name == 'nt' else 30
         self.check_interval = check_interval
@@ -317,7 +317,7 @@ class VPNGuard:
 
         notify_mode = "Win32 NotifyAddrChange + " if os.name == 'nt' else ""
         logger.info(
-            f"VPNGuard started — initial: {'connected' if connected else 'disconnected'} "
+            f"VPNGuard started - initial: {'connected' if connected else 'disconnected'} "
             f"({notify_mode}{self.check_interval}s fallback poll)"
         )
 

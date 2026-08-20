@@ -1,13 +1,13 @@
 """
-Tests for vpn_guard.py's interface-detection logic — the core of Hydra's
+Tests for vpn_guard.py's interface-detection logic - the core of Hydra's
 VPN kill switch. Everything downstream (pausing torrents, blocking real-IP
 traffic) depends on detect_vpn_interface() correctly identifying a live VPN
 adapter and correctly EXCLUDING look-alike virtual adapters (VMware,
 VirtualBox, Hyper-V, Bluetooth PAN) that would otherwise cause a false
-"VPN connected" reading — the one failure mode that actually matters here,
+"VPN connected" reading - the one failure mode that actually matters here,
 since it's a silent privacy leak, not a crash.
 
-psutil and the `wg` subprocess call are mocked throughout — this must never
+psutil and the `wg` subprocess call are mocked throughout - this must never
 depend on the machine actually running a VPN to pass.
 """
 import socket
@@ -38,7 +38,7 @@ def _addr(ip="10.0.0.5"):
     "ProtonVPN",
     "Tailscale",
     "Cisco AnyConnect",
-    "ExpressVPN Tap Adapter",   # contains both 'tap' and 'expressvpn' — still a real VPN
+    "ExpressVPN Tap Adapter",   # contains both 'tap' and 'expressvpn' - still a real VPN
     "tun0",
     "PIA WireGuard",
 ])
@@ -106,7 +106,7 @@ def test_treats_wireguard_with_stale_handshake_as_disconnected():
 
 def test_returns_none_none_on_psutil_error_instead_of_raising():
     # A kill switch that crashes on a transient psutil error is worse than
-    # one that fails closed — detect_vpn_interface must degrade to "no
+    # one that fails closed - detect_vpn_interface must degrade to "no
     # VPN detected" rather than propagate the exception.
     with patch("vpn_guard.psutil.net_if_stats", side_effect=OSError("boom")):
         iface, ip = vpn_guard.detect_vpn_interface()
@@ -117,10 +117,10 @@ def test_returns_none_none_on_psutil_error_instead_of_raising():
 
 
 # ---------------------------------------------------------------------------
-# _wg_handshake_ok — regression coverage for a real bug found via live
+# _wg_handshake_ok - regression coverage for a real bug found via live
 # testing on this machine: WireGuard-for-Windows only answers `wg show`
 # from an elevated process. Hydra's daemon doesn't (and shouldn't) run
-# elevated, and the code's `sudo` fallback is Linux-only logic — on
+# elevated, and the code's `sudo` fallback is Linux-only logic - on
 # Windows it used to fall through to "tunnel is dead" for every real,
 # working VPN connection. Confirmed with a real `wg show wgpia0
 # latest-handshakes` → "Permission denied" on this exact box before the fix.
@@ -136,7 +136,7 @@ def test_wg_handshake_windows_permission_denied_is_unknown_not_dead(monkeypatch)
 
 def test_wg_handshake_linux_permission_denied_still_tries_sudo_fallback(monkeypatch):
     # The original Linux use case (CAP_NET_ADMIN missing, sudoers rule
-    # grants it) must keep working — the Windows fix must not break it.
+    # grants it) must keep working - the Windows fix must not break it.
     monkeypatch.setattr(vpn_guard.os, "name", "posix")
     denied = _cmd_result(returncode=1, stderr="Unable to access interface: Operation not permitted")
     recent = _cmd_result(returncode=0, stdout=f"somepeer\t{int(time.time())}\n")
@@ -168,7 +168,7 @@ def test_wg_handshake_false_when_never_connected():
 def test_wg_handshake_suppresses_console_window_on_windows(monkeypatch):
     # Regression test for a real, live bug found via manual testing:
     # subprocess.run(['wg', 'show', ...]) without CREATE_NO_WINDOW briefly
-    # flashes a console window every time it's called — and VPNGuard calls
+    # flashes a console window every time it's called - and VPNGuard calls
     # this every 2 seconds on Windows whenever a wg-pattern interface is
     # present, so without this flag it's a persistent visible flicker,
     # not a one-off.
@@ -182,7 +182,7 @@ def test_wg_handshake_suppresses_console_window_on_windows(monkeypatch):
 
 
 def test_wg_handshake_no_creationflags_on_non_windows(monkeypatch):
-    # CREATE_NO_WINDOW doesn't exist on non-Windows subprocess — must not
+    # CREATE_NO_WINDOW doesn't exist on non-Windows subprocess - must not
     # be referenced there at all, or this raises AttributeError on Linux.
     monkeypatch.setattr(vpn_guard.os, "name", "posix")
     ok = _cmd_result(returncode=0, stdout=f"somepeer\t{int(time.time())}\n")

@@ -1,5 +1,5 @@
 """
-Tests for health.py — the reachability checks behind /health. These are
+Tests for health.py - the reachability checks behind /health. These are
 what let the UI show "Jackett: unreachable" the moment it happens instead
 of a user just seeing search silently return nothing, or a completed
 download silently never triggering a Plex scan.
@@ -72,7 +72,7 @@ def test_jackett_never_raises_on_unexpected_error():
 
 
 def test_jackett_check_uses_caps_endpoint_not_a_real_search():
-    # The health check must be cheap and side-effect-free — it should hit
+    # The health check must be cheap and side-effect-free - it should hit
     # Torznab's capability-discovery endpoint, not run an actual search
     # against every configured indexer.
     mock_get = Mock(return_value=_response(200))

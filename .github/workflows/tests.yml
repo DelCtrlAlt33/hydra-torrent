@@ -5,12 +5,12 @@ on:
     branches: ["**"]
   pull_request:
   schedule:
-    # 04:17 UTC daily — off-peak, deliberately not on the hour. This is the
+    # 04:17 UTC daily - off-peak, deliberately not on the hour. This is the
     # "self-healing" tripwire: it catches drift that isn't triggered by a
     # code change at all (an upstream site/API changing shape, a dependency
     # release altering behavior) within a day, instead of whenever someone
     # next happens to touch this file. See tests/test_search.py's note on
-    # why search_online_public() isn't covered — that's exactly the class
+    # why search_online_public() isn't covered - that's exactly the class
     # of drift this schedule exists to catch early once it is.
     - cron: "17 4 * * *"
   workflow_dispatch: {}
@@ -31,7 +31,7 @@ jobs:
           python -m pip install --upgrade pip
           # Scoped to what tests/ actually imports (requests, beautifulsoup4,
           # psutil, pydantic) rather than the full requirements.txt. That
-          # file also pulls in libtorrent, fastapi, and ttkbootstrap — none
+          # file also pulls in libtorrent, fastapi, and ttkbootstrap - none
           # of which the current unit-test tier touches, and libtorrent's
           # wheel availability is the kind of thing that can turn CI red
           # for reasons that have nothing to do with a real bug. Once
@@ -48,4 +48,4 @@ jobs:
       - name: Report failure on scheduled (drift-detection) run
         if: failure() && github.event_name == 'schedule'
         run: |
-          echo "::warning::Nightly drift-detection run failed — something broke without a code change. Check upstream dependencies / external services before assuming the code is at fault."
+          echo "::warning::Nightly drift-detection run failed - something broke without a code change. Check upstream dependencies / external services before assuming the code is at fault."

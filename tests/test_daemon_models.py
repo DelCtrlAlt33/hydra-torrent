@@ -1,8 +1,8 @@
 """
-Tests for daemon_models.py — the Pydantic schemas that define Hydra's
+Tests for daemon_models.py - the Pydantic schemas that define Hydra's
 REST/WebSocket API contract. This file explicitly documents itself as
 having "no imports from other hydra modules" so it stays importable
-anywhere — these tests hold it to that contract implicitly by importing
+anywhere - these tests hold it to that contract implicitly by importing
 nothing else either, and check the schema behavior that the rest of the
 app (and any future client) relies on: required vs optional fields,
 defaults, and enum membership.
@@ -31,11 +31,11 @@ from daemon_models import (
 
 
 # ---------------------------------------------------------------------------
-# TransferState — the core object streamed to the UI for every torrent
+# TransferState - the core object streamed to the UI for every torrent
 # ---------------------------------------------------------------------------
 
 def test_transfer_state_only_requires_name():
-    # Everything else must have a safe default — the UI renders this
+    # Everything else must have a safe default - the UI renders this
     # object continuously as torrents are added, and a missing default
     # would crash the whole status feed over one incomplete torrent.
     state = TransferState(name="Some.Torrent")
@@ -53,7 +53,7 @@ def test_transfer_state_requires_name():
 
 
 def test_transfer_status_enum_values():
-    # These string values are the actual wire contract with the frontend —
+    # These string values are the actual wire contract with the frontend -
     # renaming one without updating the UI would silently break status
     # display, so pin them explicitly.
     assert TransferStatus.Downloading == "Downloading"
@@ -67,7 +67,7 @@ def test_transfer_status_enum_values():
 
 
 # ---------------------------------------------------------------------------
-# Request models — required-field enforcement
+# Request models - required-field enforcement
 # ---------------------------------------------------------------------------
 
 def test_add_magnet_request_requires_magnet():
@@ -89,11 +89,11 @@ def test_search_request_defaults_to_online_mode():
 
 
 # ---------------------------------------------------------------------------
-# ConfigUpdate — every field optional (PATCH semantics: only send what changes)
+# ConfigUpdate - every field optional (PATCH semantics: only send what changes)
 # ---------------------------------------------------------------------------
 
 def test_config_update_allows_empty_partial_patch():
-    # A PATCH /config request with no fields set must be valid — the
+    # A PATCH /config request with no fields set must be valid - the
     # daemon route only applies whatever the caller actually included.
     update = ConfigUpdate()
     assert update.plex_url is None
@@ -120,7 +120,7 @@ def test_config_response_has_safe_defaults_for_unconfigured_daemon():
 # ---------------------------------------------------------------------------
 
 def test_rss_rule_requires_created_timestamp():
-    # `created` has no default — every rule must record when it was added.
+    # `created` has no default - every rule must record when it was added.
     with pytest.raises(ValidationError):
         RssRule(id="r1", name="Test Rule", query="show name", quality="1080p")
 
