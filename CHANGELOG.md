@@ -13,6 +13,46 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-20 - Removed hardcoded 1337x/Nyaa/The Pirate Bay scraping (the "Public" search mode)
+
+- **Symptom**: not a technical bug - a legal-risk-by-design one. `search.py`
+  had a `search_online_public()` function that scraped three named public
+  indexers (1337x, with four mirror domains hardcoded; Nyaa.si; The Pirate
+  Bay via apibay.org) directly, rotating fake browser user-agents to get
+  past basic bot detection, and returning ready-to-download magnet links.
+  It was the default: `hydra_app.py`'s self-install config set
+  `"search_mode": "online"`, and the Search tab's mode dropdown listed
+  "Public" first with no other option marked selected - a brand-new
+  install, zero configuration, searched The Pirate Bay by default.
+- **Root cause**: under *MGM v. Grokster* (2005), a tool that's otherwise
+  protected by the Betamax "substantial non-infringing use" doctrine can
+  still lose that protection if it's shown to be intentionally designed to
+  facilitate infringement - and hardcoding specific named piracy indexers
+  into the app's own source, as the default search path, is a real example
+  of exactly that factor. It's not about marketing copy (README/PITCH.md
+  never mentioned any of these sites) - the code itself was the problem.
+  This is also the *architectural* reason Sonarr/Radarr/Jackett have
+  operated safely for years: none of them contain built-in knowledge of
+  any specific indexer. Every source is something the user configures
+  themselves, at arm's length, through Jackett. Hydra's own `search_jackett`
+  and `search_index_server` paths already worked exactly that way -
+  `search_online_public` was the one place that didn't.
+- **Fix**: removed `search_online_public()` entirely, the "Public" option
+  in the Search tab dropdown, and the `/search` endpoint's silent
+  fallthrough to it. `mode` now only accepts `"jackett"` or `"local"`
+  (both already user-configured, arm's-length sources) - anything else
+  gets a clean `400`, not a silent default. `beautifulsoup4` (only ever
+  needed for the HTML scraping) dropped from every requirements file and
+  the PyInstaller build.
+- **How it was caught**: Matth asked directly whether this was legally
+  sound, given the Plex/Jellyfin integration work made Hydra look
+  increasingly like a real product rather than a hobby project. A direct
+  code + docs audit (grepped every `.py`/`.md`/`.html` file in the repo
+  for known piracy-site domain names) confirmed `search_online_public()`
+  was the only place this pattern existed - `rss_poller.py`'s Auto-DL only
+  ever routes through Jackett, and `index_server.py`'s "local" mode is
+  user-operated infrastructure, not a Hydra-run index.
+
 ## 2026-08-20 - CI silently red for 4 days: `subprocess.CREATE_NO_WINDOW` on Linux
 
 - **Symptom**: GitHub Actions `Tests` workflow showed `INTERNALERROR` /

@@ -74,7 +74,7 @@ class CommitPreviewRequest(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str
-    mode: str = "online"            # "online" | "jackett" | "local"
+    mode: str = "jackett"            # "jackett" | "local"
     server: Optional[str] = None   # required when mode="local"
 
 

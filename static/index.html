@@ -1559,7 +1559,6 @@
   <div class="search-row">
     <input type="text" id="search-input" placeholder="Movie name, show, etc..." onkeydown="if(event.key==='Enter')doSearch()">
     <select id="search-mode" onchange="localStorage.setItem('searchMode', this.value)">
-      <option value="online">Public</option>
       <option value="jackett">Jackett</option>
     </select>
     <button class="btn btn-primary" onclick="doSearch()">Search</button>

@@ -67,7 +67,7 @@ from config import (
 )
 from vpn_guard import VPNGuard, get_public_ip as _fetch_public_ip
 from media_organizer import auto_move_completed_download
-from search import search_online_public, search_jackett, search_index_server
+from search import search_jackett, search_index_server
 from health import check_jackett, check_plex, check_jellyfin
 from updater import check_for_update
 from rss_poller import RssPoller
@@ -2039,19 +2039,30 @@ def update_config(req: ConfigUpdate) -> dict:
 def do_search(req: SearchRequest) -> List[SearchResult]:
     """
     Search for torrents.
-    mode: "online" (public scrapers), "jackett" (Jackett API), "local" (index server)
+    mode: "jackett" (Jackett API, an indexer the user configured themselves)
+          or "local" (a Hydra index server the user configured themselves).
+
+    There used to be a third mode, "online", that scraped named public
+    indexers (1337x, Nyaa, The Pirate Bay) directly - removed 2026-08-20.
+    Sonarr/Radarr/Jackett have operated safely for years specifically
+    because they contain no built-in knowledge of any particular indexer;
+    every source is something the user configures themselves, at arm's
+    length. Hydra matching that architecture isn't just the safer legal
+    posture, it's the actually-correct one for a general-purpose tool.
     """
+    if req.mode not in ("jackett", "local"):
+        raise HTTPException(status_code=400, detail=f"Unknown search mode '{req.mode}' - use 'jackett' or 'local'")
     try:
         if req.mode == "jackett":
             cfg = load_config()
             jackett_url = cfg.get('indexing_server') or cfg.get('jackett_url', 'http://127.0.0.1:9117')
             api_key = cfg.get('jackett_api_key', '')
             raw = search_jackett(jackett_url, req.query, api_key)
-        elif req.mode == "local":
+        else:
             server = req.server or 'localhost'
             raw = search_index_server(server, req.query)
-        else:
-            raw = search_online_public(req.query)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Search error ({req.mode}): {e}")
         raise HTTPException(status_code=500, detail=str(e))

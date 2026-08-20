@@ -155,7 +155,7 @@ def _self_install() -> None:
                 "daemon_port": 8765,
                 "daemon_use_ssl": False,
                 "desktop_mode": True,
-                "search_mode": "online",
+                "search_mode": "jackett",
             }, f, indent=2)
 
     # Create desktop shortcut

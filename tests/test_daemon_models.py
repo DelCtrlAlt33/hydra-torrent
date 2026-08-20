@@ -82,9 +82,12 @@ def test_add_torrent_url_request_requires_url():
         AddTorrentUrlRequest()
 
 
-def test_search_request_defaults_to_online_mode():
+def test_search_request_defaults_to_jackett_mode():
+    # "online" mode (built-in 1337x/Nyaa/TPB scraping) was removed
+    # 2026-08-20 - jackett is now the only sensible default, since it's
+    # the mode that doesn't hardcode any specific indexer into Hydra itself.
     req = SearchRequest(query="ubuntu")
-    assert req.mode == "online"
+    assert req.mode == "jackett"
     assert req.server is None
 
 

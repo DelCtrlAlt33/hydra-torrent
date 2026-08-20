@@ -83,7 +83,6 @@ pyinstaller_cmd = [
     "--hidden-import=libtorrent",
     "--hidden-import=maxminddb",
     "--hidden-import=psutil",
-    "--hidden-import=bs4",
     "--hidden-import=aiofiles",
     "--hidden-import=miniupnpc",
     "--hidden-import=cryptography",
