@@ -67,7 +67,12 @@ def _wg_handshake_ok(iface_name):
         # every couple of seconds, not a one-off.
         kwargs = {}
         if os.name == 'nt':
-            kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+            # getattr, not a direct attribute access: CREATE_NO_WINDOW only
+            # exists in the subprocess module's namespace on real Windows,
+            # so a test (or any other code) that merely monkeypatches
+            # os.name to simulate Windows on a Linux/Mac interpreter would
+            # otherwise hit a raw AttributeError here.
+            kwargs['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         return subprocess.run(cmd, capture_output=True, text=True, timeout=5, **kwargs)
 
     try:

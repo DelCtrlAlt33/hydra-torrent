@@ -173,12 +173,16 @@ def test_wg_handshake_suppresses_console_window_on_windows(monkeypatch):
     # present, so without this flag it's a persistent visible flicker,
     # not a one-off.
     monkeypatch.setattr(vpn_guard.os, "name", "nt")
+    # CREATE_NO_WINDOW only exists in the real subprocess module on
+    # Windows - inject it so this test's assertion is meaningful when run
+    # (as CI does) on Linux, instead of raising AttributeError.
+    monkeypatch.setattr(vpn_guard.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
     ok = _cmd_result(returncode=0, stdout=f"somepeer\t{int(time.time())}\n")
     with patch("vpn_guard.subprocess.run", return_value=ok) as mock_run:
         vpn_guard._wg_handshake_ok("wgpia0")
 
     _, kwargs = mock_run.call_args
-    assert kwargs.get("creationflags") == vpn_guard.subprocess.CREATE_NO_WINDOW
+    assert kwargs.get("creationflags") == 0x08000000
 
 
 def test_wg_handshake_no_creationflags_on_non_windows(monkeypatch):
