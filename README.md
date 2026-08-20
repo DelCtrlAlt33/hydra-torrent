@@ -88,16 +88,16 @@ python hydra_daemon.py
 
 ![Auto-DL Rules](screenshots/Auto-DL.png)
 
-**Search and download in seconds.** Search public indexers or your own Jackett instance, click a result, and it starts downloading.
+**Search and download in seconds.** Search your own Jackett instance, click a result, and it starts downloading.
 
-![Search](screenshots/Searching.gif)
+![Search](screenshots/search.png)
 
 **It's one Python script and one config file.** That's the whole stack.
 
 ## Features
 
 - Browser UI from any device on your network (phone, laptop, whatever)
-- Search torrents directly from the UI (public indexers or Jackett)
+- Search torrents directly from the UI (via your own Jackett instance)
 - VPN kill switch - optional toggle to block all downloads without VPN
 - Pick which files to download from a torrent - skip the extras
 - Seed ratio limits with auto-remove
