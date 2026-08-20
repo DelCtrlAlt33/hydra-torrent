@@ -77,4 +77,7 @@ def create_client_ssl_context(server_hostname=None):
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
+    # ssl.create_default_context() doesn't guarantee TLS 1.2+ on every
+    # Python/OpenSSL build - explicit beats implicit here.
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     return ctx

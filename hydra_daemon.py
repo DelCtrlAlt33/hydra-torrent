@@ -35,6 +35,8 @@ import threading
 import warnings
 import asyncio
 import zipfile
+
+from ssrf_guard import ensure_safe_fetch_url as _ensure_safe_fetch_url
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import List, Optional, Set
@@ -754,12 +756,14 @@ class TorrentEngine:
     def preview_torrent_url(self, url: str, save_path: Optional[str] = None) -> str:
         import requests as _requests
 
+        _ensure_safe_fetch_url(url)
         resp = _requests.get(url, timeout=30, allow_redirects=False)
         hops = 0
         while resp.is_redirect and hops < 6:
             loc = resp.headers.get('Location', '')
             if loc.startswith('magnet:'):
                 return self.preview_magnet(loc, save_path)
+            _ensure_safe_fetch_url(loc)
             resp = _requests.get(loc, timeout=30, allow_redirects=False)
             hops += 1
         if resp.status_code != 200:
@@ -1262,7 +1266,7 @@ async def lifespan(app: FastAPI):
     rss_poller.start()
     broadcaster_task = asyncio.create_task(_ws_broadcaster())
     public_ip_task = asyncio.create_task(_public_ip_refresher())
-    logger.info(f"Hydra Daemon starting - API key: {API_KEY}")
+    logger.info("Hydra Daemon starting - API key loaded (see hydra_config.json, not logged here)")
     yield
     # Shutdown
     broadcaster_task.cancel()
@@ -1536,6 +1540,7 @@ def add_torrent_from_url(req: AddTorrentUrlRequest, background_tasks: Background
             # Do NOT auto-follow redirects: Jackett proxy links commonly 302 to a
             # magnet: URI, which requests cannot fetch (no adapter for magnet:) and
             # would silently fail. Follow http(s) hops manually; hand magnet: to add_magnet.
+            _ensure_safe_fetch_url(req.url)
             resp = _requests.get(req.url, timeout=30, allow_redirects=False)
             hops = 0
             while resp.is_redirect and hops < 6:
@@ -1544,6 +1549,7 @@ def add_torrent_from_url(req: AddTorrentUrlRequest, background_tasks: Background
                     name = engine.add_magnet(loc)
                     logger.info(f"Torrent URL resolved to magnet, added: '{name}'")
                     return
+                _ensure_safe_fetch_url(loc)
                 resp = _requests.get(loc, timeout=30, allow_redirects=False)
                 hops += 1
             if resp.status_code != 200:
@@ -1590,6 +1596,8 @@ def preview_transfer(req: PreviewTorrentRequest) -> dict:
             name = engine.preview_torrent_url(req.url, req.save_path)
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"name": name}
@@ -1903,9 +1911,18 @@ def check_rule_now(rule_id: str) -> dict:
 @app.get("/static/{filename}", include_in_schema=False)
 def serve_static(filename: str) -> FileResponse:
     """Serve static assets (logo, etc.)."""
-    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
-    file_path = os.path.join(static_dir, os.path.basename(filename))
-    if not os.path.isfile(file_path) or file_path == os.path.join(static_dir, 'index.html'):
+    static_dir = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static'))
+    # os.path.basename() already strips any directory component from
+    # filename (on both '/' and '\' separators), but CodeQL's path-injection
+    # check doesn't credit that alone as a full sanitizer - and it's right
+    # not to take it on faith. realpath + an explicit "still under
+    # static_dir" check afterward is the actually-verifiable version: no
+    # matter what filename resolves to, if it didn't land inside static_dir,
+    # refuse it outright instead of trusting the join.
+    file_path = os.path.realpath(os.path.join(static_dir, os.path.basename(filename)))
+    if (not file_path.startswith(static_dir + os.sep)
+            or not os.path.isfile(file_path)
+            or file_path == os.path.join(static_dir, 'index.html')):
         raise HTTPException(status_code=404, detail="Not found")
     return FileResponse(file_path)
 
@@ -2077,7 +2094,13 @@ if __name__ == "__main__":
     scheme = 'https' if use_ssl else 'http'
     print(f"Hydra Daemon v{VERSION}")
     print(f"Listening on:  {scheme}://{host}:{port}")
-    print(f"API key:       {API_KEY}")
+    # The API key gates every endpoint on this daemon - it used to be
+    # printed here in clear text, which meant it also landed in
+    # journalctl (StandardOutput=journal on the systemd deployment) and
+    # in hydra.log, both of which get shared for debugging and backed up
+    # far more casually than hydra_config.json itself. Point at the
+    # config file instead of ever putting the real value in a log stream.
+    print(f"API key:       (see {CONFIG_FILE})")
     print(f"API docs:      {scheme}://{host}:{port}/docs")
     if use_ssl:
         print(f"SSL cert:      {FULLCHAIN_PATH}")

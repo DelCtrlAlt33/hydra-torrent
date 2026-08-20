@@ -15,6 +15,14 @@ on:
     - cron: "17 4 * * *"
   workflow_dispatch: {}
 
+# Default GITHUB_TOKEN permissions are broader than this workflow needs -
+# it only runs tests and posts to an external webhook, never touches repo
+# contents/PRs/issues. Scoping down limits the blast radius if any action
+# in the chain (including third-party ones like actions/checkout) were
+# ever compromised.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
