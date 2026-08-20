@@ -49,3 +49,24 @@ jobs:
         if: failure() && github.event_name == 'schedule'
         run: |
           echo "::warning::Nightly drift-detection run failed - something broke without a code change. Check upstream dependencies / external services before assuming the code is at fault."
+
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA_SHORT: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # Built with jq (not manual string concatenation) so branch
+          # names, commit messages, etc. can't produce malformed JSON or
+          # break out of the payload - a github.ref_name with a quote or
+          # backtick in it would otherwise silently corrupt the request.
+          payload=$(jq -n \
+            --arg event "$EVENT_NAME" \
+            --arg ref "$REF_NAME" \
+            --arg sha "${SHA_SHORT:0:7}" \
+            --arg url "$RUN_URL" \
+            '{content: "**Hydra Torrent CI failed** - \($event) on `\($ref)` (`\($sha)`)\n\($url)"}')
+          curl -sf -H "Content-Type: application/json" -d "$payload" "$DISCORD_WEBHOOK_URL"
