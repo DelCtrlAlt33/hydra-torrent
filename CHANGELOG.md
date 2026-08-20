@@ -13,6 +13,42 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-20 - Status strip showed "0 transfers / No active transfers" during real downloads
+
+- **Symptom**: a fresh page load could show a genuinely active, 67%-complete
+  download with 79 real peers in the Transfers list, while the header
+  directly above it read "0 transfers - 0 peers connected" and the map panel
+  said "No active transfers" - found live while capturing screenshots for
+  the README, not from a bug report.
+- **Root cause**: the transfer list itself (`renderTransfers()`) updates
+  immediately from every WebSocket push, but the status-strip count and the
+  "No active transfers"/"Idle" label only updated on `refreshPulseMap()`'s
+  own independent 5-second timer - a real, contradictory gap between what
+  the list showed and what the header claimed, not just cosmetic staleness.
+- **Fix**: split the free part (count + label, derived from `_lastTransfers`
+  with no network call) into `updateStatusStripCounts()`, called
+  synchronously every time `renderTransfers()` runs. The expensive part
+  (fetching real per-transfer peer lists for the map, a genuine network call
+  per active transfer) stays on the slower timer - only the misleading
+  count/label needed to move.
+- **How it was caught**: capturing a real screenshot of an active download
+  for the README, then noticing the header didn't match the list right next
+  to it in the same frame.
+
+## 2026-08-20 - Settings' own API Key field wasn't masked, unlike its neighbors
+
+- **Symptom**: the Settings page's "API Key" field - the credential that
+  gates every single endpoint on the daemon - rendered as plain `type="text"`
+  with only a Copy button, while Plex Token and Jackett API Key right next
+  to it were both password-masked behind a Show toggle.
+- **Root cause**: simple inconsistency between fields added at different
+  times; nobody had compared the API Key field against its neighbors.
+- **Fix**: changed to `type="password"` with the same Show/Hide toggle as
+  the other two secret fields.
+- **How it was caught**: taking a real Settings screenshot for the README
+  leaked the actual live API key in plain text into the captured image.
+  Rotated the key on LXC 108 immediately, fixed the masking, retook clean.
+
 ## 2026-08-20 - Removed hardcoded 1337x/Nyaa/The Pirate Bay scraping (the "Public" search mode)
 
 - **Symptom**: not a technical bug - a legal-risk-by-design one. `search.py`
