@@ -918,7 +918,16 @@ class TorrentEngine:
             prev_time = t.get('prev_time', current_time)
             delta_bytes = s.total_done - prev_bytes
             delta_time = current_time - prev_time
-            speed_down = delta_bytes / delta_time if delta_time > 0 else 0.0
+            # A too-small delta_time turns even a modest delta_bytes into a
+            # physically-impossible speed reading - confirmed live: spikes
+            # of 100+ MB/s from a swarm whose real peers never individually
+            # exceeded a few KB/s. Below this floor, just keep reporting
+            # the last known speed instead of computing a fresh, spurious
+            # one from an interval too short to mean anything.
+            if delta_time >= 0.5:
+                speed_down = delta_bytes / delta_time
+            else:
+                speed_down = t.get('speed_down', 0.0)
 
             eta = 'N/A'
             if speed_down > 0 and total_size > s.total_done:
@@ -1035,7 +1044,12 @@ class TorrentEngine:
             prev_time = t.get('prev_time', current_time)
             delta_bytes = s.total_upload - prev_bytes
             delta_time = current_time - prev_time
-            speed_up = delta_bytes / delta_time if delta_time > 0 else float(s.upload_rate)
+            # Same guard as _monitor_download's speed_down - a too-small
+            # delta_time produces a spurious spike, not a real reading.
+            if delta_time >= 0.5:
+                speed_up = delta_bytes / delta_time
+            else:
+                speed_up = t.get('speed_up', float(s.upload_rate))
 
             # Cumulative upload = previous sessions + this session
             all_time_upload = upload_offset + s.total_upload
