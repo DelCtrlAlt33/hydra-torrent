@@ -25,6 +25,10 @@ sudo bash install.sh
 ```
 Installs dependencies, creates a system user, registers a systemd service, and starts Hydra. Prints the URL when done.
 
+**Running inside a Proxmox LXC?** Two things that are Proxmox-specific and won't show up on a normal Linux box:
+- **Docker inside an LXC needs `nesting=1` enabled first** - Proxmox web UI → the LXC → Options → Features (or `pct set <vmid> --features nesting=1`). Without it, Docker either won't start or fails in confusing ways. Only matters if Hydra or Plex/Jellyfin runs via Docker inside the LXC - skip this if everything's installed natively.
+- **NAS/NFS storage gets bind-mounted through Proxmox itself, not `/etc/fstab` inside the container.** Add it as a Mount Point on the LXC's Resources tab (or `pct set <vmid> --mp0 /host/path,mp=/container/path`) rather than mounting NFS from inside the LXC directly - unprivileged LXCs generally can't mount NFS themselves even if you try.
+
 ### Manual (any OS with Python 3.10+)
 ```bash
 git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
