@@ -1,7 +1,7 @@
 requests
 defusedxml
 aiofiles
-libtorrent>=2.0.11
+libtorrent>=2.1.1
 maxminddb
 cryptography
 fastapi
