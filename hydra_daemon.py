@@ -38,7 +38,7 @@ import warnings
 import asyncio
 import zipfile
 
-from ssrf_guard import ensure_safe_fetch_url as _ensure_safe_fetch_url
+from ssrf_guard import ensure_safe_fetch_url as _ensure_safe_fetch_url, trusted_host_from_url as _trusted_host_from_url
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import List, Optional, Set
@@ -333,6 +333,23 @@ class DaemonStore:
                     pass
         except Exception:
             pass
+
+
+# ---------------------------------------------------------------------------
+# Trusted-fetch hosts for the SSRF guard
+# ---------------------------------------------------------------------------
+
+def _indexer_trusted_hosts() -> set:
+    """
+    The user's own configured Jackett server, as a set ssrf_guard's
+    trusted_hosts accepts. Every search-result "fetch this torrent" URL
+    comes from Jackett itself (see preview_torrent_url / add_torrent_from_url),
+    so it's the same already-trusted-input case search.py's search_jackett()
+    already gets a pass on - not an arbitrary URL, just usually a private
+    LAN address, which is the normal, expected case for a self-hosted setup.
+    """
+    host = _trusted_host_from_url(load_config().get('indexing_server', ''))
+    return {host} if host else set()
 
 
 # ---------------------------------------------------------------------------
@@ -773,14 +790,15 @@ class TorrentEngine:
     def preview_torrent_url(self, url: str, save_path: Optional[str] = None) -> str:
         import requests as _requests
 
-        _ensure_safe_fetch_url(url)
+        trusted = _indexer_trusted_hosts()
+        _ensure_safe_fetch_url(url, trusted)
         resp = _requests.get(url, timeout=30, allow_redirects=False)
         hops = 0
         while resp.is_redirect and hops < 6:
             loc = resp.headers.get('Location', '')
             if loc.startswith('magnet:'):
                 return self.preview_magnet(loc, save_path)
-            _ensure_safe_fetch_url(loc)
+            _ensure_safe_fetch_url(loc, trusted)
             resp = _requests.get(loc, timeout=30, allow_redirects=False)
             hops += 1
         if resp.status_code != 200:
@@ -1709,7 +1727,8 @@ def add_torrent_from_url(req: AddTorrentUrlRequest, background_tasks: Background
             # Do NOT auto-follow redirects: Jackett proxy links commonly 302 to a
             # magnet: URI, which requests cannot fetch (no adapter for magnet:) and
             # would silently fail. Follow http(s) hops manually; hand magnet: to add_magnet.
-            _ensure_safe_fetch_url(req.url)
+            trusted = _indexer_trusted_hosts()
+            _ensure_safe_fetch_url(req.url, trusted)
             resp = _requests.get(req.url, timeout=30, allow_redirects=False)
             hops = 0
             while resp.is_redirect and hops < 6:
@@ -1718,7 +1737,7 @@ def add_torrent_from_url(req: AddTorrentUrlRequest, background_tasks: Background
                     name = engine.add_magnet(loc)
                     logger.info(f"Torrent URL resolved to magnet, added: '{name}'")
                     return
-                _ensure_safe_fetch_url(loc)
+                _ensure_safe_fetch_url(loc, trusted)
                 resp = _requests.get(loc, timeout=30, allow_redirects=False)
                 hops += 1
             if resp.status_code != 200:

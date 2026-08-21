@@ -88,9 +88,9 @@ python hydra_daemon.py
 
 ![Auto-DL Rules](screenshots/Auto-DL.png)
 
-**Search and download in seconds.** Search your own Jackett instance, click a result, and it starts downloading.
+**Search and download in seconds.** Search your own Jackett instance, click a result, and it starts downloading - real search, real swarm, real download, watched live.
 
-![Search](screenshots/search.png)
+![Search to download](screenshots/Search.gif)
 
 **It's one Python script and one config file.** That's the whole stack.
 

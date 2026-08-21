@@ -16,17 +16,47 @@ zero dependencies beyond the standard library.
 """
 import ipaddress
 import socket
+from typing import Optional, Set
 from urllib.parse import urlparse
 
 
-def ensure_safe_fetch_url(url: str) -> None:
+def trusted_host_from_url(url: str) -> Optional[str]:
+    """
+    Turns a configured server URL (e.g. indexing_server from Settings) into
+    the same "host:port" key ensure_safe_fetch_url's trusted_hosts set
+    expects. Returns None for a blank/unparseable URL, so callers can pass
+    the result straight through without an extra guard.
+    """
+    if not url:
+        return None
+    parsed = urlparse(url)
+    if not parsed.hostname:
+        return None
+    port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+    return f"{parsed.hostname}:{port}"
+
+
+def ensure_safe_fetch_url(url: str, trusted_hosts: Optional[Set[str]] = None) -> None:
     """Raises ValueError if `url` isn't safe for the daemon to fetch itself.
 
-    Deliberately scoped to just the two "fetch an arbitrary server-supplied
-    URL" endpoints, not search.py's search_jackett(), which takes a
-    server_url the user configured themselves in Settings - a different,
-    already-trusted input; blocking private IPs there would break the
-    extremely common case of a self-hosted Jackett on the LAN.
+    trusted_hosts: exact "host:port" strings (build with trusted_host_from_url)
+    that bypass the private/loopback check below. This exists specifically
+    for the user's own configured Jackett indexer - Jackett's proxy
+    download links for indexers that don't expose a direct magnet URI
+    point back at Jackett itself, which for the extremely common case of a
+    self-hosted Jackett on the LAN *is* a private address. That's not an
+    arbitrary attacker-supplied URL, it's the same already-trusted input
+    search.py's search_jackett() already gets a pass on - this guard was
+    written assuming every caller needed protection against a genuinely
+    arbitrary URL, but the search-result "fetch this torrent" path never
+    actually receives one: it only ever gets a URL Jackett itself handed
+    back, for the server the user configured. Blocking it there wasn't
+    extra safety, it just silently broke every indexer that doesn't return
+    magnets - confirmed live against TorrentGalaxy. The genuinely
+    untrusted case (POST /transfers/url with a raw pasted string) still
+    gets no exemption unless its URL happens to match the same trusted
+    host, which is the correct, narrower fix rather than trusting either
+    endpoint wholesale.
 
     Known limitation: this resolves and checks the hostname once, here. A
     DNS response that changes between this check and the actual request
@@ -43,6 +73,10 @@ def ensure_safe_fetch_url(url: str) -> None:
     hostname = parsed.hostname
     if not hostname:
         raise ValueError(f"Refusing to fetch '{url}': no hostname")
+
+    port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+    if trusted_hosts and f"{hostname}:{port}" in trusted_hosts:
+        return
 
     try:
         addrs = socket.getaddrinfo(hostname, None)
