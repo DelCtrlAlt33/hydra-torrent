@@ -3,6 +3,7 @@ __pycache__/
 certs/
 *.part
 transfers.json
+resume_data.json
 hydra_config.json
 hydra_config_local.json
 hydra_config_test.json
