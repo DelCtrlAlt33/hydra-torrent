@@ -38,18 +38,20 @@ jobs:
           # Scoped to what tests/ actually imports (requests, psutil,
           # pydantic, defusedxml, cryptography) rather than the full
           # requirements.txt. That file also pulls in libtorrent, fastapi,
-          # and ttkbootstrap - none of which the current unit-test tier
-          # touches, and libtorrent's wheel availability is the kind of
-          # thing that can turn CI red for reasons that have nothing to do
-          # with a real bug. Once integration tests land (FastAPI
-          # TestClient against hydra_daemon.py), this step needs to grow
-          # to `pip install -r requirements.txt` and accept that tradeoff
-          # deliberately, not by accident.
+          # and ttkbootstrap - none of which this tier touches, and
+          # libtorrent's wheel availability is the kind of thing that can
+          # turn CI red for reasons that have nothing to do with a real
+          # bug. TorrentEngine integration tests deliberately live in the
+          # separate engine-tests job below instead of here, for exactly
+          # that reason - see its own comment.
           pip install -r requirements-test.txt
           pip install requests psutil pydantic defusedxml cryptography
 
       - name: Run tests
-        run: python -m pytest -v --cov=. --cov-report=term-missing
+        # --ignore: test_torrent_engine.py imports libtorrent, which isn't
+        # installed in this job on purpose (see the install step above) -
+        # it has its own job below instead.
+        run: python -m pytest -v --cov=. --cov-report=term-missing --ignore=tests/test_torrent_engine.py
 
       - name: Report failure on scheduled (drift-detection) run
         if: failure() && github.event_name == 'schedule'
@@ -75,4 +77,56 @@ jobs:
             --arg sha "${SHA_SHORT:0:7}" \
             --arg url "$RUN_URL" \
             '{content: "**Hydra Torrent CI failed** - \($event) on `\($ref)` (`\($sha)`)\n\($url)"}')
+          curl -sf -H "Content-Type: application/json" -d "$payload" "$DISCORD_WEBHOOK_URL"
+
+  # Separate from `test` on purpose - this is the one job that installs
+  # libtorrent and exercises the real TorrentEngine (add/resume/seed,
+  # fast-resume save+restore, seeding-error surfacing) against a real,
+  # local, synthetic torrent. It found two real bugs completely uncovered
+  # on 2026-08-22 (no fast-resume persistence at all, torrent errors never
+  # surfaced while seeding) - see CHANGELOG.md for both.
+  #
+  # Kept as its own job, not folded into `test` above, because libtorrent's
+  # wheel availability can fail on GitHub's runners for reasons that have
+  # nothing to do with this repo's code (a Python version bump on the
+  # runner image landing before a matching libtorrent wheel exists). If
+  # that happened inside the main suite, it would train "just re-run red
+  # CI" instead of trusting it - the one thing that makes CI worth having.
+  # This job failing reads as "check the engine or check libtorrent's
+  # wheel", not "something in Hydra broke" - never wire this job's failure
+  # into whatever gates merges without deciding that on purpose.
+  engine-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-test.txt
+          pip install -r requirements-docker.txt
+
+      - name: Run engine tests
+        run: python -m pytest tests/test_torrent_engine.py -v
+
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA_SHORT: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          payload=$(jq -n \
+            --arg event "$EVENT_NAME" \
+            --arg ref "$REF_NAME" \
+            --arg sha "${SHA_SHORT:0:7}" \
+            --arg url "$RUN_URL" \
+            '{content: "**Hydra Torrent Engine Tests failed** (separate from the main suite - could be a real regression in TorrentEngine, or could be a libtorrent wheel/CI infra hiccup, check before assuming either) - \($event) on `\($ref)` (`\($sha)`)\n\($url)"}')
           curl -sf -H "Content-Type: application/json" -d "$payload" "$DISCORD_WEBHOOK_URL"
