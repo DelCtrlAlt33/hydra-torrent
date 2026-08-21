@@ -975,34 +975,6 @@
       margin-bottom: 16px;
     }
 
-    /* Most sections are only 2-3 fields, so a single full-width stacked
-       column left them looking oversized. A 2-up grid lets small sections
-       pair off naturally; anything with more going on (a hint box, extra
-       fields) opts into .span2 to keep its full width. */
-    .settings-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 12px;
-      margin-bottom: 16px;
-      /* Default align-items:stretch (not "start") is what's doing the
-         work here: it makes both cards in a row match the taller one's
-         height instead of each sitting at its own natural size, which is
-         what made Connection Health/Plex read as mismatched tiles. */
-    }
-    .settings-grid .settings-section { margin-bottom: 0; }
-    .settings-grid .span2 { grid-column: 1 / -1; }
-
-    /* Right-aligned labels with a wide fixed column read fine at full pane
-       width, but in a narrower half-width card they leave a dead gap
-       before the label and push everything toward the middle. Left-align
-       and narrow the column specifically inside the grid instead. */
-    .settings-grid .settings-row > label:first-child {
-      width: 84px;
-      text-align: left;
-    }
-    .settings-grid .settings-indent { padding-left: 96px; }
-    .settings-grid .settings-subtext { padding-left: 96px; }
-
     .settings-section-title {
       font-size: 11px;
       font-weight: 700;
@@ -1012,51 +984,36 @@
       margin-bottom: 14px;
     }
 
-    .settings-row {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 12px;
-    }
-
-    .settings-row:last-child { margin-bottom: 0; }
-
-    .settings-row > label:first-child {
-      width: 130px;
-      flex-shrink: 0;
-      font-size: 13px;
-      color: var(--muted);
-      text-align: right;
-    }
-
-    /* Rows with no label (a lone button, checkbox, or hint line) still
-       indent to line up under the input column instead of hugging the
-       left edge. 142px = the 130px label width + 12px row gap. */
-    .settings-indent { padding-left: 142px; }
-
-    .settings-subtext {
+    /* Settings accordion fields: label-above-input in a 2-col grid so
+       every field lines up on a shared column width instead of the old
+       label-left row layout, where each input's width depended on
+       whatever label happened to sit next to it. */
+    .acc-field { display: flex; flex-direction: column; min-width: 0; }
+    .acc-field.span2 { grid-column: 1 / -1; }
+    .acc-field > label {
       font-size: 11px;
       color: var(--muted);
-      margin-top: 6px;
-      padding-left: 142px;
+      margin-bottom: 6px;
+      letter-spacing: 0.3px;
     }
 
-    .settings-row input[type="text"],
-    .settings-row input[type="password"] {
-      flex: 1;
+    .acc-body-inner input[type="text"],
+    .acc-body-inner input[type="password"] {
+      width: 100%;
       background: var(--input-bg);
       border: 1px solid var(--border);
-      border-radius: 2px;
+      border-radius: 4px;
       color: var(--text);
-      padding: 8px 12px;
-      font-size: 13px;
+      padding: 8px 10px;
+      font-size: 12px;
       outline: none;
       transition: border-color 0.2s;
       font-family: inherit;
+      box-sizing: border-box;
     }
 
-    .settings-row input:focus { border-color: var(--accent); }
-    .settings-row input[readonly] { color: var(--muted); cursor: default; }
+    .acc-body-inner input:focus { border-color: var(--accent); }
+    .acc-body-inner input[readonly] { color: var(--muted); cursor: default; }
 
     /* Live feedback for Movies/TV path: does this folder actually exist
        from Hydra's own point of view, not just "does it look like a
@@ -1067,30 +1024,26 @@
     .path-status.ok { color: var(--accent); }
     .path-status.warn { color: #ffa500; }
 
-    .secret-row {
-      flex: 1;
-      display: flex;
-      gap: 8px;
-    }
-
-    .secret-row input { flex: 1; }
+    .secret-row { flex: 1; display: flex; gap: 8px; min-width: 0; }
+    .secret-row input { flex: 1; min-width: 0; }
 
     .settings-hint-toggle {
+      grid-column: 1 / -1;
+      width: fit-content;
       font-size: 11px;
       color: var(--accent);
       cursor: pointer;
-      margin-top: 4px;
       display: inline-block;
     }
 
     .settings-hint-toggle:hover { text-decoration: underline; }
 
     .settings-hint-box {
+      grid-column: 1 / -1;
       display: none;
       font-size: 12px;
       color: var(--muted);
       line-height: 1.5;
-      margin-top: 8px;
       padding: 10px 12px;
       background: var(--bg);
       border: 1px solid var(--border);
@@ -1099,28 +1052,51 @@
 
     .settings-hint-box.open { display: block; }
 
-    .checkbox-label {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 13px;
-      color: var(--text);
-      cursor: pointer;
+    /* One-line explanation - replaces the old multi-paragraph
+       .settings-subtext blocks that made every card look text-heavy. */
+    .acc-subtext {
+      grid-column: 1 / -1;
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.5;
     }
 
-    .checkbox-label input[type="checkbox"] {
-      width: 15px;
-      height: 15px;
-      cursor: pointer;
-      accent-color: var(--accent);
+    /* On/off settings get a real switch instead of a bare checkbox */
+    .acc-toggle-row {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      font-size: 13px;
+      color: var(--text);
     }
+    .acc-toggle-row .hint { color: var(--muted); font-size: 11px; margin-top: 4px; line-height: 1.5; }
+
+    .switch { position: relative; display: inline-block; width: 34px; height: 19px; flex: none; margin-top: 1px; cursor: pointer; }
+    .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+    .switch .track {
+      position: absolute; inset: 0;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .switch .track::before {
+      content: "";
+      position: absolute;
+      width: 13px; height: 13px;
+      left: 3px; top: 2px;
+      background: var(--muted);
+      border-radius: 50%;
+      transition: transform 0.15s ease, background 0.15s ease;
+    }
+    .switch input:checked + .track { background: var(--accent-dim); border-color: var(--accent-dim); }
+    .switch input:checked + .track::before { transform: translateX(15px); background: var(--accent); }
 
     /* Settings accordion - replaces the old always-open 2-up card grid.
        Nine sections open at once was the actual complaint; collapsing all
        but the one that needs attention (a health check gone wrong) fixes
-       that without losing anything - every field below still uses the
-       exact same .settings-row/.secret-row/.checkbox-label styling and
-       ids as before, just wrapped in a collapsible shell. */
+       that without losing anything. */
     .accordion {
       border: 1px solid var(--border);
       border-radius: 3px;
@@ -1198,13 +1174,20 @@
       transition: max-height 0.22s ease;
     }
     .acc-item.open .acc-body { max-height: 700px; }
-    .acc-body-inner { padding: 2px 20px 20px 44px; }
+    .acc-body-inner {
+      padding: 4px 20px 20px 44px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 20px;
+    }
+    .acc-body-inner.single { grid-template-columns: 1fr; }
 
     .acc-actions {
+      grid-column: 1 / -1;
       display: flex;
       align-items: center;
       gap: 10px;
-      margin-top: 14px;
+      margin-top: 0;
       padding-top: 12px;
       border-top: 1px solid var(--border);
     }
@@ -1233,13 +1216,9 @@
       background: transparent;
       filter: none;
     }
-    .acc-body-inner input[type="text"],
-    .acc-body-inner input[type="password"] {
-      border-radius: 4px;
-    }
-
     /* Connection Health's four services in one row instead of a stack */
     .health-strip {
+      grid-column: 1 / -1;
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 16px;
@@ -1254,11 +1233,12 @@
     /* VPN's live telemetry, same idea as the health strip - the daemon
        already tracks this (see /status), just wasn't surfaced here before */
     .context-strip {
+      grid-column: 1 / -1;
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 16px;
       padding-bottom: 14px;
-      margin-bottom: 12px;
+      margin-bottom: 2px;
       border-bottom: 1px solid var(--border);
     }
     .context-cell label {
@@ -1270,6 +1250,7 @@
     .context-cell .value { font-size: 12px; color: var(--text); }
 
     @media (max-width: 700px) {
+      .acc-body-inner { grid-template-columns: 1fr; }
       .health-strip { grid-template-columns: repeat(2, 1fr); gap: 12px; }
       .context-strip { grid-template-columns: 1fr; }
       .acc-title { min-width: 0; }
@@ -1278,6 +1259,7 @@
 
     /* Theme picker */
     .theme-grid {
+      grid-column: 1 / -1;
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
       gap: 10px;
@@ -1585,14 +1567,6 @@
       .search-row { flex-wrap: wrap; }
       .search-row input { flex-basis: 100%; min-width: 0; }
 
-      /* Settings: single column, and stack label above input so nothing clips on the right */
-      .settings-grid { grid-template-columns: 1fr; }
-      .settings-row { flex-direction: column; align-items: stretch; gap: 6px; }
-      .settings-row > label:first-child { width: auto; text-align: left; }
-      .settings-row > label:first-child:empty { display: none; }
-      .settings-row input { min-width: 0; }
-      .settings-subtext { padding-left: 0 !important; }
-
     }
   </style>
 </head>
@@ -1835,11 +1809,11 @@
       </div>
       <div class="acc-body">
         <div class="acc-body-inner">
-          <div class="settings-row">
+          <div class="acc-field">
             <label>Plex URL</label>
             <input type="text" id="cfg-plex-url" placeholder="http://192.168.1.x:32400">
           </div>
-          <div class="settings-row">
+          <div class="acc-field">
             <label>Plex Token</label>
             <div class="secret-row">
               <input type="password" id="cfg-plex-token" placeholder="your-plex-token">
@@ -1864,11 +1838,11 @@
       </div>
       <div class="acc-body">
         <div class="acc-body-inner">
-          <div class="settings-row">
+          <div class="acc-field">
             <label>Jellyfin URL</label>
             <input type="text" id="cfg-jellyfin-url" placeholder="http://192.168.1.x:8096">
           </div>
-          <div class="settings-row">
+          <div class="acc-field">
             <label>API Key</label>
             <div class="secret-row">
               <input type="password" id="cfg-jellyfin-key" placeholder="jellyfin-api-key">
@@ -1898,13 +1872,13 @@
             <div class="context-cell"><label>VPN IP</label><span class="value" id="vpn-ctx-ip">-</span></div>
             <div class="context-cell"><label>Exit IP</label><span class="value" id="vpn-ctx-exit">-</span></div>
           </div>
-          <div class="settings-indent" style="padding-left:0;">
-            <label class="checkbox-label">
-              <input type="checkbox" id="cfg-vpn-required" onchange="saveSettings(true)">
+          <div class="acc-toggle-row">
+            <label class="switch"><input type="checkbox" id="cfg-vpn-required" onchange="saveSettings(true)"><span class="track"></span></label>
+            <div>
               Require VPN to download (kill switch)
-            </label>
+              <div class="hint">When enabled, all torrents pause if your VPN disconnects. Turn off if you don't use a VPN.</div>
+            </div>
           </div>
-          <div class="settings-subtext" style="padding-left:0;">When enabled, all torrents pause if your VPN disconnects. Turn off if you don't use a VPN.</div>
         </div>
       </div>
     </div>
@@ -1918,8 +1892,8 @@
         <span class="acc-summary" id="acc-summary-api"></span>
       </div>
       <div class="acc-body">
-        <div class="acc-body-inner">
-          <div class="settings-row">
+        <div class="acc-body-inner single">
+          <div class="acc-field">
             <label>API Key</label>
             <div class="secret-row">
               <input type="password" id="cfg-api-key" readonly placeholder="loading...">
@@ -1927,7 +1901,7 @@
               <button class="btn btn-sm btn-pause" onclick="copyApiKey()">Copy</button>
             </div>
           </div>
-          <div class="settings-subtext">
+          <div class="acc-subtext">
             Auto-generated key for external access to Hydra's API. You only need this if you're using remote control or scripting Hydra.
           </div>
         </div>
@@ -1944,11 +1918,11 @@
       </div>
       <div class="acc-body">
         <div class="acc-body-inner">
-          <div class="settings-row">
+          <div class="acc-field">
             <label>Indexer URL</label>
             <input type="text" id="cfg-indexer-url" placeholder="http://192.168.1.x:9117">
           </div>
-          <div class="settings-row">
+          <div class="acc-field">
             <label>Jackett API Key</label>
             <div class="secret-row">
               <input type="password" id="cfg-jackett-key" placeholder="jackett-api-key">
@@ -1980,53 +1954,42 @@
       </div>
       <div class="acc-body">
         <div class="acc-body-inner">
-          <div class="settings-row">
+          <div class="acc-field span2">
             <label>Download folder</label>
             <div class="secret-row">
               <input type="text" id="cfg-download-dir" placeholder="Downloads\HydraTorrent">
               <button class="btn btn-sm btn-pause" onclick="browseDownloadDir()">Browse</button>
             </div>
           </div>
-          <div class="settings-subtext">
-            Where torrents land while downloading. Kept outside the app's own install folder on
-            purpose, same reason a browser saves to Downloads instead of its own program files -
-            deleting or reinstalling Hydra should never risk your actual downloads. Change takes
-            effect next time Hydra starts.
+          <div class="acc-subtext">
+            Where torrents land while downloading, kept outside Hydra's install folder so a
+            reinstall never risks your downloads. Change takes effect next time Hydra starts.
           </div>
-          <div class="settings-indent" style="padding-left:0;">
+          <div style="grid-column:1/-1; display:flex; gap:10px;">
             <button class="btn btn-sm btn-pause" onclick="detectLibraries('plex')" id="detect-plex-btn">Detect from Plex</button>
             <button class="btn btn-sm btn-pause" onclick="detectLibraries('jellyfin')" id="detect-jellyfin-btn">Detect from Jellyfin</button>
           </div>
-          <div class="settings-row">
+          <div class="acc-field">
             <label>Movies path</label>
-            <div style="flex:1;">
-              <input type="text" id="cfg-movies-path" placeholder="/mnt/plex/movies" oninput="_checkLibraryPath('movies')" style="width:100%; box-sizing:border-box;">
-              <div class="path-status" id="movies-path-status"></div>
-            </div>
+            <input type="text" id="cfg-movies-path" placeholder="/mnt/plex/movies" oninput="_checkLibraryPath('movies')">
+            <div class="path-status" id="movies-path-status"></div>
           </div>
-          <div class="settings-row">
+          <div class="acc-field">
             <label>TV path</label>
-            <div style="flex:1;">
-              <input type="text" id="cfg-tv-path" placeholder="/mnt/plex/tv" oninput="_checkLibraryPath('tv')" style="width:100%; box-sizing:border-box;">
-              <div class="path-status" id="tv-path-status"></div>
-            </div>
+            <input type="text" id="cfg-tv-path" placeholder="/mnt/plex/tv" oninput="_checkLibraryPath('tv')">
+            <div class="path-status" id="tv-path-status"></div>
           </div>
-          <div class="settings-subtext">
-            Downloads land in the folder above first while transferring, then move here
-            automatically once complete (if auto-move below is on) - Plex/Jellyfin gets
-            notified to scan right after. Put these on the same drive/NFS mount as the
-            download folder above and that move is instant instead of a slow copy. Don't
-            know the exact path? Use Detect above if Plex/Jellyfin is already set up below.
+          <div class="acc-subtext">
+            Downloads move here automatically once complete (if auto-move below is on), and
+            Plex/Jellyfin gets notified to scan. Use Detect above if already set up below.
           </div>
-          <div class="settings-row" style="padding-top:12px; border-top:1px solid var(--border);">
+          <div class="acc-field span2" style="padding-top:12px; border-top:1px solid var(--border);">
             <label>Seed ratio</label>
             <input type="text" id="cfg-seed-ratio" placeholder="0 = seed forever  (e.g. 2.0)" style="max-width:220px;">
           </div>
-          <div class="settings-indent" style="padding-left:0;">
-            <label class="checkbox-label">
-              <input type="checkbox" id="cfg-auto-move" onchange="saveSettings(true)">
-              Auto-move &amp; notify Plex/Jellyfin when complete
-            </label>
+          <div class="acc-toggle-row">
+            <label class="switch"><input type="checkbox" id="cfg-auto-move" onchange="saveSettings(true)"><span class="track"></span></label>
+            <div>Auto-move &amp; notify Plex/Jellyfin when complete</div>
           </div>
         </div>
       </div>
@@ -2041,17 +2004,17 @@
         <span class="acc-summary">Advanced &middot; optional</span>
       </div>
       <div class="acc-body">
-        <div class="acc-body-inner">
-          <div class="settings-subtext" style="padding-left:0;">
+        <div class="acc-body-inner single">
+          <div class="acc-subtext">
             Control a Hydra daemon running on another machine (e.g. a headless home server) from a lightweight tray icon on this PC.
             Not needed for normal desktop use, this app already lives in your Windows tray on its own.
           </div>
-          <div style="margin-top:10px;">
-            <a class="btn btn-sm btn-pause" href="/download/tray" download="HydraTray.zip">Download Remote Tray Client</a>
-            <div style="font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.8;">
-              Extract <strong>HydraTray.zip</strong> anywhere and run <code>hydra_tray.exe</code> on the machine you want to control from.
-              The API key is pre-configured. Adds itself to Windows startup automatically.
-            </div>
+          <div style="margin-top:2px;">
+            <a class="btn btn-sm btn-pause" href="/download/tray" download="HydraTray.zip" style="display:inline-block;">Download Remote Tray Client</a>
+          </div>
+          <div class="acc-subtext">
+            Extract <strong>HydraTray.zip</strong> anywhere and run <code>hydra_tray.exe</code> on the machine you want to control from.
+            The API key is pre-configured. Adds itself to Windows startup automatically.
           </div>
         </div>
       </div>
