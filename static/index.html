@@ -1148,16 +1148,28 @@
     }
     .acc-item.open .acc-chevron { transform: rotate(90deg); color: var(--accent); }
 
+    .acc-icon {
+      flex: none;
+      width: 15px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .acc-item.open .acc-icon { color: var(--accent); }
+
+    /* Title stays the brighter, primary color always - summary stays
+       dim/secondary always. Previously both were var(--muted) while
+       collapsed, which made the section name and its status read as the
+       same weight - the whole point of the label being on the left. */
     .acc-title {
       font-size: 11px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.8px;
-      color: var(--muted);
+      color: var(--text);
       flex: none;
       min-width: 150px;
     }
-    .acc-item.open .acc-title { color: var(--text); }
 
     .acc-summary {
       flex: 1;
@@ -1171,6 +1183,14 @@
       text-align: right;
       white-space: nowrap;
     }
+    .acc-summary-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      flex: none;
+      background: var(--muted);
+    }
+    .acc-summary-dot.ok { background: var(--green); }
+    .acc-summary-dot.warn { background: var(--orange); }
 
     .acc-body {
       max-height: 0;
@@ -1192,6 +1212,31 @@
     .acc-result { font-size: 11px; }
     .acc-result.ok { color: var(--accent); }
     .acc-result.err { color: #ff3333; }
+
+    /* .btn-pause's background is var(--bar-bg), which is the same color
+       as var(--card) in several themes (e.g. Hacker Terminal: both
+       #141400) - on this accordion's own card background that leaves a
+       button with zero contrast, reading as plain colored text instead
+       of a button. Scoped to just the accordion rather than fixing
+       .btn-pause globally, since that class is used across the whole
+       app (Transfers pause/resume, etc.) and hasn't been part of this
+       pass - don't want to risk changing something untested elsewhere. */
+    .acc-body-inner .btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--muted);
+    }
+    .acc-body-inner .btn:hover {
+      border-color: var(--accent-dim, var(--accent));
+      color: var(--accent);
+      background: transparent;
+      filter: none;
+    }
+    .acc-body-inner input[type="text"],
+    .acc-body-inner input[type="password"] {
+      border-radius: 4px;
+    }
 
     /* Connection Health's four services in one row instead of a stack */
     .health-strip {
@@ -1760,6 +1805,7 @@
     <div class="acc-item open" data-acc="health">
       <div class="acc-head" onclick="toggleAcc(this)">
         <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-icon">&#9673;</span>
         <span class="acc-title">Connection Health</span>
         <span class="acc-summary" id="acc-summary-health"></span>
       </div>
@@ -1783,6 +1829,7 @@
     <div class="acc-item" data-acc="plex">
       <div class="acc-head" onclick="toggleAcc(this)">
         <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-icon">&#9635;</span>
         <span class="acc-title">Plex</span>
         <span class="acc-summary" id="acc-summary-plex"></span>
       </div>
@@ -1811,6 +1858,7 @@
     <div class="acc-item" data-acc="jellyfin">
       <div class="acc-head" onclick="toggleAcc(this)">
         <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-icon">&#9635;</span>
         <span class="acc-title">Jellyfin</span>
         <span class="acc-summary" id="acc-summary-jellyfin"></span>
       </div>
@@ -1839,6 +1887,7 @@
     <div class="acc-item" data-acc="vpn">
       <div class="acc-head" onclick="toggleAcc(this)">
         <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-icon">&#9737;</span>
         <span class="acc-title">VPN</span>
         <span class="acc-summary" id="acc-summary-vpn"></span>
       </div>
@@ -1864,6 +1913,7 @@
     <div class="acc-item" data-acc="api">
       <div class="acc-head" onclick="toggleAcc(this)">
         <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-icon">&#10022;</span>
         <span class="acc-title">API</span>
         <span class="acc-summary" id="acc-summary-api"></span>
       </div>
@@ -1888,6 +1938,7 @@
     <div class="acc-item" data-acc="indexer">
       <div class="acc-head" onclick="toggleAcc(this)">
         <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-icon">&#8981;</span>
         <span class="acc-title">Indexer</span>
         <span class="acc-summary" id="acc-summary-indexer"></span>
       </div>
@@ -1923,6 +1974,7 @@
     <div class="acc-item" data-acc="downloads">
       <div class="acc-head" onclick="toggleAcc(this)">
         <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-icon">&#9660;</span>
         <span class="acc-title">Downloads</span>
         <span class="acc-summary" id="acc-summary-downloads"></span>
       </div>
@@ -1984,6 +2036,7 @@
     <div class="acc-item" data-acc="remote">
       <div class="acc-head" onclick="toggleAcc(this)">
         <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-icon">&#8942;</span>
         <span class="acc-title">Remote Control</span>
         <span class="acc-summary">Advanced &middot; optional</span>
       </div>
@@ -2008,6 +2061,7 @@
     <div class="acc-item" data-acc="theme">
       <div class="acc-head" onclick="toggleAcc(this)">
         <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-icon">&#9679;</span>
         <span class="acc-title">Theme</span>
         <span class="acc-summary" id="acc-summary-theme"></span>
       </div>
@@ -2157,7 +2211,7 @@ function applyTheme(key) {
   document.querySelectorAll('.theme-card').forEach(c => {
     c.classList.toggle('active', c.dataset.theme === key);
   });
-  setSummary('theme', t.name);
+  setSummary('theme', t.name, 'ok');
 }
 
 function renderThemeGrid() {
@@ -3813,31 +3867,36 @@ function updateAccordionSummaries() {
   const val = id => (document.getElementById(id)?.value || '').trim();
 
   const plexUrl = val('cfg-plex-url');
-  setSummary('plex', plexUrl || 'Not configured');
+  setSummary('plex', plexUrl || 'Not configured', plexUrl ? 'ok' : 'warn');
 
   const jellyfinUrl = val('cfg-jellyfin-url');
-  setSummary('jellyfin', jellyfinUrl || 'Not configured');
+  setSummary('jellyfin', jellyfinUrl || 'Not configured', jellyfinUrl ? 'ok' : 'warn');
 
-  setSummary('api', document.getElementById('cfg-api-key')?.value ? 'Key ready' : 'Loading...');
+  const hasApiKey = !!document.getElementById('cfg-api-key')?.value;
+  setSummary('api', hasApiKey ? 'Key ready' : 'Loading...', hasApiKey ? 'ok' : null);
 
   const indexerUrl = val('cfg-indexer-url');
-  setSummary('indexer', indexerUrl || 'Not configured');
+  setSummary('indexer', indexerUrl || 'Not configured', indexerUrl ? 'ok' : 'warn');
 
   const autoMove = document.getElementById('cfg-auto-move')?.checked;
   const seedRatio = val('cfg-seed-ratio');
   setSummary('downloads', (autoMove ? 'Auto-move on' : 'Auto-move off') + ' · ' +
-    (seedRatio ? 'ratio ' + seedRatio : 'seed forever'));
+    (seedRatio ? 'ratio ' + seedRatio : 'seed forever'), autoMove ? 'ok' : 'warn');
 
   const vpnOn = document.getElementById('cfg-vpn-required')?.checked;
-  setSummary('vpn', 'Kill switch: ' + (vpnOn ? 'on' : 'off'));
+  setSummary('vpn', 'Kill switch: ' + (vpnOn ? 'on' : 'off'), vpnOn ? 'ok' : 'warn');
 
   const themeKey = localStorage.getItem('hydra-theme') || 'matrix';
-  setSummary('theme', THEMES[themeKey]?.name || themeKey);
+  setSummary('theme', THEMES[themeKey]?.name || themeKey, 'ok');
 }
 
-function setSummary(key, text) {
+// state: 'ok' (green dot), 'warn' (amber dot), or omit/null for no dot
+// at all (Remote Control's summary is descriptive text, not a status).
+function setSummary(key, text, state) {
   const el = document.getElementById('acc-summary-' + key);
-  if (el) el.textContent = text;
+  if (!el) return;
+  const dot = state ? `<span class="acc-summary-dot ${state}"></span>` : '';
+  el.innerHTML = dot + `<span>${text}</span>`;
 }
 
 // Real per-service check, not a separate endpoint - /health already
@@ -3891,7 +3950,7 @@ function summarizeHealth() {
   const parts = [];
   parts.push(connected + ' connected');
   if (notConfigured) parts.push(notConfigured + ' not configured');
-  setSummary('health', parts.join(' · '));
+  setSummary('health', parts.join(' · '), notConfigured ? 'warn' : 'ok');
 }
 
 function vpnHealthState(vpn) {
