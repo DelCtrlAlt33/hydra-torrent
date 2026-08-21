@@ -13,6 +13,35 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-22 - v1.4.5 Windows .exe couldn't start the daemon at all
+
+- **Symptom**: found running the actual published v1.4.5 release on real
+  Windows hardware, as part of the same fresh-install testing pass that
+  caught the install.sh bug below. The app opened to a blank
+  "127.0.0.1 refused to connect" page every time - no error, no dialog,
+  nothing in the log beyond a clean-looking startup.
+- **Root cause**: `ssrf_guard.py` (added earlier this session for the
+  Jackett SSRF-guard fix, see the entry below) was never added to
+  `HydraTorrent.spec`'s `datas` list, so it was missing from the built
+  .exe entirely. `hydra_daemon.py` is loaded by `hydra_app.py` via a
+  string import (`uvicorn.run("hydra_daemon:app", ...)` on a background
+  thread) specifically so it can be swapped/reloaded - PyInstaller can't
+  trace that kind of dynamic import via static analysis, so every module
+  `hydra_daemon.py` pulls in has to be hand-listed in `datas` or it's
+  silently left out of the build. `ModuleNotFoundError: No module named
+  'ssrf_guard'` killed the daemon thread instantly, with no handler to
+  catch or log it - the main thread waited out its 15s timeout for a
+  daemon that was never coming, then opened the window anyway.
+- **Fix**: added `ssrf_guard.py` to the `datas` list, cross-checked every
+  other local import in `hydra_daemon.py` against that same list (nothing
+  else missing), rebuilt, and confirmed the rebuilt .exe actually starts
+  end-to-end on real hardware. Shipped as v1.4.6 rather than silently
+  replacing the v1.4.5 asset, since real users may already have it.
+- **How it was caught**: same deliberate fresh-install pass as install.sh
+  below - confirmed on the real machine that hit it, by running the
+  actual installed .exe with stdout/stderr properly captured instead of
+  hidden, which surfaced the real traceback.
+
 ## 2026-08-22 - install.sh was completely broken on Ubuntu 24.04
 
 - **Symptom**: found doing a genuine fresh-install test on a clean VM

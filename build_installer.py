@@ -63,6 +63,7 @@ pyinstaller_cmd = [
     "--add-data=network.py;.",
     "--add-data=health.py;.",
     "--add-data=updater.py;.",
+    "--add-data=ssrf_guard.py;.",
     # Hidden imports - pywebview + GUI
     "--hidden-import=webview",
     "--hidden-import=pystray",
