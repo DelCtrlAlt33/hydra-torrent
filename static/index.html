@@ -672,8 +672,20 @@
     .results-table tr:last-child td { border-bottom: none; }
     .results-table tr:hover td { background: var(--bar-bg); }
     /* Selection is a UI interaction state (theme accent), not a semantic
-       status color, so unlike the health dots this one does follow the theme. */
+       status color, so unlike the health dots this one does follow the
+       theme. A whole-row accent tint reads as "selected" at a glance,
+       instead of relying on the same neutral background hover already
+       uses plus a thin 3px edge - color-mix keeps it working correctly
+       against every theme's own accent without hardcoding a hex value;
+       the plain var(--bar-bg) line right before it is the fallback for
+       any browser without color-mix support. */
     .results-table tbody tr.selected td { background: var(--bar-bg); }
+    .results-table tbody tr.selected td {
+      background: color-mix(in srgb, var(--accent) 16%, var(--bar-bg));
+    }
+    .results-table tbody tr.selected:hover td {
+      background: color-mix(in srgb, var(--accent) 24%, var(--bar-bg));
+    }
     .results-table tbody tr.selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 
     /* Result detail modal: click a row (not the Add button) to see the
