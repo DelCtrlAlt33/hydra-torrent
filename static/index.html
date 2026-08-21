@@ -663,6 +663,11 @@
       vertical-align: middle;
     }
 
+    /* Rows are clickable (select on click, details on double-click), but
+       with no cursor/user-select set here the browser falls back to the
+       default text-select I-beam over the row's text - the header cells
+       above already avoid this the same way. */
+    .results-table tbody tr { cursor: pointer; user-select: none; }
     .results-table tr:last-child td { border-bottom: none; }
     .results-table tr:hover td { background: var(--bar-bg); }
     /* Selection is a UI interaction state (theme accent), not a semantic
