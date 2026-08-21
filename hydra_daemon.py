@@ -1058,6 +1058,23 @@ class TorrentEngine:
             except Exception:
                 break
 
+            if s.error:
+                # _monitor_download already catches this (disk full,
+                # permission denied, a file deleted out from under it,
+                # etc.) - the seeding loop never checked at all, so the
+                # exact same failure post-completion (e.g. someone deletes
+                # the files, or the disk goes read-only, while still
+                # seeding) previously just kept reporting stats forever
+                # instead of surfacing anything.
+                err_msg = str(s.error)
+                logger.error(f"Torrent error for '{name}' while seeding: {err_msg}")
+                self.store.update(name, status='Failed', error=err_msg)
+                try:
+                    self.ses.remove_torrent(handle)
+                except Exception:
+                    pass
+                break
+
             current_time = time.time()
             prev_bytes = t.get('prev_bytes', 0)
             prev_time = t.get('prev_time', current_time)
