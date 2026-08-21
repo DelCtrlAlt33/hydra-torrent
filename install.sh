@@ -47,32 +47,52 @@ if command -v python3 &>/dev/null; then
   echo -e "${GREEN}found Python $PY_VERSION${NC}"
 else
   echo -e "${YELLOW}not found, installing...${NC}"
-  apt update && apt install -y python3 python3-pip python3-venv
+  apt update && apt install -y python3
   PY_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
   echo -e "${GREEN}installed Python $PY_VERSION${NC}"
 fi
 
-# Check pip
-echo -n "Checking pip... "
-if python3 -m pip --version &>/dev/null; then
+# python3-venv is a separate apt package on Debian/Ubuntu and does NOT
+# come with a normal python3 install - "python3 -m venv" fails outright
+# without it ("ensurepip is not available"). Checked unconditionally,
+# not just in the "python3 not found" branch above: a completely normal
+# fresh Ubuntu already has python3 (so that branch never runs) but does
+# NOT have this package, confirmed live on a fresh Ubuntu 24.04 install.
+echo -n "Checking python3-venv... "
+if python3 -c "import ensurepip" &>/dev/null; then
   echo -e "${GREEN}ok${NC}"
 else
   echo -e "${YELLOW}installing...${NC}"
-  apt install -y python3-pip
+  apt update && apt install -y python3-venv
 fi
 
-# Install Python dependencies
+# Dependencies go in a dedicated virtual environment, not the system
+# Python. Modern Debian/Ubuntu (PEP 668) blocks pip from touching system
+# Python at all without --break-system-packages - but that flag alone
+# isn't enough here either: Ubuntu ships its own apt-packaged
+# typing_extensions with no pip RECORD file, so pip can't safely
+# upgrade it in place even with the flag ("Cannot uninstall
+# typing_extensions 4.10.0, RECORD file not found: The package was
+# installed by debian" - the exact, real error hit installing this on a
+# genuinely fresh Ubuntu 24.04 VM, not a hypothetical). A venv sidesteps
+# the whole class of conflict instead of working around this one
+# specific package - also the fix pip's own error message recommends.
+echo ""
+echo -n "Creating virtual environment... "
+python3 -m venv "$INSTALL_DIR/venv"
+echo -e "${GREEN}ok${NC}"
+
 echo ""
 echo "Installing dependencies..."
-python3 -m pip install -r "$INSTALL_DIR/requirements.txt" --break-system-packages 2>/dev/null \
-  || python3 -m pip install -r "$INSTALL_DIR/requirements.txt"
+"$INSTALL_DIR/venv/bin/pip" install --upgrade pip --quiet
+"$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt"
 echo -e "${GREEN}Dependencies installed${NC}"
 
 # GeoIP database for peer/VPN country flags on the map (optional feature -
 # install continues fine if this fails, just without that data)
 echo ""
 echo -n "Fetching GeoIP database... "
-python3 "$INSTALL_DIR/fetch_geoip.py" && echo -e "${GREEN}ok${NC}" || echo -e "${YELLOW}skipped (network issue) - country flags/map marker will be disabled${NC}"
+"$INSTALL_DIR/venv/bin/python3" "$INSTALL_DIR/fetch_geoip.py" && echo -e "${GREEN}ok${NC}" || echo -e "${YELLOW}skipped (network issue) - country flags/map marker will be disabled${NC}"
 
 # Create hydra user if it doesn't exist
 echo ""
@@ -100,7 +120,7 @@ Type=simple
 User=hydra
 Group=hydra
 WorkingDirectory=$INSTALL_DIR
-ExecStart=/usr/bin/python3 $INSTALL_DIR/hydra_daemon.py
+ExecStart=$INSTALL_DIR/venv/bin/python3 $INSTALL_DIR/hydra_daemon.py
 Restart=always
 RestartSec=5
 StandardOutput=journal
