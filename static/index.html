@@ -1115,6 +1115,122 @@
       accent-color: var(--accent);
     }
 
+    /* Settings accordion - replaces the old always-open 2-up card grid.
+       Nine sections open at once was the actual complaint; collapsing all
+       but the one that needs attention (a health check gone wrong) fixes
+       that without losing anything - every field below still uses the
+       exact same .settings-row/.secret-row/.checkbox-label styling and
+       ids as before, just wrapped in a collapsible shell. */
+    .accordion {
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+      background: var(--card);
+      margin-bottom: 16px;
+    }
+    .acc-item + .acc-item { border-top: 1px solid var(--border); }
+
+    .acc-head {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 20px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .acc-head:hover { background: var(--bg); }
+
+    .acc-chevron {
+      width: 10px; height: 10px;
+      flex: none;
+      color: var(--muted);
+      transition: transform 0.18s ease;
+    }
+    .acc-item.open .acc-chevron { transform: rotate(90deg); color: var(--accent); }
+
+    .acc-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--muted);
+      flex: none;
+      min-width: 150px;
+    }
+    .acc-item.open .acc-title { color: var(--text); }
+
+    .acc-summary {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+      overflow: hidden;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .acc-body {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.22s ease;
+    }
+    .acc-item.open .acc-body { max-height: 700px; }
+    .acc-body-inner { padding: 2px 20px 20px 44px; }
+
+    .acc-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+    .acc-hint { font-size: 11px; color: var(--muted); }
+    .acc-result { font-size: 11px; }
+    .acc-result.ok { color: var(--accent); }
+    .acc-result.err { color: #ff3333; }
+
+    /* Connection Health's four services in one row instead of a stack */
+    .health-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+    .health-cell label {
+      display: block;
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    /* VPN's live telemetry, same idea as the health strip - the daemon
+       already tracks this (see /status), just wasn't surfaced here before */
+    .context-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      padding-bottom: 14px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .context-cell label {
+      display: block;
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .context-cell .value { font-size: 12px; color: var(--text); }
+
+    @media (max-width: 700px) {
+      .health-strip { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+      .context-strip { grid-template-columns: 1fr; }
+      .acc-title { min-width: 0; }
+      .acc-summary { display: none; }
+    }
+
     /* Theme picker */
     .theme-grid {
       display: grid;
@@ -1638,184 +1754,273 @@
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <div class="pane" id="pane-settings">
 
-  <div class="settings-grid">
+  <div class="accordion" id="settings-accordion">
 
-    <div class="settings-section">
-      <div class="settings-section-title">Connection Health</div>
-      <div class="settings-row">
-        <label>VPN</label>
-        <div class="vpn-badge checking" id="health-vpn"><div class="vpn-dot"></div><span>Checking...</span></div>
+    <!-- Connection Health -->
+    <div class="acc-item open" data-acc="health">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-title">Connection Health</span>
+        <span class="acc-summary" id="acc-summary-health"></span>
       </div>
-      <div class="settings-row">
-        <label>Jackett</label>
-        <div class="vpn-badge checking" id="health-jackett"><div class="vpn-dot"></div><span>Checking...</span></div>
-      </div>
-      <div class="settings-row">
-        <label>Plex</label>
-        <div class="vpn-badge checking" id="health-plex"><div class="vpn-dot"></div><span>Checking...</span></div>
-      </div>
-      <div class="settings-row">
-        <label>Jellyfin</label>
-        <div class="vpn-badge checking" id="health-jellyfin"><div class="vpn-dot"></div><span>Checking...</span></div>
-      </div>
-      <div class="settings-indent">
-        <button class="btn btn-sm btn-pause" onclick="loadHealth()">Refresh</button>
-      </div>
-    </div>
-
-    <div class="settings-section">
-      <div class="settings-section-title">Plex</div>
-      <div class="settings-row">
-        <label>Plex URL</label>
-        <input type="text" id="cfg-plex-url" placeholder="http://192.168.1.x:32400">
-      </div>
-      <div class="settings-row">
-        <label>Plex Token</label>
-        <div class="secret-row">
-          <input type="password" id="cfg-plex-token" placeholder="your-plex-token">
-          <button class="btn btn-sm btn-pause" onclick="toggleSecret('cfg-plex-token', this)">Show</button>
+      <div class="acc-body">
+        <div class="acc-body-inner">
+          <div class="health-strip">
+            <div class="health-cell"><label>VPN</label><div class="vpn-badge checking" id="health-vpn"><div class="vpn-dot"></div><span>Checking...</span></div></div>
+            <div class="health-cell"><label>Jackett</label><div class="vpn-badge checking" id="health-jackett"><div class="vpn-dot"></div><span>Checking...</span></div></div>
+            <div class="health-cell"><label>Plex</label><div class="vpn-badge checking" id="health-plex"><div class="vpn-dot"></div><span>Checking...</span></div></div>
+            <div class="health-cell"><label>Jellyfin</label><div class="vpn-badge checking" id="health-jellyfin"><div class="vpn-dot"></div><span>Checking...</span></div></div>
+          </div>
+          <div class="acc-actions">
+            <button class="btn btn-sm btn-pause" onclick="loadHealth()">Refresh</button>
+            <span class="acc-hint">checked automatically when this tab opens</span>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="settings-section">
-      <div class="settings-section-title">Jellyfin</div>
-      <div class="settings-row">
-        <label>Jellyfin URL</label>
-        <input type="text" id="cfg-jellyfin-url" placeholder="http://192.168.1.x:8096">
+    <!-- Plex -->
+    <div class="acc-item" data-acc="plex">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-title">Plex</span>
+        <span class="acc-summary" id="acc-summary-plex"></span>
       </div>
-      <div class="settings-row">
-        <label>API Key</label>
-        <div class="secret-row">
-          <input type="password" id="cfg-jellyfin-key" placeholder="jellyfin-api-key">
-          <button class="btn btn-sm btn-pause" onclick="toggleSecret('cfg-jellyfin-key', this)">Show</button>
+      <div class="acc-body">
+        <div class="acc-body-inner">
+          <div class="settings-row">
+            <label>Plex URL</label>
+            <input type="text" id="cfg-plex-url" placeholder="http://192.168.1.x:32400">
+          </div>
+          <div class="settings-row">
+            <label>Plex Token</label>
+            <div class="secret-row">
+              <input type="password" id="cfg-plex-token" placeholder="your-plex-token">
+              <button class="btn btn-sm btn-pause" onclick="toggleSecret('cfg-plex-token', this)">Show</button>
+            </div>
+          </div>
+          <div class="acc-actions">
+            <button class="btn btn-sm btn-pause" onclick="testConnection('plex')">Test Connection</button>
+            <span class="acc-result" id="test-result-plex"></span>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="settings-section">
-      <div class="settings-section-title">VPN</div>
-      <div class="settings-indent">
-        <label class="checkbox-label">
-          <input type="checkbox" id="cfg-vpn-required" onchange="saveSettings(true)">
-          Require VPN to download (kill switch)
-        </label>
+    <!-- Jellyfin -->
+    <div class="acc-item" data-acc="jellyfin">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-title">Jellyfin</span>
+        <span class="acc-summary" id="acc-summary-jellyfin"></span>
       </div>
-      <div class="settings-indent settings-subtext" style="margin-top:8px;">When enabled, all torrents pause if your VPN disconnects. Turn off if you don't use a VPN.</div>
-    </div>
-
-    <div class="settings-section">
-      <div class="settings-section-title">API</div>
-      <div class="settings-row">
-        <label>API Key</label>
-        <div class="secret-row">
-          <input type="password" id="cfg-api-key" readonly placeholder="loading...">
-          <button class="btn btn-sm btn-pause" onclick="toggleSecret('cfg-api-key', this)">Show</button>
-          <button class="btn btn-sm btn-pause" onclick="copyApiKey()">Copy</button>
+      <div class="acc-body">
+        <div class="acc-body-inner">
+          <div class="settings-row">
+            <label>Jellyfin URL</label>
+            <input type="text" id="cfg-jellyfin-url" placeholder="http://192.168.1.x:8096">
+          </div>
+          <div class="settings-row">
+            <label>API Key</label>
+            <div class="secret-row">
+              <input type="password" id="cfg-jellyfin-key" placeholder="jellyfin-api-key">
+              <button class="btn btn-sm btn-pause" onclick="toggleSecret('cfg-jellyfin-key', this)">Show</button>
+            </div>
+          </div>
+          <div class="acc-actions">
+            <button class="btn btn-sm btn-pause" onclick="testConnection('jellyfin')">Test Connection</button>
+            <span class="acc-result" id="test-result-jellyfin"></span>
+          </div>
         </div>
-      </div>
-      <div class="settings-subtext">
-        Auto-generated key for external access to Hydra's API. You only need this if you're using remote control or scripting Hydra.
-      </div>
-    </div>
-
-    <div class="settings-section span2">
-      <div class="settings-section-title">Indexer</div>
-      <div class="settings-row">
-        <label>Indexer URL</label>
-        <input type="text" id="cfg-indexer-url" placeholder="http://192.168.1.x:9117">
-      </div>
-      <div class="settings-row">
-        <label>Jackett API Key</label>
-        <div class="secret-row">
-          <input type="password" id="cfg-jackett-key" placeholder="jackett-api-key">
-          <button class="btn btn-sm btn-pause" onclick="toggleSecret('cfg-jackett-key', this)">Show</button>
-        </div>
-      </div>
-      <span class="settings-hint-toggle" onclick="this.nextElementSibling.classList.toggle('open')">What's Jackett?</span>
-      <div class="settings-hint-box">
-        Most torrent sites block automated searches; they'll hit you with CAPTCHAs, Cloudflare walls, or just ban your IP.
-        Jackett handles all of that. It talks to 100+ torrent sites and feeds the results back to Hydra.<br><br>
-        Hydra is the app you use. Jackett is the thing that goes out and finds torrents without getting blocked.<br><br>
-        You don't need it to use Hydra. But if you want more results, more sources, and more peers, add Jackett.
       </div>
     </div>
 
-    <div class="settings-section span2">
-      <div class="settings-section-title">Downloads</div>
-      <div class="settings-row">
-        <label>Download folder</label>
-        <div class="secret-row">
-          <input type="text" id="cfg-download-dir" placeholder="Downloads\HydraTorrent">
-          <button class="btn btn-sm btn-pause" onclick="browseDownloadDir()">Browse</button>
+    <!-- VPN -->
+    <div class="acc-item" data-acc="vpn">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-title">VPN</span>
+        <span class="acc-summary" id="acc-summary-vpn"></span>
+      </div>
+      <div class="acc-body">
+        <div class="acc-body-inner">
+          <div class="context-strip" id="vpn-context-strip">
+            <div class="context-cell"><label>Interface</label><span class="value" id="vpn-ctx-iface">-</span></div>
+            <div class="context-cell"><label>VPN IP</label><span class="value" id="vpn-ctx-ip">-</span></div>
+            <div class="context-cell"><label>Exit IP</label><span class="value" id="vpn-ctx-exit">-</span></div>
+          </div>
+          <div class="settings-indent" style="padding-left:0;">
+            <label class="checkbox-label">
+              <input type="checkbox" id="cfg-vpn-required" onchange="saveSettings(true)">
+              Require VPN to download (kill switch)
+            </label>
+          </div>
+          <div class="settings-subtext" style="padding-left:0;">When enabled, all torrents pause if your VPN disconnects. Turn off if you don't use a VPN.</div>
         </div>
-      </div>
-      <div class="settings-subtext">
-        Where torrents land while downloading. Kept outside the app's own install folder on
-        purpose, same reason a browser saves to Downloads instead of its own program files -
-        deleting or reinstalling Hydra should never risk your actual downloads. Change takes
-        effect next time Hydra starts.
-      </div>
-      <div class="settings-indent" style="padding-left:0;">
-        <button class="btn btn-sm btn-pause" onclick="detectLibraries('plex')" id="detect-plex-btn">Detect from Plex</button>
-        <button class="btn btn-sm btn-pause" onclick="detectLibraries('jellyfin')" id="detect-jellyfin-btn">Detect from Jellyfin</button>
-      </div>
-      <div class="settings-row">
-        <label>Movies path</label>
-        <div style="flex:1;">
-          <input type="text" id="cfg-movies-path" placeholder="/mnt/plex/movies" oninput="_checkLibraryPath('movies')" style="width:100%; box-sizing:border-box;">
-          <div class="path-status" id="movies-path-status"></div>
-        </div>
-      </div>
-      <div class="settings-row">
-        <label>TV path</label>
-        <div style="flex:1;">
-          <input type="text" id="cfg-tv-path" placeholder="/mnt/plex/tv" oninput="_checkLibraryPath('tv')" style="width:100%; box-sizing:border-box;">
-          <div class="path-status" id="tv-path-status"></div>
-        </div>
-      </div>
-      <div class="settings-subtext">
-        Downloads land in the folder above first while transferring, then move here
-        automatically once complete (if auto-move below is on) - Plex/Jellyfin gets
-        notified to scan right after. Put these on the same drive/NFS mount as the
-        download folder above and that move is instant instead of a slow copy. Don't
-        know the exact path? Use Detect above if Plex/Jellyfin is already set up below.
-      </div>
-      <div class="settings-row">
-        <label>Seed ratio</label>
-        <input type="text" id="cfg-seed-ratio" placeholder="0 = seed forever  (e.g. 2.0)">
-      </div>
-      <div class="settings-indent">
-        <label class="checkbox-label">
-          <input type="checkbox" id="cfg-auto-move" onchange="saveSettings(true)">
-          Auto-move &amp; notify Plex/Jellyfin when complete
-        </label>
       </div>
     </div>
 
-    <div class="settings-section span2">
-      <div class="settings-section-title">Remote Control (advanced)</div>
-      <div class="settings-subtext" style="padding-left:0;">
-        Control a Hydra daemon running on another machine (e.g. a headless home server) from a lightweight tray icon on this PC.
-        Not needed for normal desktop use, this app already lives in your Windows tray on its own.
+    <!-- API -->
+    <div class="acc-item" data-acc="api">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-title">API</span>
+        <span class="acc-summary" id="acc-summary-api"></span>
       </div>
-      <div style="margin-top:10px;">
-        <a class="btn btn-sm btn-pause" href="/download/tray" download="HydraTray.zip">Download Remote Tray Client</a>
-        <div style="font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.8;">
-          Extract <strong>HydraTray.zip</strong> anywhere and run <code>hydra_tray.exe</code> on the machine you want to control from.
-          The API key is pre-configured. Adds itself to Windows startup automatically.
+      <div class="acc-body">
+        <div class="acc-body-inner">
+          <div class="settings-row">
+            <label>API Key</label>
+            <div class="secret-row">
+              <input type="password" id="cfg-api-key" readonly placeholder="loading...">
+              <button class="btn btn-sm btn-pause" onclick="toggleSecret('cfg-api-key', this)">Show</button>
+              <button class="btn btn-sm btn-pause" onclick="copyApiKey()">Copy</button>
+            </div>
+          </div>
+          <div class="settings-subtext">
+            Auto-generated key for external access to Hydra's API. You only need this if you're using remote control or scripting Hydra.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Indexer -->
+    <div class="acc-item" data-acc="indexer">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-title">Indexer</span>
+        <span class="acc-summary" id="acc-summary-indexer"></span>
+      </div>
+      <div class="acc-body">
+        <div class="acc-body-inner">
+          <div class="settings-row">
+            <label>Indexer URL</label>
+            <input type="text" id="cfg-indexer-url" placeholder="http://192.168.1.x:9117">
+          </div>
+          <div class="settings-row">
+            <label>Jackett API Key</label>
+            <div class="secret-row">
+              <input type="password" id="cfg-jackett-key" placeholder="jackett-api-key">
+              <button class="btn btn-sm btn-pause" onclick="toggleSecret('cfg-jackett-key', this)">Show</button>
+            </div>
+          </div>
+          <span class="settings-hint-toggle" onclick="this.nextElementSibling.classList.toggle('open')">What's Jackett?</span>
+          <div class="settings-hint-box">
+            Most torrent sites block automated searches; they'll hit you with CAPTCHAs, Cloudflare walls, or just ban your IP.
+            Jackett handles all of that. It talks to 100+ torrent sites and feeds the results back to Hydra.<br><br>
+            Hydra is the app you use. Jackett is the thing that goes out and finds torrents without getting blocked.<br><br>
+            You don't need it to use Hydra. But if you want more results, more sources, and more peers, add Jackett.
+          </div>
+          <div class="acc-actions">
+            <button class="btn btn-sm btn-pause" onclick="testConnection('jackett')">Test Connection</button>
+            <span class="acc-result" id="test-result-jackett"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Downloads -->
+    <div class="acc-item" data-acc="downloads">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-title">Downloads</span>
+        <span class="acc-summary" id="acc-summary-downloads"></span>
+      </div>
+      <div class="acc-body">
+        <div class="acc-body-inner">
+          <div class="settings-row">
+            <label>Download folder</label>
+            <div class="secret-row">
+              <input type="text" id="cfg-download-dir" placeholder="Downloads\HydraTorrent">
+              <button class="btn btn-sm btn-pause" onclick="browseDownloadDir()">Browse</button>
+            </div>
+          </div>
+          <div class="settings-subtext">
+            Where torrents land while downloading. Kept outside the app's own install folder on
+            purpose, same reason a browser saves to Downloads instead of its own program files -
+            deleting or reinstalling Hydra should never risk your actual downloads. Change takes
+            effect next time Hydra starts.
+          </div>
+          <div class="settings-indent" style="padding-left:0;">
+            <button class="btn btn-sm btn-pause" onclick="detectLibraries('plex')" id="detect-plex-btn">Detect from Plex</button>
+            <button class="btn btn-sm btn-pause" onclick="detectLibraries('jellyfin')" id="detect-jellyfin-btn">Detect from Jellyfin</button>
+          </div>
+          <div class="settings-row">
+            <label>Movies path</label>
+            <div style="flex:1;">
+              <input type="text" id="cfg-movies-path" placeholder="/mnt/plex/movies" oninput="_checkLibraryPath('movies')" style="width:100%; box-sizing:border-box;">
+              <div class="path-status" id="movies-path-status"></div>
+            </div>
+          </div>
+          <div class="settings-row">
+            <label>TV path</label>
+            <div style="flex:1;">
+              <input type="text" id="cfg-tv-path" placeholder="/mnt/plex/tv" oninput="_checkLibraryPath('tv')" style="width:100%; box-sizing:border-box;">
+              <div class="path-status" id="tv-path-status"></div>
+            </div>
+          </div>
+          <div class="settings-subtext">
+            Downloads land in the folder above first while transferring, then move here
+            automatically once complete (if auto-move below is on) - Plex/Jellyfin gets
+            notified to scan right after. Put these on the same drive/NFS mount as the
+            download folder above and that move is instant instead of a slow copy. Don't
+            know the exact path? Use Detect above if Plex/Jellyfin is already set up below.
+          </div>
+          <div class="settings-row" style="padding-top:12px; border-top:1px solid var(--border);">
+            <label>Seed ratio</label>
+            <input type="text" id="cfg-seed-ratio" placeholder="0 = seed forever  (e.g. 2.0)" style="max-width:220px;">
+          </div>
+          <div class="settings-indent" style="padding-left:0;">
+            <label class="checkbox-label">
+              <input type="checkbox" id="cfg-auto-move" onchange="saveSettings(true)">
+              Auto-move &amp; notify Plex/Jellyfin when complete
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Remote Control -->
+    <div class="acc-item" data-acc="remote">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-title">Remote Control</span>
+        <span class="acc-summary">Advanced &middot; optional</span>
+      </div>
+      <div class="acc-body">
+        <div class="acc-body-inner">
+          <div class="settings-subtext" style="padding-left:0;">
+            Control a Hydra daemon running on another machine (e.g. a headless home server) from a lightweight tray icon on this PC.
+            Not needed for normal desktop use, this app already lives in your Windows tray on its own.
+          </div>
+          <div style="margin-top:10px;">
+            <a class="btn btn-sm btn-pause" href="/download/tray" download="HydraTray.zip">Download Remote Tray Client</a>
+            <div style="font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.8;">
+              Extract <strong>HydraTray.zip</strong> anywhere and run <code>hydra_tray.exe</code> on the machine you want to control from.
+              The API key is pre-configured. Adds itself to Windows startup automatically.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Theme -->
+    <div class="acc-item" data-acc="theme">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-title">Theme</span>
+        <span class="acc-summary" id="acc-summary-theme"></span>
+      </div>
+      <div class="acc-body">
+        <div class="acc-body-inner">
+          <div class="theme-grid" id="theme-grid"></div>
         </div>
       </div>
     </div>
 
   </div>
 
-  <div class="settings-section">
-    <div class="settings-section-title">Theme</div>
-    <div class="theme-grid" id="theme-grid"></div>
-  </div>
-
-  <div style="margin-top: 8px;">
+  <div style="margin-top: 16px;">
     <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
   </div>
 
@@ -1952,6 +2157,7 @@ function applyTheme(key) {
   document.querySelectorAll('.theme-card').forEach(c => {
     c.classList.toggle('active', c.dataset.theme === key);
   });
+  setSummary('theme', t.name);
 }
 
 function renderThemeGrid() {
@@ -3007,6 +3213,17 @@ async function pollStatus() {
       if (statusStripVpn) statusStripVpn.textContent = 'EXPOSED';
     }
 
+    // Settings tab's VPN section: same real data, just also surfaced
+    // where you're actually looking at the kill switch toggle.
+    const ctxIface = document.getElementById('vpn-ctx-iface');
+    const ctxIp = document.getElementById('vpn-ctx-ip');
+    const ctxExit = document.getElementById('vpn-ctx-exit');
+    if (ctxIface) ctxIface.textContent = vpn.connected ? (vpn.iface || '-') : '-';
+    if (ctxIp) ctxIp.textContent = vpn.connected ? (vpn.vpn_ip || '-') : '-';
+    if (ctxExit) ctxExit.textContent = vpn.public_ip
+      ? (vpn.public_ip + (vpn.country_code ? ' (' + vpn.country_code + ')' : ''))
+      : '-';
+
     const dlRate = data.total_download_rate || 0;
     const ulRate = data.total_upload_rate || 0;
     const ratesEl = document.getElementById('header-rates');
@@ -3577,9 +3794,65 @@ async function loadSettings() {
     document.getElementById('cfg-seed-ratio').value     = cfg.seed_ratio > 0 ? cfg.seed_ratio : '';
     document.getElementById('cfg-api-key').value        = cfg.daemon_api_key   || '';
     document.getElementById('cfg-vpn-required').checked = cfg.vpn_required === true;
+    updateAccordionSummaries();
   } catch (e) {
     toast('Settings load failed: ' + e.message, 'err');
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Settings accordion: open/close + the collapsed-row summaries. Summaries
+// are derived from whatever loadSettings()/loadHealth()/pollStatus() last
+// populated the real fields with - never invented, just read back.
+// ═══════════════════════════════════════════════════════════════════════════
+function toggleAcc(headEl) {
+  headEl.closest('.acc-item').classList.toggle('open');
+}
+
+function updateAccordionSummaries() {
+  const val = id => (document.getElementById(id)?.value || '').trim();
+
+  const plexUrl = val('cfg-plex-url');
+  setSummary('plex', plexUrl || 'Not configured');
+
+  const jellyfinUrl = val('cfg-jellyfin-url');
+  setSummary('jellyfin', jellyfinUrl || 'Not configured');
+
+  setSummary('api', document.getElementById('cfg-api-key')?.value ? 'Key ready' : 'Loading...');
+
+  const indexerUrl = val('cfg-indexer-url');
+  setSummary('indexer', indexerUrl || 'Not configured');
+
+  const autoMove = document.getElementById('cfg-auto-move')?.checked;
+  const seedRatio = val('cfg-seed-ratio');
+  setSummary('downloads', (autoMove ? 'Auto-move on' : 'Auto-move off') + ' · ' +
+    (seedRatio ? 'ratio ' + seedRatio : 'seed forever'));
+
+  const vpnOn = document.getElementById('cfg-vpn-required')?.checked;
+  setSummary('vpn', 'Kill switch: ' + (vpnOn ? 'on' : 'off'));
+
+  const themeKey = localStorage.getItem('hydra-theme') || 'matrix';
+  setSummary('theme', THEMES[themeKey]?.name || themeKey);
+}
+
+function setSummary(key, text) {
+  const el = document.getElementById('acc-summary-' + key);
+  if (el) el.textContent = text;
+}
+
+// Real per-service check, not a separate endpoint - /health already
+// returns configured/reachable/error per integration, this just re-runs
+// that same check and reflects the one result relevant to this section
+// inline instead of making the user go find it in Connection Health.
+async function testConnection(service) {
+  const resultEl = document.getElementById('test-result-' + service);
+  if (resultEl) { resultEl.className = 'acc-result'; resultEl.textContent = 'Checking...'; }
+  await loadHealth();
+  const badge = document.getElementById('health-' + service);
+  if (!badge || !resultEl) return;
+  const text = badge.querySelector('span')?.textContent || '';
+  resultEl.textContent = text;
+  resultEl.className = 'acc-result ' + (badge.classList.contains('protected') ? 'ok' : 'err');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3603,6 +3876,22 @@ async function loadHealth() {
     renderHealthBadge('health-plex', failed);
     renderHealthBadge('health-jellyfin', failed);
   }
+  summarizeHealth();
+}
+
+function summarizeHealth() {
+  const ids = ['health-vpn', 'health-jackett', 'health-plex', 'health-jellyfin'];
+  let connected = 0, notConfigured = 0;
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    if (el.classList.contains('protected')) connected++;
+    else if (el.querySelector('span')?.textContent === 'Not configured') notConfigured++;
+  }
+  const parts = [];
+  parts.push(connected + ' connected');
+  if (notConfigured) parts.push(notConfigured + ' not configured');
+  setSummary('health', parts.join(' · '));
 }
 
 function vpnHealthState(vpn) {
@@ -3664,6 +3953,7 @@ async function saveSettings(silent = false) {
     if (r.ok) {
       const d = await r.json();
       if (!silent) toast('Saved: ' + (d.saved.length ? d.saved.join(', ') : 'no changes'), 'ok');
+      updateAccordionSummaries();
     } else {
       const d = await r.json().catch(() => ({}));
       toast('Save failed: ' + (d.detail || r.status), 'err');
