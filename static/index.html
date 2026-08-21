@@ -615,18 +615,33 @@
     .search-row input:focus { border-color: var(--accent); }
     .search-row input::placeholder { color: var(--muted); }
 
-    .search-row select {
+    /* Was a single-option "Jackett" dropdown (dead weight now that the
+       other search mode was removed) - a real button that opens Jackett's
+       own web UI directly is more useful in the same footprint, since
+       Jackett configuration otherwise has no obvious entry point at all. */
+    .jackett-open-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
       background: var(--input-bg);
       border: 1px solid var(--border);
       border-radius: 2px;
       color: var(--text);
-      padding: 9px 10px;
+      padding: 9px 12px;
       font-size: 13px;
-      outline: none;
-      cursor: pointer;
+      font-weight: 400;
+      white-space: nowrap;
     }
 
-    .search-row select:focus { border-color: var(--accent); }
+    .jackett-open-btn:hover {
+      border-color: var(--accent-dim, var(--accent));
+      color: var(--accent);
+      background: var(--input-bg);
+      filter: none;
+    }
+
+    .jackett-open-btn svg { flex: none; opacity: 0.7; }
+    .jackett-open-btn:hover svg { opacity: 1; }
 
     /* Results summary line, above the table */
     .search-summary {
@@ -1722,9 +1737,10 @@
 <div class="pane" id="pane-search">
   <div class="search-row">
     <input type="text" id="search-input" placeholder="Movie name, show, etc..." onkeydown="if(event.key==='Enter')doSearch()">
-    <select id="search-mode" onchange="localStorage.setItem('searchMode', this.value)">
-      <option value="jackett">Jackett</option>
-    </select>
+    <button class="btn jackett-open-btn" onclick="openJackett()" title="Open Jackett in a new tab">
+      Jackett
+      <svg viewBox="0 0 12 12" width="10" height="10"><path d="M4.5 2h5.5v5.5M10 2L2.5 9.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
     <button class="btn btn-primary" onclick="doSearch()">Search</button>
   </div>
   <div id="search-results">
@@ -3444,7 +3460,7 @@ let _searchSort = { key: 'seeders', dir: 'desc' };
 
 async function doSearch() {
   const query = document.getElementById('search-input').value.trim();
-  const mode  = document.getElementById('search-mode').value;
+  const mode  = 'jackett'; // the only search mode Hydra has - see search.py
   const container = document.getElementById('search-results');
 
   if (!query) { toast('Enter a search query', 'info'); return; }
@@ -3468,6 +3484,25 @@ async function doSearch() {
     renderResults();
   } catch (e) {
     container.innerHTML = `<div class="empty">Search failed: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// Opens Jackett's own web UI directly - fetched fresh each click (not
+// cached) so it always reflects whatever's actually saved in Settings,
+// even if that changed since the page loaded.
+async function openJackett() {
+  try {
+    const r = await fetch(BASE + '/config', { headers: HEADERS });
+    if (!r.ok) throw new Error('status ' + r.status);
+    const cfg = await r.json();
+    const url = (cfg.indexing_server || '').trim();
+    if (!url) {
+      toast("Jackett URL not set yet - add it in Settings → Indexer first", 'info');
+      return;
+    }
+    window.open(url, '_blank', 'noopener');
+  } catch (e) {
+    toast('Could not open Jackett: ' + e.message, 'err');
   }
 }
 
@@ -4697,10 +4732,6 @@ document.addEventListener('DOMContentLoaded', () => {
     warn.textContent = '⚠️  Unencrypted HTTP: API key is visible on your LAN. Use https:// instead.';
     warn.classList.add('visible');
   }
-
-  // Restore last search mode choice
-  const savedMode = localStorage.getItem('searchMode');
-  if (savedMode) document.getElementById('search-mode').value = savedMode;
 
   HydraMap.init();
   PulseTicker.init();
