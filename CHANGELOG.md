@@ -13,6 +13,33 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-22 - Torrent errors while seeding were never surfaced, only while downloading
+
+- **Symptom**: audit item #2 from the same proactive pass that found the
+  resume-data gap. The audit's own framing turned out to overstate it -
+  worth recording precisely because it shows why "verify against the code"
+  matters even when the source list looks credible.
+- **What the audit claimed**: "nothing pauses a torrent or surfaces a clear
+  error when libtorrent hits a write failure mid-download."
+- **What was actually true**: `_monitor_download()` already checked
+  `status().error` every 2-second poll and correctly marked the torrent
+  Failed with the real error message - this part of the claim was wrong.
+  `_monitor_seeding()`, however, never checked it at all - a disk error
+  *after* completion (files deleted out from under a seeding torrent, the
+  disk goes read-only, etc.) just kept reporting upload stats forever with
+  nothing surfaced anywhere. Real gap, just a narrower and different one
+  than described.
+- **Fix**: mirrored `_monitor_download()`'s existing error-check block into
+  `_monitor_seeding()` - log, mark Failed with the real message, detach the
+  handle, stop the loop.
+- **How it was caught**: verified directly against the real
+  `_monitor_seeding()` method with a stub handle reporting a genuine error
+  signal, confirming the store transitions to Failed and the monitor
+  thread exits. First tried reproducing an actual disk failure by deleting
+  a seeding torrent's files on disk - libtorrent just re-downloads into the
+  recreated directory instead of erroring, so that path doesn't reproduce
+  this at all; noted here so it's not attempted again next time.
+
 ## 2026-08-22 - Every daemon restart re-hashed every in-progress torrent from scratch
 
 - **Symptom**: found via a proactive audit (cross-referencing high-impact
