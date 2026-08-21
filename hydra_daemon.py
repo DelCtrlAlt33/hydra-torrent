@@ -27,6 +27,7 @@ import os
 import sys
 import json
 import time
+import base64
 import queue
 import shutil
 import secrets
@@ -136,6 +137,12 @@ _INTERNAL_FIELDS = frozenset({'handle', 'prev_bytes', 'prev_time', 'hidden'})
 
 # Path to persisted transfer state (mirrors transfer_manager.py)
 _TRANSFERS_PATH = os.path.join(BASE_DIR, 'transfers.json')
+
+# Fast-resume state (libtorrent's per-torrent piece-verification data),
+# saved on graceful shutdown so a restart doesn't re-hash every in-progress
+# torrent from scratch. Separate from transfers.json (which is UI/API state
+# and gets broadcast over the WebSocket) - this is engine-internal only.
+_RESUME_DATA_PATH = os.path.join(BASE_DIR, 'resume_data.json')
 
 
 
@@ -394,6 +401,7 @@ class TorrentEngine:
 
     def shutdown(self) -> None:
         logger.info("TorrentEngine shutting down...")
+        self._save_resume_data()
         self.store.save(_TRANSFERS_PATH)
         self.vpn_guard.stop()
         logger.info("TorrentEngine stopped.")
@@ -421,6 +429,13 @@ class TorrentEngine:
             'user_agent': f'HydraTorrent/{VERSION}',
             'handshake_client_version': f'HydraTorrent/{VERSION}',
             'always_send_user_agent': True,
+            # storage_notification is what save_resume_data_alert belongs
+            # to - it's NOT in libtorrent's default alert_mask, so without
+            # this the alert is silently dropped and save_resume_data()
+            # looks like it works but resume data is never actually
+            # collected. error_notification kept too so a failed save still
+            # surfaces instead of just timing out silently.
+            'alert_mask': int(lt.alert.category_t.storage_notification | lt.alert.category_t.error_notification),
         })
         self.ses.add_dht_router("router.utorrent.com", 6881)
         self.ses.add_dht_router("router.bittorrent.com", 6881)
@@ -1155,6 +1170,105 @@ class TorrentEngine:
 
         self.store.remove(name)
 
+    # ── Fast-resume data ─────────────────────────────────────────────────────
+
+    def _save_resume_data(self) -> None:
+        """
+        Ask libtorrent for fast-resume state (piece-verification progress,
+        not the UI/API state in transfers.json) for every live torrent, and
+        persist it to resume_data.json before shutting down. Without this,
+        every daemon restart re-hashes every piece of every in-progress
+        torrent from scratch, because libtorrent has no other way to know
+        what's already been verified - the exact failure class behind other
+        clients' worst startup-time complaints.
+
+        save_resume_data()'s output deliberately never includes the torrent's
+        metadata (file list/piece hashes), only piece-verification state -
+        confirmed directly against this exact libtorrent version, not
+        assumed. Since every torrent here was added via magnet link, that
+        metadata was never available at add-time either, so on restore
+        there'd be nothing to verify pieces AGAINST without it - libtorrent
+        would have to re-fetch it from peers before doing anything, same as
+        a brand new magnet add, defeating most of the point. So this also
+        separately caches each torrent's metadata (once the handle actually
+        has it) alongside its resume data.
+
+        save_resume_data() itself is async - libtorrent posts the result as
+        an alert rather than returning it directly - so this requests it for
+        every handle, then drains pop_alerts() in a short polling loop
+        (bounded to a few seconds, not indefinitely) collecting whatever
+        comes back before giving up and writing out what it has.
+        """
+        if not self.ses:
+            return
+
+        pending: dict = {}
+        for name in self.store.all_names():
+            handle = self.store.get_handle(name)
+            if not handle or not handle.is_valid():
+                continue
+            try:
+                handle.save_resume_data()
+                pending[name] = handle
+            except Exception:
+                pass
+
+        if not pending:
+            return
+
+        results: dict = {}
+        deadline = time.time() + 5.0
+        while pending and time.time() < deadline:
+            for alert in self.ses.pop_alerts():
+                name = None
+                if isinstance(alert, (lt.save_resume_data_alert, lt.save_resume_data_failed_alert)):
+                    name = next((n for n, h in pending.items() if h == alert.handle), None)
+                if name is None:
+                    continue
+                if isinstance(alert, lt.save_resume_data_alert):
+                    try:
+                        entry = {'resume': lt.write_resume_data_buf(alert.params)}
+                        handle = pending[name]
+                        if handle.has_metadata():
+                            # info_section() is the raw info-dict only; wrap
+                            # it back into a {'info': ...} structure so
+                            # torrent_info's constructor accepts it on the
+                            # way back in (read_resume_data never restores
+                            # this part - see the docstring above).
+                            info_bytes = bytes(handle.torrent_file().info_section())
+                            entry['metadata'] = lt.bencode({b'info': lt.bdecode(info_bytes)})
+                        results[name] = entry
+                    except Exception as e:
+                        logger.warning(f"Could not encode resume data for '{name}': {e}")
+                pending.pop(name, None)
+            if pending:
+                time.sleep(0.1)
+
+        try:
+            encoded = {
+                n: {k: base64.b64encode(v).decode('ascii') for k, v in entry.items()}
+                for n, entry in results.items()
+            }
+            with open(_RESUME_DATA_PATH, 'w', encoding='utf-8') as f:
+                json.dump(encoded, f)
+            logger.info(f"Saved resume data for {len(results)}/{len(pending) + len(results)} torrent(s)")
+        except Exception as e:
+            logger.error(f"Could not write resume data: {e}")
+
+    def _load_resume_data(self) -> dict:
+        if not os.path.exists(_RESUME_DATA_PATH):
+            return {}
+        try:
+            with open(_RESUME_DATA_PATH, 'r', encoding='utf-8') as f:
+                raw = json.load(f)
+            return {
+                n: {k: base64.b64decode(v) for k, v in entry.items()}
+                for n, entry in raw.items()
+            }
+        except Exception as e:
+            logger.error(f"Could not read resume data: {e}")
+            return {}
+
     # ── Resume persisted ──────────────────────────────────────────────────────
 
     def _resume_persisted(self) -> None:
@@ -1166,8 +1280,17 @@ class TorrentEngine:
         mid-download) when the daemon last restarted is left with no handle
         at all: pause/resume/files/peers silently do nothing forever, since
         there's no libtorrent object left to act on.
+
+        Uses saved fast-resume data (see _save_resume_data) when available,
+        so this doesn't re-hash every piece from scratch on every restart -
+        except for a torrent that's been auto-moved to Plex/Jellyfin, whose
+        resume data still points at the old (pre-move) path: media_organizer
+        moves files with a plain filesystem move, not handle.move_storage(),
+        so libtorrent's own resume state is stale for those and re-hashing
+        against the real (new) location is the only correct option anyway.
         """
         kill_switch_active = load_config().get('vpn_required', False) and not self.vpn_ip
+        resume_data = self._load_resume_data()
         names = self.store.all_names()
         for name in names:
             t = self.store.get(name)
@@ -1175,13 +1298,40 @@ class TorrentEngine:
                 continue
 
             save_path = t.get('plex_path') or DOWNLOAD_DIR_INCOMPLETE
-            params = {
-                'url': t['magnet'],
-                'save_path': save_path,
-                'storage_mode': lt.storage_mode_t(2),
-            }
+            handle = None
+            entry = resume_data.get(name)
+            # Only worth attempting with both pieces present - resume data
+            # alone can't do anything (no file list to verify pieces
+            # against), and a torrent that hadn't received metadata yet by
+            # the last shutdown gets nothing from re-trying that here either.
+            if entry and 'resume' in entry and 'metadata' in entry and not t.get('moved_to_plex'):
+                try:
+                    params = lt.read_resume_data(entry['resume'])
+                    # Already wrapped into a {'info': ...} structure at save
+                    # time (see _save_resume_data) - torrent_info's
+                    # constructor takes it as-is.
+                    params.ti = lt.torrent_info(entry['metadata'])
+                    # read_resume_data() never restores trackers from a
+                    # magnet-only add, so pull them back in from the magnet
+                    # URI itself - without this the torrent has verified
+                    # pieces but no way to reach peers for the rest.
+                    params.trackers = lt.parse_magnet_uri(t['magnet']).trackers
+                    handle = self.ses.add_torrent(params)
+                except Exception as e:
+                    # A corrupt/incompatible resume blob (e.g. a libtorrent
+                    # version bump changed the format) shouldn't sink the
+                    # whole torrent - fall back to the always-works magnet
+                    # re-add below instead, same as before this existed.
+                    logger.warning(f"Resume data unusable for '{name}', falling back to magnet re-add: {e}")
+
             try:
-                handle = lt.add_magnet_uri(self.ses, t['magnet'], params)
+                if handle is None:
+                    magnet_params = {
+                        'url': t['magnet'],
+                        'save_path': save_path,
+                        'storage_mode': lt.storage_mode_t(2),
+                    }
+                    handle = lt.add_magnet_uri(self.ses, t['magnet'], magnet_params)
                 if t.get('intended_pause', False) or kill_switch_active:
                     handle.pause()
                 else:
