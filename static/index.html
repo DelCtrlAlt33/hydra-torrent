@@ -2077,6 +2077,30 @@
       </div>
     </div>
 
+    <!-- Help & Feedback -->
+    <div class="acc-item" data-acc="help">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-icon">&#9873;</span>
+        <span class="acc-title">Help &amp; Feedback</span>
+        <span class="acc-summary">Report a problem</span>
+      </div>
+      <div class="acc-body">
+        <div class="acc-body-inner single">
+          <div class="acc-subtext">
+            Found something broken? Report it with your version, platform, and connection health
+            already filled in. Nothing is sent anywhere until you actually submit it on GitHub -
+            this just opens a pre-filled issue in a new tab.
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn btn-sm btn-pause" onclick="reportBug()">Report a Bug</button>
+            <button class="btn btn-sm btn-pause" onclick="copyDiagnosticLog()">Copy Diagnostic Log</button>
+          </div>
+          <span class="acc-result" id="bug-report-result"></span>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <div style="margin-top: 16px;">
@@ -3983,6 +4007,60 @@ function renderHealthBadge(id, state) {
   el.classList.add(state.cls);
   const span = el.querySelector('span');
   if (span) span.textContent = state.text;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Bug reporting: opens a pre-filled GitHub issue with version/platform/
+// health already in the body, and a separate clipboard copy for the log
+// (GitHub issue URLs have a practical length cap, nowhere near enough for
+// a real log excerpt) - reads already-rendered health badges instead of a
+// fresh fetch, same approach summarizeHealth() already uses.
+// ═══════════════════════════════════════════════════════════════════════════
+async function reportBug() {
+  const versionText = document.getElementById('header-app-version')?.textContent
+    || document.getElementById('app-version')?.textContent || '';
+  const version = versionText.replace(/^v/, '') || 'unknown';
+
+  let platform = 'unknown';
+  try {
+    const r = await fetch(BASE + '/config', { headers: HEADERS });
+    if (r.ok) platform = (await r.json()).platform || 'unknown';
+  } catch (e) { /* leave as 'unknown' */ }
+
+  const healthLine = id => document.getElementById(id)?.querySelector('span')?.textContent || 'Unknown';
+  const diagnostics = [
+    `- Hydra version: v${version}`,
+    `- Platform: ${platform}`,
+    `- VPN: ${healthLine('health-vpn')}`,
+    `- Jackett: ${healthLine('health-jackett')}`,
+    `- Plex: ${healthLine('health-plex')}`,
+    `- Jellyfin: ${healthLine('health-jellyfin')}`,
+  ].join('\n');
+
+  const body = `**Describe the problem:**\n\n\n**Steps to reproduce:**\n\n\n---\n`
+    + `**Diagnostics (auto-filled):**\n${diagnostics}\n\n`
+    + `Got a diagnostic log? Settings → Help & Feedback → Copy Diagnostic Log, then paste it below:\n\n\`\`\`\n\n\`\`\`\n`;
+
+  const url = 'https://github.com/DelCtrlAlt33/hydra-torrent/issues/new'
+    + '?title=' + encodeURIComponent('Bug: ')
+    + '&body=' + encodeURIComponent(body);
+  window.open(url, '_blank', 'noopener');
+}
+
+async function copyDiagnosticLog() {
+  const resultEl = document.getElementById('bug-report-result');
+  try {
+    const r = await fetch(BASE + '/logs/tail?lines=200', { headers: HEADERS });
+    if (!r.ok) throw new Error('status ' + r.status);
+    const data = await r.json();
+    const text = (data.lines || []).join('\n');
+    await navigator.clipboard.writeText(text);
+    if (resultEl) { resultEl.textContent = `Copied ${(data.lines || []).length} log lines to clipboard`; resultEl.className = 'acc-result ok'; }
+    toast('Diagnostic log copied - paste it into your GitHub issue', 'ok');
+  } catch (e) {
+    if (resultEl) { resultEl.textContent = 'Could not copy log: ' + e.message; resultEl.className = 'acc-result err'; }
+    toast('Could not copy log: ' + e.message, 'err');
+  }
 }
 
 async function saveSettings(silent = false) {

@@ -228,7 +228,7 @@ Rule of thumb either way: if Detect shows a green checkmark, you're done. If it 
 
 ## Status
 
-Works. Runs on Docker, bare metal Linux, or Windows. Battle-tested on my homelab, shipping it for yours. Issues and PRs welcome.
+Works. Runs on Docker, bare metal Linux, or Windows. Battle-tested on my homelab, shipping it for yours. Issues and PRs welcome - found something broken? Settings → Help & Feedback → **Report a Bug** opens a GitHub issue with your version, platform, and connection health already filled in, so you don't have to dig any of that up yourself.
 
 ## License
 

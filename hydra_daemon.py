@@ -28,6 +28,7 @@ import sys
 import json
 import time
 import base64
+import platform
 import queue
 import shutil
 import secrets
@@ -59,6 +60,7 @@ from config import (
     DOWNLOAD_DIR_INCOMPLETE,
     FULLCHAIN_PATH,
     GITHUB_REPO,
+    LOG_PATH,
     PEER_PORT,
     PRIVKEY_PATH,
     VERSION,
@@ -2163,7 +2165,47 @@ def get_config() -> ConfigResponse:
         download_rate_limit=int(cfg.get('download_rate_limit', 0) or 0),
         upload_rate_limit=int(cfg.get('upload_rate_limit', 0) or 0),
         daemon_api_key=API_KEY,
+        platform=platform.platform(),
     )
+
+
+@app.get("/logs/tail", dependencies=[Depends(_require_api_key)])
+def get_logs_tail(lines: int = 200) -> dict:
+    """
+    Last N lines of the daemon log - powers the Settings "Copy diagnostic
+    log" button for bug reports. Redacts every currently-configured secret
+    (API key, Plex/Jellyfin/Jackett tokens) by exact value before
+    returning, not by pattern-matching what a leak might look like - a
+    grep across every logger.* call in this codebase turned up no line
+    that logs a credential value directly, but that's a property of what's
+    written today, not a guarantee for whatever gets added next. Exact-value
+    redaction catches a future accidental leak of a *known* secret
+    regardless of the log line's wording; it can't catch a secret it
+    doesn't know about (a third-party token embedded in some external
+    response body, say), so this is defense in depth, not a substitute for
+    keeping logger.* calls credential-free in the first place.
+    """
+    lines = max(1, min(lines, 1000))
+    if not os.path.exists(LOG_PATH):
+        return {"lines": []}
+    try:
+        with open(LOG_PATH, 'r', encoding='utf-8', errors='replace') as f:
+            tail = f.readlines()[-lines:]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not read log: {e}")
+
+    cfg = load_config()
+    secrets = [
+        API_KEY,
+        cfg.get('plex_token'),
+        cfg.get('jellyfin_api_key'),
+        cfg.get('jackett_api_key'),
+    ]
+    text = ''.join(tail)
+    for s in secrets:
+        if s:
+            text = text.replace(s, '[REDACTED]')
+    return {"lines": text.splitlines()}
 
 
 @app.patch("/config", dependencies=[Depends(_require_api_key)])

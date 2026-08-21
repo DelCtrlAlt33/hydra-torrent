@@ -155,6 +155,7 @@ class ConfigResponse(BaseModel):
     download_rate_limit: int = 0      # bytes/sec; 0 = unlimited
     upload_rate_limit: int = 0        # bytes/sec; 0 = unlimited
     daemon_api_key: str = ""          # read-only; displayed for tray config copy
+    platform: str = ""                # read-only; host OS string for bug reports
 
 
 class ConfigUpdate(BaseModel):
