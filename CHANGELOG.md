@@ -13,6 +13,38 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-22 - SSRF guard blocked legitimate Jackett download links on any private-LAN Jackett
+
+- **Symptom**: found by accident while capturing real footage for a demo
+  GIF, not a report - a well-seeded (40 real seeders), completely legal
+  TorrentGalaxy result failed to add with "Could not fetch metadata:
+  Refusing to fetch '...': resolves to 192.168.20.40, an internal/private
+  address."
+- **Root cause**: the SSRF guard added earlier this session (see the
+  2026-08-20 entry two below) was applied uniformly to both
+  `/transfers/preview` and `/transfers/url`, as if either could receive a
+  genuinely arbitrary URL. Traced the real call path: `/transfers/preview`
+  (the Search tab's "double-click for details" flow) only ever receives a
+  URL Jackett itself returned, for the server the user configured in
+  Settings - the same already-trusted-input category `search.py`'s
+  `search_jackett()` already gets a pass on, per the guard's own docstring.
+  It just wasn't actually applied here. Net effect: any indexer that
+  returns a `.torrent` proxy download link instead of a direct magnet URI
+  (TorrentGalaxy, confirmed live) was silently unusable for anyone whose
+  Jackett runs on a private LAN IP - which is nearly every self-hosted
+  deployment, including the one this was found on.
+- **Fix**: `ensure_safe_fetch_url()` takes an optional `trusted_hosts` set
+  (exact host:port matches only), built from the user's own configured
+  `indexing_server` via a new `trusted_host_from_url()` helper. A
+  different private address is still rejected - the exemption doesn't
+  blanket-trust every private IP, only the one the user actually
+  configured as their indexer.
+- **How it was caught**: not a bug report - making an honest demo GIF of
+  the real search-to-download flow hit it live on the first attempt with a
+  result that didn't provide a magnet link. Re-verified the exact same
+  result after the fix: metadata fetch succeeded, a real 5.3GB download
+  completed end-to-end in under 3 minutes.
+
 ## 2026-08-22 - Torrent errors while seeding were never surfaced, only while downloading
 
 - **Symptom**: audit item #2 from the same proactive pass that found the
