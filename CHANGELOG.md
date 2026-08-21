@@ -13,6 +13,55 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-22 - Every daemon restart re-hashed every in-progress torrent from scratch
+
+- **Symptom**: found via a proactive audit (cross-referencing high-impact
+  bug reports from qBittorrent/Transmission against Hydra's own code,
+  rather than waiting for a user to hit it first), not a bug report -
+  confirmed directly in code before doing anything about it: zero
+  references to `save_resume_data`/`read_resume_data` anywhere in
+  `hydra_daemon.py`. `_resume_persisted()` re-added every torrent with just
+  `url`/`save_path`/`storage_mode`, no resume state, and `shutdown()` never
+  asked libtorrent to save any either.
+- **Root cause**: libtorrent has no way to know which pieces are already
+  verified after a restart unless it's told - the same failure class
+  behind qBittorrent's worst startup-time complaints, and it hit Hydra
+  specifically hard since the daemon gets restarted routinely for every
+  deploy.
+- **Two gotchas found building the fix, both confirmed against the real
+  installed libtorrent (2.1.1.0) rather than assumed**:
+  1. `storage_notification` isn't in libtorrent's default `alert_mask` -
+     without explicitly requesting it, `save_resume_data_alert` is
+     silently dropped and the whole thing looks like it works while saving
+     nothing.
+  2. `save_resume_data()`'s output never includes torrent metadata (file
+     list/piece hashes), only piece-verification state. Every torrent here
+     is magnet-added, so restoring from resume data alone left it stuck in
+     `downloading_metadata` forever - reproduced this directly in a live
+     test before fixing it. Fix required separately caching each handle's
+     metadata alongside its resume data, and re-merging trackers from the
+     stored magnet URI on restore (resume data doesn't restore those for a
+     magnet-only add either).
+- **Fix**: session now requests `storage_notification | error_notification`
+  in its alert mask; `_save_resume_data()` saves resume state + metadata
+  for every live torrent on shutdown; `_resume_persisted()` reconstructs
+  both and merges trackers back in. A torrent already auto-moved to
+  Plex/Jellyfin is excluded (its libtorrent-side resume state still points
+  at the pre-move path, since media_organizer does a plain filesystem
+  move, not `handle.move_storage()` - re-verifying at the new location was
+  already correct there). A corrupt/incompatible resume blob falls back to
+  the original plain magnet re-add instead of failing the torrent.
+- **How it was caught**: not a user report - a proactive audit prompted by
+  the "should Hydra have a bug-report button" conversation, which led to
+  researching what actually breaks in other torrent clients and checking
+  Hydra's own code against the same failure classes before anyone hit them.
+  Verified end-to-end against the real `DaemonStore`/`TorrentEngine`
+  classes with a synthetic local torrent (save -> simulated restart ->
+  restore -> immediately seeding). Not added to the pytest suite - CI
+  deliberately doesn't install libtorrent, so an import-level test would
+  turn CI red for infrastructure reasons, not code ones; that's a separate
+  decision, not bundled into this fix.
+
 ## 2026-08-21 - Browser tab showed a generic default icon instead of Hydra's logo
 
 - **Symptom**: raised as "why is my cursor... wait, why does the tab just
