@@ -13,6 +13,37 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-22 - install.sh was completely broken on Ubuntu 24.04
+
+- **Symptom**: found doing a genuine fresh-install test on a clean VM
+  before considering the project done, not a report. `sudo bash
+  install.sh`, following the README exactly, died silently partway
+  through a wall of pip output with no systemd service ever created.
+- **Root cause**: the pip install line already tried
+  `--break-system-packages` first (for PEP 668, "externally managed
+  environment"), falling back to a plain `pip install` if that failed -
+  but the first attempt was failing for an unrelated reason: Ubuntu
+  ships its own apt-packaged `typing_extensions` with no pip RECORD
+  file, so pip can't safely upgrade it even with the flag ("Cannot
+  uninstall typing_extensions 4.10.0, RECORD file not found: The
+  package was installed by debian"). The fallback then hit PEP 668
+  itself, since dropping the flag makes pip refuse outright on 24.04.
+  Both paths failed, for different reasons - `set -e` aborted the
+  whole script before it ever reached systemd service creation.
+- **Fix**: install dependencies into a dedicated venv instead of
+  fighting system Python at all - the fix pip's own error message
+  recommends, and it sidesteps this whole class of conflict rather
+  than working around one specific package. Also had to explicitly
+  check for `python3-venv`: it's a separate apt package Debian/Ubuntu
+  doesn't install by default, and the script's only existing install
+  of it lived inside the "python3 not found" branch - which never
+  runs on a completely normal system that already has python3.
+  Confirmed live this would have been a second, immediate failure
+  right after "fixing" the first one, before shipping the fix.
+- **How it was caught**: a deliberate fresh-install test across
+  Windows/Linux/Docker on a genuinely clean VM, done before calling
+  the project finished - not triggered by a user hitting it.
+
 ## 2026-08-22 - SSRF guard blocked legitimate Jackett download links on any private-LAN Jackett
 
 - **Symptom**: found by accident while capturing real footage for a demo
