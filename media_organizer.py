@@ -216,21 +216,20 @@ class MediaOrganizer:
                 return False, None, f"Source file not found: {source_path}"
 
             if not self.is_video_file(filename):
-                if DOWNLOAD_DIR_OTHER and os.path.isdir(DOWNLOAD_DIR_OTHER):
-                    dest_path = os.path.join(DOWNLOAD_DIR_OTHER, filename)
-                    if os.path.exists(dest_path):
-                        base, ext = os.path.splitext(dest_path)
-                        counter = 1
-                        while os.path.exists(f"{base} ({counter}){ext}"):
-                            counter += 1
-                        dest_path = f"{base} ({counter}){ext}"
-                    shutil.move(source_path, dest_path)
-                    logger.info(f"Non-video file moved to downloads: {dest_path}")
-                    return True, dest_path, None
-                logger.info(f"Skipping non-video file: {filename}")
-                return False, None, "Not a video file"
+                return self._move_to_other_or_skip(filename, source_path, "Not a video file")
 
             media_type = self.detect_media_type(filename, torrent_name)
+            library_dir = MEDIA_DIR_TV if media_type == 'tv' else MEDIA_DIR_MOVIES
+
+            # No configured library path for this type - either Plex/Jellyfin
+            # was never set up, or just Movies/TV was left blank. Rather than
+            # leaving a Plex-classified file stranded, fall back to the same
+            # general downloads path non-video files use below (this is what
+            # makes DOWNLOAD_DIR_OTHER work as a real "normal torrent client,
+            # no media server" download folder, not just a dumping ground for
+            # non-video files).
+            if not library_dir:
+                return self._move_to_other_or_skip(filename, source_path, "Library path not configured")
 
             if media_type == 'tv':
                 dest_path = self.organize_tv_show(filename, source_path, torrent_name)
@@ -256,6 +255,30 @@ class MediaOrganizer:
             error_msg = f"Failed to move {filename}: {e}"
             logger.error(error_msg)
             return False, None, error_msg
+
+    def _move_to_other_or_skip(self, filename, source_path, skip_reason):
+        """
+        General downloads fallback: used for non-video files, and for video
+        files Plex/Jellyfin has no configured library path for. Flat move,
+        no movie/TV folder structure, no library scan (nothing to notify).
+        Returns (success, dest_path, error) same as move_to_plex.
+        """
+        if not DOWNLOAD_DIR_OTHER:
+            logger.info(f"Skipping {filename}: {skip_reason}")
+            return False, None, skip_reason
+
+        os.makedirs(DOWNLOAD_DIR_OTHER, exist_ok=True)
+        dest_path = os.path.join(DOWNLOAD_DIR_OTHER, filename)
+        if os.path.exists(dest_path):
+            base, ext = os.path.splitext(dest_path)
+            counter = 1
+            while os.path.exists(f"{base} ({counter}){ext}"):
+                counter += 1
+            dest_path = f"{base} ({counter}){ext}"
+
+        shutil.move(source_path, dest_path)
+        logger.info(f"Moved to general downloads: {dest_path}")
+        return True, dest_path, None
 
     def notify_plex(self):
         """

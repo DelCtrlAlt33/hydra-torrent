@@ -13,6 +13,43 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-21 - Movies/TV auto-move defaulted to a hardcoded personal NAS path; no path existed for non-video downloads at all
+
+- **Symptom**: raised as a product question ("shouldn't non-Plex users have a
+  normal download path selector? what happens if a Plex/Jellyfin user
+  downloads an ISO or MP3?") rather than a bug report, but pulling the thread
+  found two real issues in the same code path.
+- **Root cause #1**: `MEDIA_DIR_MOVIES`/`MEDIA_DIR_TV` defaulted to a
+  hardcoded `\\192.168.20.4\Plex\...` UNC path (this machine's own home NAS)
+  whenever `media_dir_movies`/`media_dir_tv` weren't set in
+  `hydra_config.json`. Auto-move defaults to on, so every user who installed
+  Hydra without ever configuring Plex/Jellyfin still had every completed
+  video attempt an `os.makedirs()` against that unreachable path - caught,
+  not crashing, but a real network-timeout stall on every single download
+  completion. Already flagged once before in `tests/conftest.py`'s comments
+  (routed around for CI, never fixed at the source).
+- **Root cause #2**: `download_dir_other` (the destination for non-video
+  completions like ISOs/music/archives) existed in `media_organizer.py` and
+  `config.py` but was never added to `_EDITABLE_CONFIG_KEYS`, `ConfigResponse`,
+  or `ConfigUpdate` - dead, unreachable config with no way to ever set it.
+  Non-video files just stayed in the download/incomplete folder forever,
+  silently, for every user regardless of Plex/Jellyfin setup.
+- **Fix**: `MEDIA_DIR_MOVIES`/`MEDIA_DIR_TV` now default to `""`. Wired
+  `download_dir_other` all the way through (editable config key, both
+  Pydantic models, `/config` GET/PATCH) and added a real "Other downloads
+  path" field to the Downloads settings section, with the destination folder
+  now auto-created via `os.makedirs(..., exist_ok=True)` instead of requiring
+  it to pre-exist. `move_to_plex()` now falls back to this general folder
+  (flat move, no library scan) for anything it can't file into Plex/Jellyfin -
+  a non-video file, or a video with no configured library path for its type -
+  instead of leaving it stranded in the download folder. That fallback is
+  what makes the field work as a real "normal torrent client, no media
+  server" download folder too, not just a dumping ground for non-video files.
+- **How it was caught**: a user question about the gap between "people with
+  Plex/Jellyfin wired up" and "people who just run Hydra as a normal torrent
+  client" - not a report of the NAS-path issue directly, but the same code
+  path turned out to hide both problems.
+
 ## 2026-08-20 - Status strip showed "0 transfers / No active transfers" during real downloads
 
 - **Symptom**: a fresh page load could show a genuinely active, 67%-complete

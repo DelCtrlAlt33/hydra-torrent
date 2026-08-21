@@ -1984,6 +1984,19 @@
             Plex/Jellyfin gets notified to scan. Use Detect above if already set up below.
           </div>
           <div class="acc-field span2" style="padding-top:12px; border-top:1px solid var(--border);">
+            <label>Other downloads path</label>
+            <div class="secret-row">
+              <input type="text" id="cfg-download-dir-other" placeholder="Optional - e.g. D:\Downloads\Other">
+              <button class="btn btn-sm btn-pause" onclick="browseOtherDir()">Browse</button>
+            </div>
+          </div>
+          <div class="acc-subtext">
+            Where downloads land once complete if they're not going into Plex/Jellyfin - a
+            non-video file (ISO, music, archive), or a video with no Movies/TV path set above.
+            No Plex/Jellyfin at all? Just set this one and it works as a normal download folder.
+            Leave blank to leave them in the download folder above.
+          </div>
+          <div class="acc-field span2" style="padding-top:12px; border-top:1px solid var(--border);">
             <label>Seed ratio</label>
             <input type="text" id="cfg-seed-ratio" placeholder="0 = seed forever  (e.g. 2.0)" style="max-width:220px;">
           </div>
@@ -3807,6 +3820,7 @@ async function loadSettings() {
     document.getElementById('cfg-download-dir').value = cfg.download_dir_incomplete || '';
     document.getElementById('cfg-movies-path').value = cfg.media_dir_movies  || '';
     document.getElementById('cfg-tv-path').value     = cfg.media_dir_tv      || '';
+    document.getElementById('cfg-download-dir-other').value = cfg.download_dir_other || '';
     document.getElementById('cfg-auto-move').checked    = cfg.auto_move_to_plex !== false;
     document.getElementById('cfg-seed-ratio').value     = cfg.seed_ratio > 0 ? cfg.seed_ratio : '';
     document.getElementById('cfg-api-key').value        = cfg.daemon_api_key   || '';
@@ -3953,6 +3967,7 @@ async function saveSettings(silent = false) {
     download_dir_incomplete: document.getElementById('cfg-download-dir').value.trim(),
     media_dir_movies: document.getElementById('cfg-movies-path').value.trim(),
     media_dir_tv:     document.getElementById('cfg-tv-path').value.trim(),
+    download_dir_other: document.getElementById('cfg-download-dir-other').value.trim(),
     auto_move_to_plex: document.getElementById('cfg-auto-move').checked,
     vpn_required: document.getElementById('cfg-vpn-required').checked,
   };
@@ -3994,6 +4009,19 @@ async function browseDownloadDir() {
   const picked = await window.pywebview.api.browse_folder(current);
   if (picked) {
     document.getElementById('cfg-download-dir').value = picked;
+    saveSettings(true);
+  }
+}
+
+async function browseOtherDir() {
+  if (!window.pywebview?.api?.browse_folder) {
+    toast('Folder browsing is only available in the desktop app, type the path instead', 'info');
+    return;
+  }
+  const current = document.getElementById('cfg-download-dir-other')?.value || '';
+  const picked = await window.pywebview.api.browse_folder(current);
+  if (picked) {
+    document.getElementById('cfg-download-dir-other').value = picked;
     saveSettings(true);
   }
 }

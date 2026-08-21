@@ -202,7 +202,9 @@ When a download finishes, Hydra looks at the filename and figures out what it is
 
 A library scan triggers after every move, so new content shows up within seconds.
 
-If you don't use Plex or Jellyfin, skip this - downloads stay in the download folder and you can move them yourself.
+Anything auto-move can't file into a library - a non-video file (ISO, album, software archive), or a video with no Movies/TV path set - falls back to the **Other downloads path** field in the Downloads settings section instead of getting stranded. Set it if you want completed downloads moved out of the download folder; leave it blank and they just stay there.
+
+If you don't use Plex or Jellyfin at all, skip this whole section - set only the **Other downloads path** field and it works as a normal "move everything here when done" folder, no Movies/TV paths required.
 
 ### Docker path mapping (read this if Plex/Jellyfin runs in Docker)
 

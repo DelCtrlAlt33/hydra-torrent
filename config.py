@@ -152,10 +152,16 @@ def save_config(key, value):
         json.dump(config, f)
 
 
-# Plex media directories - configurable via hydra_config.json
-# Windows default: SMB share on TrueNAS
-# Linux LXC:  set "media_dir_movies": "/mnt/plex/movies" in hydra_config.json
+# Plex/Jellyfin media directories - configurable via hydra_config.json,
+# set "media_dir_movies"/"media_dir_tv" (e.g. "/mnt/plex/movies").
+# Deliberately blank until configured - these used to default to a hardcoded
+# personal NAS UNC path, which meant every user who never set up Plex/Jellyfin
+# still had auto-move try (and fail, slowly, against an unreachable SMB host)
+# to file every completed video there. media_organizer checks for blank here
+# and skips the move instead of attempting it. DOWNLOAD_DIR_OTHER is the same
+# idea for non-video downloads (ISOs, music, archives) - see the Downloads
+# settings section for both.
 _cfg_media = load_config()
-MEDIA_DIR_MOVIES  = _cfg_media.get('media_dir_movies',    r'\\192.168.20.4\Plex\movies')
-MEDIA_DIR_TV      = _cfg_media.get('media_dir_tv',        r'\\192.168.20.4\Plex\tv')
+MEDIA_DIR_MOVIES  = _cfg_media.get('media_dir_movies',    '')
+MEDIA_DIR_TV      = _cfg_media.get('media_dir_tv',        '')
 DOWNLOAD_DIR_OTHER = _cfg_media.get('download_dir_other', '')

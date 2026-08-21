@@ -256,6 +256,63 @@ def test_move_to_plex_moves_tv_episode_into_season_folder(organizer, tmp_path, m
     assert "Season 01" in dest
 
 
+def test_move_to_plex_skips_video_when_library_path_not_configured(organizer, tmp_path, monkeypatch):
+    # A blank media_dir_movies/tv (the default until a user actually sets
+    # one) must skip the move quietly instead of attempting os.makedirs()
+    # against an unconfigured/unreachable path - this used to default to a
+    # hardcoded NAS UNC path and fail (slowly) for every user who never set
+    # up Plex/Jellyfin at all.
+    monkeypatch.setattr("media_organizer.MEDIA_DIR_MOVIES", "")
+    src = tmp_path / "Movie.Name.2024.1080p.mkv"
+    src.write_bytes(b"fake video data")
+
+    ok, dest, error = organizer.move_to_plex(
+        "Movie.Name.2024.1080p.mkv", source_path=str(src)
+    )
+
+    assert ok is False
+    assert dest is None
+    assert error == "Library path not configured"
+    assert src.exists()  # untouched, not lost
+
+
+def test_move_to_plex_video_falls_back_to_other_dir_when_library_not_configured(organizer, tmp_path, monkeypatch):
+    # This is what makes DOWNLOAD_DIR_OTHER work as a real "normal torrent
+    # client, no media server" download folder: a video file Hydra can't
+    # file into Plex/Jellyfin (no library path configured) should land in
+    # the general downloads folder flat, not get stranded, and not error.
+    monkeypatch.setattr("media_organizer.MEDIA_DIR_MOVIES", "")
+    other_dir = tmp_path / "other"
+    monkeypatch.setattr("media_organizer.DOWNLOAD_DIR_OTHER", str(other_dir))
+    src = tmp_path / "Movie.Name.2024.1080p.mkv"
+    src.write_bytes(b"fake video data")
+
+    ok, dest, error = organizer.move_to_plex(
+        "Movie.Name.2024.1080p.mkv", source_path=str(src)
+    )
+
+    assert ok is True
+    assert error is None
+    assert dest == str(other_dir / "Movie.Name.2024.1080p.mkv")
+    assert os.path.exists(dest)
+    assert not src.exists()
+
+
+def test_move_to_plex_non_video_file_moves_to_configured_other_dir(organizer, tmp_path, monkeypatch):
+    other_dir = tmp_path / "other"
+    monkeypatch.setattr("media_organizer.DOWNLOAD_DIR_OTHER", str(other_dir))
+    src = tmp_path / "ubuntu.iso"
+    src.write_bytes(b"fake iso data")
+
+    ok, dest, error = organizer.move_to_plex("ubuntu.iso", source_path=str(src))
+
+    assert ok is True
+    assert error is None
+    assert dest == str(other_dir / "ubuntu.iso")
+    assert os.path.exists(dest)
+    assert not src.exists()  # moved, not copied
+
+
 def test_move_to_plex_avoids_overwriting_existing_file_at_destination(organizer, tmp_path):
     # If a file with the same name already exists at the computed
     # destination, Hydra must not silently clobber it.

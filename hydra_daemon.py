@@ -1010,7 +1010,7 @@ class TorrentEngine:
                 moved_files.append(dest_path)
                 self.store.update(name, moved_to_plex=True, plex_path=plex_dir, moved_files=moved_files)
                 logger.info(f"Moved to Plex: {dest_path}")
-            elif error and "Not a video file" not in error:
+            elif error and error not in ("Not a video file", "Library path not configured"):
                 logger.warning(f"Could not move '{name}': {error}")
 
     # ── Seeding monitor ────────────────────────────────────────────────────────
@@ -1968,8 +1968,8 @@ def download_tray() -> StreamingResponse:
 _EDITABLE_CONFIG_KEYS = frozenset({
     'plex_url', 'plex_token', 'jellyfin_url', 'jellyfin_api_key', 'jackett_api_key',
     'indexing_server', 'download_dir_incomplete', 'media_dir_movies', 'media_dir_tv',
-    'auto_move_to_plex', 'vpn_required', 'seed_ratio', 'download_rate_limit',
-    'upload_rate_limit',
+    'download_dir_other', 'auto_move_to_plex', 'vpn_required', 'seed_ratio',
+    'download_rate_limit', 'upload_rate_limit',
 })
 
 
@@ -1989,6 +1989,7 @@ def get_config() -> ConfigResponse:
         download_dir_incomplete=cfg.get('download_dir_incomplete') or DOWNLOAD_DIR_INCOMPLETE,
         media_dir_movies=cfg.get('media_dir_movies', ''),
         media_dir_tv=cfg.get('media_dir_tv', ''),
+        download_dir_other=cfg.get('download_dir_other', ''),
         auto_move_to_plex=bool(cfg.get('auto_move_to_plex', True)),
         vpn_required=bool(cfg.get('vpn_required', False)),
         seed_ratio=float(cfg.get('seed_ratio', 0) or 0),
