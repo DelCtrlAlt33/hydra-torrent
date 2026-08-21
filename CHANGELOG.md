@@ -13,6 +13,28 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-21 - Browser tab showed a generic default icon instead of Hydra's logo
+
+- **Symptom**: raised as "why is my cursor... wait, why does the tab just
+  show a plain default icon instead of an app icon, like Frigate/YouTube/
+  Claude have?" - a real, present-since-the-icon-was-added bug, not a missing
+  feature.
+- **Root cause**: the `<link rel="icon">` data URI's base64 PNG never
+  actually decoded - confirmed with PIL: `OSError: broken data stream when
+  reading image file`. Every browser silently fell back to its own generic
+  page icon; nothing in the app surfaced the failure, so it just looked
+  unbranded and nobody noticed until someone put Hydra's tab next to a few
+  others and compared.
+- **Fix**: replaced it with two properly generated PNGs (32x32, 16x16)
+  downscaled from the real `static/logo.png` - the same hydra head already
+  used for the desktop titlebar icon, so the browser tab and the desktop app
+  now show the same mark. Shipped both sizes explicitly rather than one,
+  since the full logo's fine detail (multiple eyes, scale texture) turns to
+  an indistinct blur at true 16px - confirmed by rendering the source logo
+  down to 16/32/48px before picking sizes, not by guesswork.
+- **How it was caught**: a user comparing Hydra's browser tab against other
+  open tabs (Frigate, YouTube, Claude) and noticing it had no real icon.
+
 ## 2026-08-21 - Movies/TV auto-move defaulted to a hardcoded personal NAS path; no path existed for non-video downloads at all
 
 - **Symptom**: raised as a product question ("shouldn't non-Plex users have a
