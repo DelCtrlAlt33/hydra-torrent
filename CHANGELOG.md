@@ -13,6 +13,16 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-23 - Reverted the favicon contrast/crop fix
+
+- The 2026-08-23 favicon fix below (crop + contrast boost + unsharp
+  mask) technically improved legibility at true tab-icon size, but on
+  review the tradeoff wasn't worth it - Matth preferred the original
+  icon's look over the sharpened one. Reverted `static/index.html`
+  back to the original embedded favicon. The original's low legibility
+  at 16-32px (documented below) is still real, just an accepted
+  tradeoff rather than something being actively fixed right now.
+
 ## 2026-08-23 - Browser tab favicon was a muddy blob next to every other tab
 
 - **Symptom**: reported by Matth comparing his browser's tab strip -
