@@ -13,6 +13,37 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-22 - Application-security pass: disabled auto API docs, hardened torrent file-move paths
+
+- **Not a report** - a deliberate application-security review, run after
+  the git-history/leaked-secrets audit earlier the same day was closed
+  out, specifically checking whether the *running* daemon (not just the
+  repo) could be abused by someone who found the public source.
+- **Found**: FastAPI's default `/docs` and `/openapi.json` were live and
+  unauthenticated - anyone who could reach the port got the full
+  endpoint/schema map for free, no API key needed. Separately, the
+  per-file path used when moving a completed torrent's files came
+  straight from the torrent's own declared file list - attacker-
+  controlled via a malicious .torrent/magnet - with no containment
+  check at this layer, relying entirely on libtorrent's own path
+  sanitization rather than anything Hydra itself verified.
+- **Fix**: disabled `/docs`/`/openapi.json`/`/redoc`
+  (`FastAPI(docs_url=None, ...)`). Applied the same realpath + "still
+  under the download dir" containment check `/static/{filename}`
+  already used elsewhere in this file to the torrent-file-path join, as
+  defense-in-depth independent of what libtorrent guarantees.
+- **Also reviewed, found clean**: auth coverage on every other route,
+  the WebSocket's own auth handshake, injection surface, SSRF guard
+  coverage across every attacker-reachable fetch, CORS, log redaction
+  completeness, frontend XSS escaping, the update-checker's trust model,
+  and cert pinning.
+- **Noted but left as-is (a design tradeoff, not a bug)**: `/ui` embeds
+  the live API key into the page it serves, unauthenticated, and
+  `/download/tray` hands back a config zip containing it - both by
+  design, so the browser UI doesn't need a manual key-entry step. The
+  real security boundary for this daemon is network reach (LAN/VPN
+  only, never port-forward it to the WAN), not the API key itself.
+
 ## 2026-08-22 - v1.4.5 Windows .exe couldn't start the daemon at all
 
 - **Symptom**: found running the actual published v1.4.5 release on real
