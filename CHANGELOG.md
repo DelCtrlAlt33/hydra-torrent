@@ -13,6 +13,32 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-23 - Browser tab favicon was a muddy blob next to every other tab
+
+- **Symptom**: reported by Matth comparing his browser's tab strip -
+  every other site's icon (YouTube, GitHub, etc.) read cleanly at tab
+  size; Hydra's was a near-uniform dark green smear with no visible
+  shape.
+- **Root cause**: not a broken image (the PNG was valid, correctly
+  embedded, correctly served) - the source `logo.png` is a detailed
+  illustration (individual eye dots, spike edges, scale ridges) at
+  fairly low contrast against its own background circle. Confirmed by
+  extracting and viewing the actual shipped 32x32/16x16 PNGs at true
+  size: the fine detail that makes the full logo look good simply has
+  nowhere to go at 16-32 real pixels and collapses into mud. This is
+  a fundamentally different problem than the earlier 2026-08-21
+  favicon fix, which was about transparency/corruption, not legibility.
+- **Fix**: regenerated both sizes from the source logo with a modest
+  crop toward the head (the original canvas wastes real pixels on
+  background around the circle), a contrast/saturation boost applied
+  *before* downsizing (so surviving detail has more separation once
+  shrunk), LANCZOS resampling, and a post-resize unsharp mask to fight
+  the softening LANCZOS itself introduces - the 16px version needed a
+  noticeably stronger pass than 32px since it has a quarter of the
+  pixels to represent the same shape. Verified by extracting and
+  viewing the new PNGs at true size against the old ones side by side -
+  visibly higher contrast and a legible head shape at both sizes.
+
 ## 2026-08-22 - Windows: reopening a hidden window via the desktop shortcut silently did nothing
 
 - **Symptom**: reported live by Matth testing on his own machine - open
