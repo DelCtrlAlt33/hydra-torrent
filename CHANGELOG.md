@@ -13,6 +13,49 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-23 - Add-torrent file list opened with every checkbox unchecked
+
+- **Symptom**: reported live - opening the file-selection dialog for a
+  well-seeded real result showed every file's checkbox unchecked, no
+  matter how many files the torrent had.
+- **Root cause**: `_loadModalFiles()` correctly computed a "default to
+  checked" correction into `_fileData` (backend preview torrents
+  genuinely sit at real priority 0 for every file - that's what stops
+  real data downloading before commit, not a user choice), but then
+  rendered the dialog from the original *uncorrected* API response
+  instead of the corrected data it had just computed - the correction
+  was calculated and then never used.
+- **Fix**: one-line swap to render from the corrected `_fileData`.
+  Verified against a real search result and a real live preview
+  fetched from the running daemon (not synthetic data) - extracted the
+  actual production `_filesHtml` function and ran it against the real
+  API response to confirm it renders `checked`.
+
+## 2026-08-23 - Internal Python exceptions leaked raw into the add-torrent dialog
+
+- **Symptom**: reported live - adding a torrent failed with "Could not
+  fetch metadata: 'charmap' codec can't encode character '→' in
+  position 97: character maps to &lt;undefined&gt;" shown directly in the
+  UI, from a torrent whose real metadata had actually already been
+  fetched successfully.
+- **Investigation**: traced every direct print/encode/file-write path
+  in the actual preview/search code and ruled all of them out - none
+  touch the Windows console codepage (cp1252, the "charmap" codec)
+  that this specific error implicates, and Python's logging module
+  swallows encoding failures inside a log call by default rather than
+  propagating them (confirmed by testing both directly). Could not
+  pin the exact single call site without the original torrent that
+  triggered it.
+- **Real fix, addressing the actual design flaw**: both
+  `/transfers/preview` and `/search` had `except Exception as e: raise
+  HTTPException(..., detail=str(e))` - meaning *any* unexpected
+  internal exception, whatever it happened to be, got shown raw to the
+  user. That's the real bug, independent of this one trigger. Both now
+  log the full exception server-side and show a clean message instead.
+  Also hardened the console log handler in config.py
+  (`stream.reconfigure(errors='replace')`) as defense-in-depth, since
+  cp1252 is the most likely actual origin given the error's shape.
+
 ## 2026-08-23 - Startup banner still advertised /docs after it was disabled
 
 - **Symptom**: found doing a full re-verification fresh-install pass on

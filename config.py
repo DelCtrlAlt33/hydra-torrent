@@ -30,7 +30,7 @@ BASE_DIR = get_base_dir()
 # whatever a stray print statement elsewhere might claim. Bump this as
 # part of cutting each release, alongside the git tag.
 # ----------------------------------------------------------------------
-VERSION = "1.4.11"
+VERSION = "1.4.12"
 GITHUB_REPO = "DelCtrlAlt33/hydra-torrent"
 
 # ----------------------------------------------------------------------
@@ -108,11 +108,30 @@ CHUNK_SIZE = 4 * 1024 * 1024  # 4 MiB pieces
 # Logging
 # ----------------------------------------------------------------------
 LOG_PATH = os.path.join(BASE_DIR, 'hydra.log')
+
+# StreamHandler's console output defaults to Windows' legacy console
+# codepage (cp1252) rather than UTF-8, unlike the file handler below
+# (which is explicitly given encoding='utf-8'). A torrent name/file list
+# containing an ordinary Unicode character - e.g. an arrow, a smart
+# quote, anything outside cp1252 - used to raise UnicodeEncodeError
+# *from inside the logging call itself*, which then propagated up
+# through preview_torrent_url() and surfaced to the user as "Could not
+# fetch metadata: 'charmap' codec can't encode character..." even
+# though the real fetch had already succeeded. reconfigure(errors=
+# 'replace') makes a log line degrade to '?' for unencodable characters
+# instead of crashing whatever request triggered the log call - stream
+# can be None in the frozen --windowed build (no real console attached),
+# so this is skipped entirely there, matching that build's existing
+# behaviour of console output going nowhere either way.
+_console_handler = logging.StreamHandler()
+if _console_handler.stream is not None and hasattr(_console_handler.stream, 'reconfigure'):
+    _console_handler.stream.reconfigure(errors='replace')
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(),
+        _console_handler,
         # Console is hidden in the packaged .exe, so without this file handler
         # every background error (e.g. a failed add_torrent) is silently lost.
         RotatingFileHandler(LOG_PATH, maxBytes=5 * 1024 * 1024, backupCount=3, encoding='utf-8'),

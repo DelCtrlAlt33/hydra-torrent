@@ -3798,7 +3798,7 @@ async function _loadModalFiles() {
     // makes via checkboxes below still update this normally afterward.
     _fileData[_previewName] = files.map(f => ({ ...f, priority: f.priority || 1 }));
     const el = document.getElementById('modal-file-table');
-    if (el) el.innerHTML = _filesHtml(_previewName, files);
+    if (el) el.innerHTML = _filesHtml(_previewName, _fileData[_previewName]);
     const links = document.getElementById('modal-select-links');
     if (links) links.style.display = files.length ? '' : 'none';
     const okBtn = document.getElementById('modal-ok-btn');

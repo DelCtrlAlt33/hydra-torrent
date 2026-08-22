@@ -1838,9 +1838,23 @@ def preview_transfer(req: PreviewTorrentRequest) -> dict:
     except HTTPException:
         raise
     except ValueError as e:
+        # ValueError here is always one of our own deliberately-worded
+        # messages (SSRF guard rejection, etc.) - safe to show verbatim.
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Unlike ValueError above, this branch catches genuinely
+        # unexpected failures - anything from libtorrent, the network
+        # stack, or elsewhere. str(e) on one of these can be an ugly,
+        # user-hostile internals leak (confirmed live: a torrent whose
+        # name/file list contained a Unicode arrow character surfaced
+        # "'charmap' codec can't encode character..." directly in the
+        # add-torrent dialog - a real Windows console-encoding artifact,
+        # not something a user should ever have to see or make sense
+        # of). Log the real exception server-side where it's still
+        # fully debuggable (hydra.log, Report-a-Bug's diagnostic log),
+        # show a clean message in the UI.
+        logger.error(f"preview_transfer failed: {e}")
+        raise HTTPException(status_code=500, detail="Could not fetch metadata for this torrent - see hydra.log for details")
     return {"name": name}
 
 
@@ -2346,8 +2360,11 @@ def do_search(req: SearchRequest) -> List[SearchResult]:
     except HTTPException:
         raise
     except Exception as e:
+        # Same reasoning as preview_transfer's except Exception branch:
+        # raw search results carry arbitrary, remote-controlled title
+        # text - don't hand str(e) straight to the UI, log it instead.
         logger.error(f"Search error ({req.mode}): {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Search failed ({req.mode}) - see hydra.log for details")
 
     results = []
     for r in raw:
