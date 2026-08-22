@@ -174,6 +174,25 @@ def _require_api_key(key: str = Security(_api_key_header)) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Desktop window show hook
+# ---------------------------------------------------------------------------
+# hydra_app.py registers _open_callback here once its pywebview window
+# exists. Nothing to do in server/headless mode - stays None, and
+# /window/show below just no-ops. See the single-instance handling near
+# the top of hydra_app.py for why this exists: once the window's been
+# hidden to tray, only the process that owns it can actually make it
+# reappear (DWM cloaking can't be undone cross-process), so a second,
+# short-lived launch needs to ask this already-running process to do it
+# from the inside instead of poking the window handle from outside.
+_show_window_callback: Optional[callable] = None
+
+
+def set_show_window_callback(cb) -> None:
+    global _show_window_callback
+    _show_window_callback = cb
+
+
+# ---------------------------------------------------------------------------
 # DaemonStore
 # ---------------------------------------------------------------------------
 
@@ -1602,6 +1621,24 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 # ---------------------------------------------------------------------------
 # REST endpoints
 # ---------------------------------------------------------------------------
+
+@app.post("/window/show", dependencies=[Depends(_require_api_key)])
+def show_window() -> dict:
+    """Ask this process's own desktop window to un-hide itself.
+
+    Called by a second, short-lived HydraTorrent.exe launch (e.g. the
+    user double-clicking the desktop shortcut again while Hydra's
+    already running, hidden in the tray) - see hydra_app.py's
+    single-instance handling for why this has to happen from inside
+    the owning process rather than via a raw window-handle restore.
+    No-ops in server/headless mode, where no callback is ever
+    registered.
+    """
+    if _show_window_callback is not None:
+        _show_window_callback()
+        return {"shown": True}
+    return {"shown": False}
+
 
 @app.get("/status", dependencies=[Depends(_require_api_key)])
 def get_status() -> DaemonStatus:

@@ -13,6 +13,48 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-22 - Windows: reopening a hidden window via the desktop shortcut silently did nothing
+
+- **Symptom**: reported live by Matth testing on his own machine - open
+  Hydra, close it with the titlebar X (hides to tray, doesn't quit),
+  double-click the desktop shortcut again expecting it to reopen -
+  nothing visibly happened.
+- **Investigation note**: the first diagnosis (DWM cloaking, confirmed
+  via `DwmGetWindowAttribute`/`DwmSetWindowAttribute` returning
+  E_ACCESSDENIED cross-process) turned out to be checking the *wrong*
+  window - `FindWindowW(None, "Hydra Torrent")` had matched an
+  unrelated `explorer.exe` window that happened to share the title.
+  Re-tested properly by enumerating all windows and confirming PID
+  ownership, then faithfully reproducing the actual close by calling
+  the real `pywebview.api.close()` via a CDP connection to the
+  WebView2 instance (not a synthetic WM_CLOSE, which doesn't go
+  through the same path a frameless window's custom close button
+  does). The real mechanism is a plain visibility toggle, not
+  cloaking - and the original raw `ShowWindow`/`SetForegroundWindow`
+  restore *did* successfully restore visibility in that corrected
+  test. What it couldn't be shown to do reliably is bring the window
+  to the foreground/on top of whatever else was on screen -
+  `SetForegroundWindow` called by an unrelated external process is a
+  well-known unreliable API on Windows, succeeding at the call level
+  while the OS still declines to actually hand over focus. That
+  matches "reappeared invisibly behind other windows" far better than
+  "stayed hidden."
+- **Fix**: instead of a second, short-lived process trying to
+  manipulate the first process's window handle from outside (fragile
+  regardless of the exact mechanism), the second process now asks the
+  *first* process to show its own window from the inside - a new
+  authenticated `POST /window/show` endpoint on the daemon calls the
+  same `_open_callback` the tray icon's "Open" menu item already uses
+  reliably. Verified end-to-end: hidden the real window via the real
+  close call, hit the new endpoint, watched it become visible again.
+- **Also caught in the same testing pass**: a debug flag set during
+  this investigation (`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-
+  debugging-port=...`) had overwritten rather than added to the
+  existing `--force-color-profile=srgb` fix for WebView2's duller
+  colors vs. a real browser tab, on the one leftover test process -
+  not a real regression, just testing residue, resolved by killing
+  that process and relaunching clean.
+
 ## 2026-08-22 - Application-security pass: disabled auto API docs, hardened torrent file-move paths
 
 - **Not a report** - a deliberate application-security review, run after

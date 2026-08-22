@@ -36,18 +36,81 @@ else:
     _EXE_DIR = _BUNDLE_DIR
 
 # ---------------------------------------------------------------------------
+# Paths / config
+# ---------------------------------------------------------------------------
+# Defined before the single-instance check below, which needs _load_config()
+# to reach the already-running daemon's own API.
+
+_INSTALL_DIR = os.path.join(os.environ.get('LOCALAPPDATA', _EXE_DIR), 'HydraTorrent')
+_SCRIPT_DIR = _BUNDLE_DIR
+_CONFIG_FILE = os.path.join(_INSTALL_DIR, 'hydra_config.json')
+
+
+def _load_config() -> dict:
+    try:
+        with open(_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+# ---------------------------------------------------------------------------
 # Single-instance enforcement
 # ---------------------------------------------------------------------------
 # If another instance is already running, show its window and exit.
+#
+# The raw ShowWindow/SetForegroundWindow approach used to be the whole
+# story here, but it silently does nothing once the window's been closed
+# to tray at least once: pywebview's WinForms .Hide() leaves the window
+# DWM-cloaked (confirmed live: DWMWA_CLOAKED reads 1 even though
+# IsWindowVisible still reports 1), and cloak state can only be cleared
+# by the owning process - DwmSetWindowAttribute from here returns
+# E_ACCESSDENIED (0x80070005), confirmed live against a real cloaked
+# window. No combination of window-handle tricks from outside the
+# process can undo that. The only thing that actually works is asking
+# the *other* process to call its own window.show()/.restore() from
+# inside itself - which is exactly what the tray's "Open" menu item
+# already does via _open_callback. So this hits that same already-
+# running daemon's own local API (stdlib urllib only - avoid importing
+# the heavier `requests`/`webview` this early, since this path exits
+# immediately in the common case and shouldn't pay for imports it never
+# uses) to trigger the same callback from the process that actually
+# owns the window. Best-effort: if the daemon isn't reachable for any
+# reason, still try the old raw restore as a harmless fallback (it does
+# work for a plain-minimized, never-hidden-to-tray window) before exiting.
 
 _MUTEX_NAME = "HydraTorrentSingleInstance"
 _mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, False, _MUTEX_NAME)
 if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-    # Bring the existing window to the foreground and exit
-    hwnd = ctypes.windll.user32.FindWindowW(None, "Hydra Torrent")
-    if hwnd:
-        ctypes.windll.user32.ShowWindow(hwnd, 9)   # SW_RESTORE
-        ctypes.windll.user32.SetForegroundWindow(hwnd)
+    try:
+        import urllib.request
+        _cfg = _load_config()
+        _scheme = 'https' if _cfg.get('daemon_use_ssl', False) else 'http'
+        _host = _cfg.get('daemon_host', '127.0.0.1')
+        if _host == '0.0.0.0':
+            _host = '127.0.0.1'
+        _port = int(_cfg.get('daemon_port', 8765))
+        _api_key = _cfg.get('daemon_api_key', '')
+        _req = urllib.request.Request(
+            f"{_scheme}://{_host}:{_port}/window/show",
+            method="POST",
+            headers={"X-API-Key": _api_key},
+        )
+        if _scheme == 'https':
+            import ssl
+            _ctx = ssl.create_default_context()
+            _ctx.check_hostname = False
+            _ctx.verify_mode = ssl.CERT_NONE
+            urllib.request.urlopen(_req, timeout=3, context=_ctx)
+        else:
+            urllib.request.urlopen(_req, timeout=3)
+    except Exception:
+        # Fallback: works for a plain-minimized window, harmless no-op
+        # for a cloaked one.
+        hwnd = ctypes.windll.user32.FindWindowW(None, "Hydra Torrent")
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, 9)   # SW_RESTORE
+            ctypes.windll.user32.SetForegroundWindow(hwnd)
     sys.exit(0)
 
 import requests
@@ -68,22 +131,6 @@ def _hide_console():
         pass
 
 _hide_console()
-
-# ---------------------------------------------------------------------------
-# Paths / config
-# ---------------------------------------------------------------------------
-
-_INSTALL_DIR = os.path.join(os.environ.get('LOCALAPPDATA', _EXE_DIR), 'HydraTorrent')
-_SCRIPT_DIR = _BUNDLE_DIR
-_CONFIG_FILE = os.path.join(_INSTALL_DIR, 'hydra_config.json')
-
-
-def _load_config() -> dict:
-    try:
-        with open(_CONFIG_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception:
-        return {}
 
 
 def _save_config(cfg: dict) -> None:
@@ -380,6 +427,18 @@ def main():
     api.set_window(w)
     apply_frameless(w)
     _window = w
+
+    # Registers _open_callback with the already-running daemon module
+    # (imported in-process by the uvicorn thread above) so a second,
+    # short-lived process launched via the shortcut can ask *this*
+    # process's daemon to show the window from the inside - see the
+    # single-instance handling near the top of this file for why that's
+    # necessary instead of poking the window handle from outside.
+    try:
+        import hydra_daemon
+        hydra_daemon.set_show_window_callback(_open_callback)
+    except Exception:
+        pass
 
     # Intercept Alt+F4 / taskbar close - hide instead of destroy
     def _on_closing():
