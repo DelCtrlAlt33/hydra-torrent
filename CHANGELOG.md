@@ -13,6 +13,20 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-23 - Startup banner still advertised /docs after it was disabled
+
+- **Symptom**: found doing a full re-verification fresh-install pass on
+  v1.4.10 across all 3 platforms before calling it done - the Docker
+  container's startup log printed `API docs: https://.../docs`, but
+  that URL correctly returns 404 (disabled in the earlier application-
+  security hardening pass). Not a functional bug, just misleading -
+  telling a user a URL exists that doesn't.
+- **Fix**: removed the stale print line.
+- **How it was caught**: another deliberate fresh-install verification
+  pass (Docker + native Linux + Windows, all real installs from a
+  clean state) run specifically because the favicon revert bumped the
+  version - same discipline as the v1.4.5 pass, not a one-off.
+
 ## 2026-08-23 - Reverted the favicon contrast/crop fix
 
 - The 2026-08-23 favicon fix below (crop + contrast boost + unsharp

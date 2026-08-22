@@ -2394,7 +2394,6 @@ if __name__ == "__main__":
     # far more casually than hydra_config.json itself. Point at the
     # config file instead of ever putting the real value in a log stream.
     print(f"API key:       (see {CONFIG_FILE})")
-    print(f"API docs:      {scheme}://{host}:{port}/docs")
     if use_ssl:
         print(f"SSL cert:      {FULLCHAIN_PATH}")
     print()
