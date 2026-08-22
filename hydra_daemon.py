@@ -1032,8 +1032,19 @@ class TorrentEngine:
         # for real, instead of reporting success while quietly leaving
         # the media behind.
         moved_files = list(self.store.get(name).get('moved_files') or [])
+        # A torrent's own file list is attacker-controlled (a malicious
+        # .torrent/magnet can declare a path like '../../../etc/passwd').
+        # libtorrent sanitizes this itself before writing to disk, but
+        # /static/{filename} already sets the precedent elsewhere in this
+        # file of not taking that on faith - realpath + an explicit
+        # "still under the download dir" check costs nothing and doesn't
+        # rely on a guarantee from code Hydra doesn't own.
+        incomplete_dir = os.path.realpath(DOWNLOAD_DIR_INCOMPLETE)
         for file_info in files:
-            file_path = os.path.join(DOWNLOAD_DIR_INCOMPLETE, file_info.path)
+            file_path = os.path.realpath(os.path.join(DOWNLOAD_DIR_INCOMPLETE, file_info.path))
+            if not file_path.startswith(incomplete_dir + os.sep):
+                logger.warning(f"Skipping file outside download dir for '{name}': {file_info.path!r}")
+                continue
             if not os.path.exists(file_path):
                 continue
 
@@ -1467,6 +1478,11 @@ app = FastAPI(
     version="0.1",
     description="Headless libtorrent engine with REST API and WebSocket streaming.",
     lifespan=lifespan,
+    # No reason to hand an unauthenticated request the full endpoint/schema
+    # map for free - this daemon is meant to be reached over LAN/VPN only.
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 
