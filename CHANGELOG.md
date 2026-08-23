@@ -13,6 +13,48 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-24 - A real, healthily-downloading torrent fired the completion toast within seconds of being added
+
+- **Symptom**: reported live, with the Activity Log screenshot to prove
+  it - adding a real torrent logged "+ name" immediately followed by
+  "✓ name" at the same timestamp, and the Windows toast fired
+  "Download finished" right away, but the media then kept downloading
+  normally afterward for real. The daemon's own log for this exact
+  download showed a genuine 3 minute 50 second gap between "Committed
+  preview → downloading" and the real "Download complete" - the false
+  completion signal had nothing to do with the actual download timeline
+  at all.
+- **Root cause**: the 2026-08-23 "instant fake-complete" fix (further
+  up this log) guarded the *completion-handling* branch in
+  `_monitor_download()` against a transient/untrustworthy
+  is_finished/is_seeding reading on the first poll - but the ordinary,
+  unconditional per-loop status write two lines above it
+  (`status = 'Seeding' if s.is_seeding or s.is_finished else ...`) was
+  never given the same guard. Every `store.update()` call pushes a
+  fresh snapshot to every connected browser over the websocket, so the
+  moment libtorrent's raw flags blipped true on an early poll - the
+  same kind of transient reading the earlier fix already knew to
+  distrust - the *displayed* status flipped to 'Seeding' and got pushed
+  out immediately, even though the completion branch right below it
+  correctly declined to treat it as a real finish and let the loop
+  continue normally. The frontend has no way to know a status it was
+  told was true wasn't; it logged "✓" and fired the toast on the very
+  next honest signal, then never repeated either the moment the torrent
+  actually, genuinely finished minutes later (its own de-duplication
+  correctly assumed it already had).
+- **Fix**: both decisions - the status field written every iteration,
+  and whether to treat the torrent as complete - now come from one
+  `genuinely_done` boolean computed once per iteration (not first pass,
+  and `total_done > 0`), instead of two separately-maintained
+  conditions that could drift apart.
+- **Verified**: a new test uses a fake handle that returns a transient
+  is_finished=True/total_done=0 reading on its first call and a normal,
+  genuinely-downloading reading on every call after - confirms status
+  never reads 'Seeding' on either poll, and the monitor loop keeps
+  running rather than treating the blip as a real completion. Fails
+  against the pre-fix code when checked directly (228 tests total, all
+  passing).
+
 ## 2026-08-23 - Subtitles now follow their video into Plex; unrelated extras stay in the incomplete folder
 
 - **Request**: after the previous fix made it clear that non-video

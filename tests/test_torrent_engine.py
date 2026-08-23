@@ -508,6 +508,80 @@ def test_monitor_download_fails_instead_of_faking_completion_when_nothing_select
     assert not th.is_alive(), "monitor thread should exit, not hand off to seeding"
 
 
+class _FakeBlipStatus:
+    """A single fake libtorrent status snapshot with everything
+    _monitor_download reads from it."""
+    def __init__(self, state, is_finished, is_seeding, progress, total_done):
+        self.error = None
+        self.paused = False
+        self.state = state
+        self.is_finished = is_finished
+        self.is_seeding = is_seeding
+        self.progress = progress
+        self.total_done = total_done
+        self.upload_rate = 0.0
+        self.num_peers = 5
+        self.num_seeds = 3
+        self.pieces = []
+        self.num_pieces = 0
+
+
+class _FakeBlipHandle:
+    """Returns a transient 'finished' reading on the very first status()
+    call (is_finished True, total_done still 0 - libtorrent's raw state
+    right as a torrent starts, before real data has landed), then settles
+    into a normal, genuinely-downloading state on every call after."""
+    def __init__(self):
+        self._calls = 0
+
+    def status(self):
+        self._calls += 1
+        if self._calls == 1:
+            return _FakeBlipStatus(state=4, is_finished=True, is_seeding=False, progress=1.0, total_done=0)
+        return _FakeBlipStatus(state=3, is_finished=False, is_seeding=False, progress=0.05, total_done=500_000)
+
+
+def test_monitor_download_never_reports_seeding_from_a_transient_first_pass_blip(engine):
+    """The actual bug: the plain per-loop status write
+    (status = 'Seeding' if s.is_seeding or s.is_finished) had no
+    first_pass/total_done guard at all - only the completion-handling
+    branch right below it did. A transient is_finished=True reading on
+    the very first poll (total_done still 0, real data not landed yet)
+    got written straight to the store - and pushed over the websocket -
+    as status='Seeding', even though the completion branch correctly
+    declined to treat it as a real finish and the loop kept running
+    normally afterward. Confirmed live: a real, healthily-downloading
+    torrent (3m50s real duration) showed a false "✓ finished" activity-
+    log line and fired the completion toast within seconds of being
+    added, then continued downloading normally for real - because the
+    UI has no way to know a status it was told was true wasn't.
+    """
+    name = "TransientBlipTorrent"
+    handle = _FakeBlipHandle()
+    total_size = 2_000_000
+    engine.store.add(name, "magnet:?xt=urn:btih:" + "5" * 40, total_size, handle)
+    engine.store.update(name, status="Downloading")
+
+    th = threading.Thread(
+        target=engine._monitor_download, args=(name, handle, total_size), daemon=True,
+    )
+    th.start()
+    time.sleep(0.2)  # let the first (blip) iteration run
+    first_status = engine.store.get(name).get("status")
+    assert first_status != "Seeding", (
+        f"a transient is_finished blip on the first pass must never be reported as 'Seeding', "
+        f"got {first_status!r}"
+    )
+    assert th.is_alive(), "the loop must not have exited - the blip isn't a real completion"
+
+    time.sleep(2.2)  # let a second, real iteration run past the 2s poll interval
+    second_status = engine.store.get(name).get("status")
+    assert second_status != "Seeding", (
+        f"a genuinely still-downloading torrent must not show 'Seeding' either, got {second_status!r}"
+    )
+    assert th.is_alive(), "a torrent that's still genuinely downloading must not have completed"
+
+
 # ---------------------------------------------------------------------------
 # Honest "moved to Plex" labeling (see CHANGELOG.md 2026-08-23 "it says it
 # moved to plex, which it did not")

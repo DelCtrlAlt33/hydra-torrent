@@ -1050,9 +1050,36 @@ class TorrentEngine:
                 eta = f"{int(eta_sec // 60)}m {int(eta_sec % 60)}s"
 
             progress = s.progress * 100
-            status = _state_map.get(s.state, 'Unknown')
-            if s.is_seeding or s.is_finished:
-                status = 'Seeding'
+
+            # A single source of truth for "is this genuinely finished",
+            # shared by the status field below AND the completion branch
+            # right after it - these used to be two separately-computed
+            # conditions, and only the completion branch got guarded
+            # against a transient early is_finished/is_seeding reading
+            # (see the note below). The plain per-loop status write here
+            # had no such guard at all, so it kept setting status=
+            # 'Seeding' - and pushing that over the websocket - on any
+            # iteration where the raw flags blipped true, even on a
+            # torrent the completion branch correctly declined to treat
+            # as done. Confirmed live: a real, healthily-downloading
+            # torrent (3m50s real duration) showed a "✓ finished" line in
+            # the activity log and fired the completion toast within
+            # seconds of being added, then kept downloading normally for
+            # real afterward - status flipped to 'Seeding' for one
+            # transient poll, got pushed to the frontend, and the
+            # frontend has no way to know a status it was told was true
+            # wasn't. Never trust this on the very first pass either:
+            # commit_preview()'s own fallback prioritize_files() call is
+            # itself fire-and-forget async into libtorrent and may not
+            # have landed yet, and real pre-existing data can also
+            # legitimately read total_done==0 while the on-disk recheck
+            # is still running.
+            genuinely_done = (
+                (s.progress >= 1.0 or s.is_seeding or s.is_finished)
+                and not first_pass
+                and s.total_done > 0
+            )
+            status = 'Seeding' if genuinely_done else _state_map.get(s.state, 'Unknown')
 
             self.store.update(name,
                 bytes_done=s.total_done,
@@ -1070,19 +1097,6 @@ class TorrentEngine:
                 prev_time=current_time,
             )
 
-            # Never trust a completion signal on the very first pass:
-            # commit_preview()'s own fallback prioritize_files() call (for
-            # "file selection was never touched, default to everything")
-            # is itself fire-and-forget async into libtorrent - it may not
-            # have landed internally yet by the time this thread's first
-            # iteration runs a moment later. A torrent whose real data
-            # already sits on disk matching real hashes can also
-            # legitimately read total_done==0 on this exact first pass,
-            # simply because the on-disk recheck hasn't finished yet -
-            # so first_pass has to skip the whole completion decision
-            # (not just the total_done check below), success and failure
-            # alike, and let a real 2-second cycle pass before either one
-            # is trusted.
             if (s.progress >= 1.0 or s.is_seeding or s.is_finished) and not first_pass:
                 # libtorrent's is_finished/is_seeding are true whenever
                 # nothing is left that's wanted - that includes the
@@ -1100,7 +1114,9 @@ class TorrentEngine:
                 # other decision in this loop already trusts (no extra,
                 # separately-racy libtorrent call needed), and a torrent
                 # that's genuinely finished always has total_done > 0.
-                if s.total_done <= 0:
+                # (Equivalent to "not genuinely_done" - written out here
+                # since we're already inside the first_pass-gated branch.)
+                if not genuinely_done:
                     logger.error(f"'{name}' reported finished with zero files selected - nothing was downloaded")
                     self.store.update(
                         name, status='Failed',
