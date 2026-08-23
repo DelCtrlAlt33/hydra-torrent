@@ -489,6 +489,8 @@
       gap: 4px;
     }
     .tx-plex::before { content: "→ Plex:"; color: var(--muted); }
+    .tx-moved { font-size: 11px; color: var(--text); padding: 0 12px 8px 34px; display: flex; align-items: center; gap: 4px; }
+    .tx-moved::before { content: "→ Moved:"; color: var(--muted); }
 
     .tx-detail {
       border-top: 1px solid var(--border);
@@ -2392,8 +2394,15 @@ function _buildRowBody(t) {
       <button class="tx-icon-btn danger" title="Remove" onclick="removeTransfer(${nameJson})">&#10005;</button>`;
   }
 
-  const plexHtml = (t.moved_to_plex && t.plex_path)
-    ? `<div class="tx-plex">${escHtml(t.plex_path)}</div>`
+  // moved_to_plex is only true for a genuine Plex/Jellyfin-organized
+  // move now (see hydra_daemon.py's _monitor_download) - a file that
+  // fell back to the general downloads folder (no library configured,
+  // or its path didn't exist) still shows where it actually went, just
+  // honestly labeled instead of falsely claiming "Plex".
+  const plexHtml = t.plex_path
+    ? (t.moved_to_plex
+        ? `<div class="tx-plex">${escHtml(t.plex_path)}</div>`
+        : `<div class="tx-moved">${escHtml(t.plex_path)}</div>`)
     : '';
 
   return { stateCls, fill, pct, dlSpeed, ulSpeed, statusWord, peers, sizeStr, actions, plexHtml };
@@ -2448,12 +2457,18 @@ function _patchCard(itemEl, t) {
   const actionsEl = row.querySelector('.tx-actions');
   if (actionsEl) actionsEl.innerHTML = b.actions;
 
-  let plexEl = itemEl.querySelector('.tx-plex');
-  if (t.moved_to_plex && t.plex_path) {
+  // Same distinction as buildCard()'s plexHtml: moved_to_plex is only
+  // true for a genuine library-organized move now, so a fallback move
+  // gets the honest .tx-moved class instead of the green .tx-plex one.
+  let plexEl = itemEl.querySelector('.tx-plex, .tx-moved');
+  if (t.plex_path) {
+    const wantClass = t.moved_to_plex ? 'tx-plex' : 'tx-moved';
     if (!plexEl) {
       plexEl = document.createElement('div');
-      plexEl.className = 'tx-plex';
+      plexEl.className = wantClass;
       row.insertAdjacentElement('afterend', plexEl);
+    } else if (plexEl.className !== wantClass) {
+      plexEl.className = wantClass;
     }
     plexEl.textContent = t.plex_path;
   } else if (plexEl) {

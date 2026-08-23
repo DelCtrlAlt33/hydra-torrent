@@ -13,6 +13,60 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-23 - Unchecked files in the add-torrent dialog downloaded anyway
+
+- **Symptom**: reported live - unticked the poster/NFO files in the
+  file-selection dialog before adding a torrent, only the video file
+  was meant to download, but all the files downloaded anyway.
+- **Root cause**: a genuine race condition, not a UI bug. The frontend
+  correctly sends the user's real file selection to
+  `POST /transfers/{name}/files` before committing, but `handle.
+  prioritize_files()` is a fire-and-forget async call into libtorrent's
+  own internal engine - nothing guarantees the change has actually
+  landed by the time anything reads it back. `commit_preview()` had a
+  safety net for "the frontend never explicitly touched file
+  selection" that worked by re-reading `handle.file_priorities()` and
+  resetting everything to download if it read back as all-zero. When
+  the async update genuinely hadn't landed yet, that looked
+  indistinguishable from "never touched" and silently overrode the
+  user's real exclusions back to "download everything."
+- **Fix**: track our own explicit `file_priorities_set` flag (set
+  synchronously, in Hydra's own application state, the moment
+  `POST /files` is called) instead of re-querying libtorrent's
+  possibly-stale internal state. `commit_preview()`'s "default to
+  everything" fallback now only fires when that flag was never set at
+  all, not based on what libtorrent's engine happens to report at an
+  arbitrary moment.
+- **Verified**: two new real libtorrent integration tests - one proving
+  an explicit all-zero selection is respected even when read back as
+  all-zero (the exact condition the old code misread), one proving the
+  "never touched, default to everything" fallback still works when the
+  flag was genuinely never set.
+
+## 2026-08-23 - "Moved to Plex" was shown even when the file never touched Plex
+
+- **Symptom**: reported live, same session as the media-path fix below
+  - a download correctly fell back to the general downloads folder
+  (Plex library path not configured), but the UI still displayed "→
+  Plex: C:\...\Downloads\HydraTorrent" - a plain false claim, since
+  Plex was never actually involved, no scan was triggered, nothing was
+  organized.
+- **Root cause**: `auto_move_completed_download()` reports success
+  (`True, dest_path, None`) for both a genuine Plex/Jellyfin-organized
+  move and the safe general-downloads fallback - the caller had no way
+  to distinguish them from the return value alone, so the UI
+  unconditionally labeled every successful move as a Plex move.
+- **Fix**: the two destinations are structurally guaranteed to be
+  different roots (`MEDIA_DIR_MOVIES`/`MEDIA_DIR_TV` for a real
+  organized move, `DOWNLOAD_DIR_OTHER` for the fallback) - added
+  `_is_under_library_root()` to check which root the real destination
+  actually landed under, and only report `moved_to_plex=True` when
+  it's genuine. The frontend now shows an honest "→ Moved:" label
+  (instead of "→ Plex:") for a fallback move, so the destination is
+  still visible, just not falsely attributed to Plex.
+- **Verified**: three new unit tests covering the real-library,
+  fallback, and nothing-configured cases.
+
 ## 2026-08-23 - A misconfigured media path silently fabricated a bogus folder instead of erroring
 
 - **Symptom**: reported live - a completed download reported "Moved to

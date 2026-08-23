@@ -217,3 +217,157 @@ def test_monitor_seeding_detects_and_surfaces_torrent_error(engine):
     assert t.get("status") == "Failed"
     assert "no space left" in (t.get("error") or "")
     assert not th.is_alive(), "monitor thread should exit once an error is detected, not loop forever"
+
+
+# ---------------------------------------------------------------------------
+# File-selection race condition (see CHANGELOG.md 2026-08-23 "a user's
+# unchecked files downloaded anyway")
+# ---------------------------------------------------------------------------
+
+def test_commit_preview_respects_explicit_zero_priorities_even_when_flag_set(tmp_path, engine):
+    """The actual bug: commit_preview() used to decide "did the user ever
+    touch file selection" by re-reading handle.file_priorities() back from
+    libtorrent - an async, fire-and-forget call, so nothing guaranteed the
+    change had landed internally by the time commit_preview read it a
+    moment later. When it hadn't, every file still reading as priority 0
+    looked indistinguishable from "nothing was ever set," and the old
+    code force-reset everything back to 1, silently overriding the user's
+    real exclusions.
+
+    This proves the fix: with file_priorities_set=True (what
+    POST /transfers/{name}/files now sets, synchronously, in our own
+    application state rather than libtorrent's), commit_preview must NOT
+    touch priorities at all - not even in the edge case where every file
+    genuinely reads back as 0, which is exactly the condition the old
+    code used to misinterpret as "never configured."
+    """
+    # A real multi-file torrent so there's more than one priority slot to
+    # get wrong - single-file torrents can't distinguish "reset everything"
+    # from "reset the one thing" the way this bug needs. Files sized to an
+    # exact piece boundary so lt.create_torrent()'s hybrid v1/v2 default
+    # doesn't insert invisible pad-file entries between them - confirmed
+    # live that mismatched sizes/piece_size silently changes the real file
+    # count file_priorities() reports, which isn't what this test is about.
+    PIECE = 16 * 1024
+    data_dir2 = tmp_path / "multi"
+    data_dir2.mkdir()
+    (data_dir2 / "a.bin").write_bytes(os.urandom(PIECE))
+    (data_dir2 / "b.bin").write_bytes(os.urandom(PIECE))
+    fs = lt.file_storage()
+    lt.add_files(fs, str(data_dir2))
+    t = lt.create_torrent(fs, piece_size=PIECE)
+    lt.set_piece_hashes(t, str(tmp_path))
+    multi_ti = lt.torrent_info(lt.bencode(t.generate()))
+    magnet = lt.make_magnet_uri(multi_ti)
+    assert multi_ti.num_files() == 2, "test setup issue: unexpected pad files in the torrent"
+
+    name = "FilePriorityRaceTorrent"
+    params = lt.add_torrent_params()
+    params.ti = multi_ti
+    params.save_path = str(tmp_path)
+    params.flags = (lt.torrent_flags.default_flags
+                     | lt.torrent_flags.default_dont_download) & ~lt.torrent_flags.paused
+    handle = engine.ses.add_torrent(params)
+    engine.store.add(name, magnet, multi_ti.total_size(), handle)
+    engine.store.update(name, status="Metadata ready", hidden=True)
+
+    # Every file genuinely at priority 0, exactly as it sits throughout
+    # real preview - and exactly the state the old code misread as "user
+    # never touched selection."
+    handle.prioritize_files([0, 0])
+    time.sleep(0.2)  # let libtorrent's internal state actually settle
+
+    # This is what the fixed POST /transfers/{name}/files endpoint sets -
+    # simulating "the user explicitly excluded every file," a real (if
+    # unusual) choice that must be respected, not silently reversed.
+    engine.store.update(name, file_priorities_set=True)
+
+    real_name = engine.commit_preview(name)
+
+    final_handle = engine.store.get_handle(real_name)
+    final_priorities = list(final_handle.file_priorities())
+    assert final_priorities == [0, 0], (
+        f"commit_preview overrode explicit user file selection: {final_priorities}"
+    )
+
+
+def test_commit_preview_defaults_to_all_files_when_never_explicitly_set(tmp_path, engine):
+    """The other half of the same fix: when the frontend's /files endpoint
+    was genuinely never called (file_priorities_set stays False - the
+    common case, most people never touch file selection), commit_preview
+    must still fall back to downloading everything, not leave a torrent
+    permanently stuck at priority 0 with nothing ever downloading.
+    """
+    PIECE = 16 * 1024
+    data_dir2 = tmp_path / "multi2"
+    data_dir2.mkdir()
+    (data_dir2 / "a.bin").write_bytes(os.urandom(PIECE))
+    (data_dir2 / "b.bin").write_bytes(os.urandom(PIECE))
+    fs = lt.file_storage()
+    lt.add_files(fs, str(data_dir2))
+    t = lt.create_torrent(fs, piece_size=PIECE)
+    lt.set_piece_hashes(t, str(tmp_path))
+    multi_ti = lt.torrent_info(lt.bencode(t.generate()))
+    magnet = lt.make_magnet_uri(multi_ti)
+    assert multi_ti.num_files() == 2, "test setup issue: unexpected pad files in the torrent"
+
+    name = "FilePriorityNeverSetTorrent"
+    params = lt.add_torrent_params()
+    params.ti = multi_ti
+    params.save_path = str(tmp_path)
+    params.flags = (lt.torrent_flags.default_flags
+                     | lt.torrent_flags.default_dont_download) & ~lt.torrent_flags.paused
+    handle = engine.ses.add_torrent(params)
+    engine.store.add(name, magnet, multi_ti.total_size(), handle)
+    engine.store.update(name, status="Metadata ready", hidden=True)
+    # file_priorities_set left at its real default (False) - the frontend
+    # never called POST /files, same as the common "never touched file
+    # selection" case.
+
+    real_name = engine.commit_preview(name)
+    time.sleep(0.2)  # commit_preview's own prioritize_files() call is
+                      # itself async into libtorrent's engine - give it a
+                      # moment to land before reading it back, same as
+                      # elsewhere in this file.
+
+    final_handle = engine.store.get_handle(real_name)
+    final_priorities = list(final_handle.file_priorities())
+    assert all(p > 0 for p in final_priorities), (
+        f"a torrent whose file selection was never touched must default to "
+        f"downloading everything, got {final_priorities}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Honest "moved to Plex" labeling (see CHANGELOG.md 2026-08-23 "it says it
+# moved to plex, which it did not")
+# ---------------------------------------------------------------------------
+
+def test_is_under_library_root_true_for_real_library_path(tmp_path, monkeypatch):
+    movies_root = tmp_path / "media" / "movies"
+    movies_root.mkdir(parents=True)
+    monkeypatch.setattr(hd, "MEDIA_DIR_MOVIES", str(movies_root))
+    monkeypatch.setattr(hd, "MEDIA_DIR_TV", "")
+
+    dest = movies_root / "Some Movie (2024)"
+    assert hd._is_under_library_root(str(dest)) is True
+
+
+def test_is_under_library_root_false_for_fallback_downloads_path(tmp_path, monkeypatch):
+    """The exact bug: a file that fell back to the general-downloads
+    folder (Plex never actually configured/reachable) must not be
+    reported as having landed under a library root, even though both
+    paths structurally live under the same broader Downloads tree.
+    """
+    monkeypatch.setattr(hd, "MEDIA_DIR_MOVIES", str(tmp_path / "media" / "movies"))
+    monkeypatch.setattr(hd, "MEDIA_DIR_TV", str(tmp_path / "media" / "tv"))
+
+    fallback_dest = tmp_path / "Downloads" / "HydraTorrent"
+    fallback_dest.mkdir(parents=True)
+    assert hd._is_under_library_root(str(fallback_dest)) is False
+
+
+def test_is_under_library_root_false_when_nothing_configured(tmp_path, monkeypatch):
+    monkeypatch.setattr(hd, "MEDIA_DIR_MOVIES", "")
+    monkeypatch.setattr(hd, "MEDIA_DIR_TV", "")
+    assert hd._is_under_library_root(str(tmp_path / "anything")) is False

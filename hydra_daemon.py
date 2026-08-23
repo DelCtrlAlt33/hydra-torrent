@@ -61,6 +61,8 @@ from config import (
     FULLCHAIN_PATH,
     GITHUB_REPO,
     LOG_PATH,
+    MEDIA_DIR_MOVIES,
+    MEDIA_DIR_TV,
     PEER_PORT,
     PRIVKEY_PATH,
     VERSION,
@@ -242,6 +244,7 @@ class DaemonStore:
                 'total_uploaded': 0,
                 'prev_bytes': 0,
                 'prev_time': time.time(),
+                'file_priorities_set': False,
             }
         self._push_snapshot()
 
@@ -352,6 +355,29 @@ class DaemonStore:
                     pass
         except Exception:
             pass
+
+
+# ---------------------------------------------------------------------------
+# Distinguishing a real Plex/Jellyfin-organized move from a fallback one
+# ---------------------------------------------------------------------------
+
+def _is_under_library_root(dest_dir: str) -> bool:
+    """
+    True only if dest_dir genuinely landed inside MEDIA_DIR_MOVIES or
+    MEDIA_DIR_TV - i.e. this was a real, library-organized move, not the
+    general-downloads fallback auto_move_completed_download() also
+    reports success for (no library configured, path didn't exist, or
+    not a video file). Those two cases return the exact same 3-value
+    (success, dest_path, error) shape, so the caller can't tell them
+    apart without this check - confirmed live: without it, the UI
+    unconditionally labeled every successful move as "-> Plex: <path>",
+    which is a false claim whenever the fallback path was actually used.
+    """
+    real_dest = os.path.realpath(dest_dir)
+    return any(
+        root and real_dest.startswith(os.path.realpath(root) + os.sep)
+        for root in (MEDIA_DIR_MOVIES, MEDIA_DIR_TV)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -871,18 +897,31 @@ class TorrentEngine:
         # preview_magnet). The frontend syncs the user's actual file
         # selection here via POST /files right before calling this, but
         # that's a separate call this one shouldn't have to trust blindly
-        # - if it was skipped, raced, or never happened for any reason,
-        # every file staying at 0 would otherwise make libtorrent
-        # consider this "instantly finished" with nothing ever
-        # downloaded, silently. If literally nothing was ever explicitly
-        # set (the common case - most people never touch file
-        # selection), default to downloading everything instead.
-        try:
-            priorities = list(handle.file_priorities())
-            if priorities and not any(priorities):
-                handle.prioritize_files([1] * len(priorities))
-        except Exception:
-            pass
+        # - if it was skipped, or never happened for any reason, every
+        # file staying at 0 would otherwise make libtorrent consider
+        # this "instantly finished" with nothing ever downloaded,
+        # silently. If literally nothing was ever explicitly set (the
+        # common case - most people never touch file selection), default
+        # to downloading everything instead.
+        #
+        # This checks our own file_priorities_set flag rather than
+        # re-reading handle.file_priorities() back from libtorrent -
+        # prioritize_files() is a fire-and-forget async call into the
+        # session engine, and re-querying it here used to race in
+        # practice: the frontend's /files call would return successfully,
+        # but libtorrent hadn't necessarily applied the change internally
+        # yet by the time this ran a moment later, so it looked
+        # indistinguishable from "nothing was ever set" and silently
+        # turned every file back on - confirmed live, a user's real file
+        # exclusions got overridden this way. Our own flag update is
+        # synchronous and race-free; libtorrent's isn't.
+        if not entry.get('file_priorities_set'):
+            try:
+                priorities = list(handle.file_priorities())
+                if priorities and not any(priorities):
+                    handle.prioritize_files([1] * len(priorities))
+            except Exception:
+                pass
 
         if save_path and save_path != entry.get('save_path'):
             try:
@@ -1073,8 +1112,11 @@ class TorrentEngine:
             if success:
                 plex_dir = os.path.dirname(dest_path)
                 moved_files.append(dest_path)
-                self.store.update(name, moved_to_plex=True, plex_path=plex_dir, moved_files=moved_files)
-                logger.info(f"Moved to Plex: {dest_path}")
+                really_organized = _is_under_library_root(plex_dir)
+                self.store.update(
+                    name, moved_to_plex=really_organized, plex_path=plex_dir, moved_files=moved_files,
+                )
+                logger.info(f"{'Moved to Plex' if really_organized else 'Moved'}: {dest_path}")
             elif error and error not in ("Not a video file", "Library path not configured"):
                 logger.warning(f"Could not move '{name}': {error}")
 
@@ -2101,6 +2143,18 @@ def set_file_priorities(name: str, req: SetFilePrioritiesRequest) -> dict:
         handle.prioritize_files(current_priorities)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to set priorities: {e}")
+
+    # commit_preview() needs to know "did the frontend ever explicitly
+    # set file selection for this torrent" - see its own comment for why
+    # this can't just re-read handle.file_priorities() back from
+    # libtorrent (prioritize_files() is a fire-and-forget async call
+    # into the session's internal engine; nothing guarantees the change
+    # has actually landed by the time a caller reads it back a moment
+    # later, and re-querying it raced in practice - confirmed live: a
+    # user's real file exclusions were silently overridden back to
+    # "download everything" because the immediately-following commit
+    # read priorities back before this call's effect had landed).
+    store.update(name, file_priorities_set=True)
 
     return {"ok": True, "updated": len(req.files)}
 
