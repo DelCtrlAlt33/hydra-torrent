@@ -71,7 +71,12 @@ from config import (
     logger,
 )
 from vpn_guard import VPNGuard, get_public_ip as _fetch_public_ip
-from media_organizer import auto_move_completed_download
+from media_organizer import (
+    auto_move_completed_download,
+    is_video_file,
+    is_subtitle_file,
+    move_subtitle_alongside_video,
+)
 from search import search_jackett, search_index_server
 from health import check_jackett, check_plex, check_jellyfin
 from updater import check_for_update
@@ -378,6 +383,18 @@ def _is_under_library_root(dest_dir: str) -> bool:
         root and real_dest.startswith(os.path.realpath(root) + os.sep)
         for root in (MEDIA_DIR_MOVIES, MEDIA_DIR_TV)
     )
+
+
+def _subtitle_matches_video(subtitle_stem: str, video_stem: str) -> bool:
+    """
+    A subtitle "movie.srt" or "movie.en.srt" belongs to "movie.mp4" -
+    exact stem match, or the video's stem extended by a '.'-separated
+    suffix (a language code). A plain prefix check isn't enough: without
+    the '.' boundary, "Show.S01E1" would wrongly claim the subtitle for
+    "Show.S01E10" in a season pack, since "Show.S01E10" also starts with
+    "Show.S01E1".
+    """
+    return subtitle_stem == video_stem or subtitle_stem.startswith(video_stem + '.')
 
 
 # ---------------------------------------------------------------------------
@@ -1129,7 +1146,21 @@ class TorrentEngine:
     # ── Post-download Plex move ───────────────────────────────────────────────
 
     def _post_download(self, name: str, handle) -> None:
-        """Move completed files to Plex/media folders when auto-move is enabled."""
+        """Move completed files to Plex/media folders when auto-move is enabled.
+
+        Video files: classified and moved into the real Plex/Jellyfin
+        library (or the general-downloads fallback if no library is
+        configured/reachable), same as always. Subtitles: paired by
+        filename to whichever video they belong to (allowing an optional
+        trailing '.'-separated language code, e.g. "movie.en.srt") and
+        moved alongside it, wherever that video actually ended up - so
+        Plex can pick them up as an external subtitle track. Everything
+        else (cover art, NFOs, samples, release-group promo images) is
+        deliberately left where it is, in the incomplete folder - it was
+        never real media, and libtorrent's own delete-on-remove already
+        cleans it up correctly from there without Hydra needing to track
+        a second copy of its location.
+        """
         cfg = load_config()
         if not cfg.get('auto_move_to_plex', True):
             return
@@ -1172,25 +1203,41 @@ class TorrentEngine:
         except Exception:
             actual_save_path = DOWNLOAD_DIR_INCOMPLETE
         incomplete_dir = os.path.realpath(actual_save_path)
-        for file_info in files:
+
+        def _resolve(file_info):
             file_path = os.path.realpath(os.path.join(actual_save_path, file_info.path))
             if not file_path.startswith(incomplete_dir + os.sep):
                 logger.warning(f"Skipping file outside download dir for '{name}': {file_info.path!r}")
-                continue
+                return None
             if not os.path.exists(file_path):
+                return None
+            return file_path
+
+        # Pass 1: video files only. video_destinations tracks where each
+        # one actually landed (stem -> dest dir) so a matching subtitle
+        # can follow it in pass 2, whether that's the real Plex library
+        # or the general-downloads fallback.
+        video_destinations = []
+        for file_info in files:
+            basename = os.path.basename(file_info.path)
+            if not is_video_file(basename):
+                continue
+            file_path = _resolve(file_info)
+            if file_path is None:
                 continue
 
             success, dest_path, error = auto_move_completed_download(
-                os.path.basename(file_path), file_path, torrent_name=name
+                basename, file_path, torrent_name=name
             )
             if success:
                 plex_dir = os.path.dirname(dest_path)
                 moved_files.append(dest_path)
+                video_destinations.append((os.path.splitext(basename)[0], plex_dir))
                 really_organized = _is_under_library_root(plex_dir)
                 # Sticky once true, not last-write-wins: a torrent's main
-                # video file often lands in the real Plex library while
-                # its extras (subtitle, cover art, sample) correctly fall
-                # back to the general downloads folder afterward - both
+                # video file often lands in the real Plex library while a
+                # second, still-video file in the same torrent (e.g. a
+                # sample.mkv) can legitimately fall back elsewhere - both
                 # individually correct, but each successful move used to
                 # unconditionally overwrite moved_to_plex/plex_path, so
                 # whichever file happened to be processed last decided
@@ -1207,6 +1254,39 @@ class TorrentEngine:
                 logger.info(f"{'Moved to Plex' if really_organized else 'Moved'}: {dest_path}")
             elif error and error not in ("Not a video file", "Library path not configured"):
                 logger.warning(f"Could not move '{name}': {error}")
+
+        # Pass 2: subtitles paired to whichever video they belong to.
+        # Anything left unpaired (no matching video moved, or the torrent
+        # has no video at all) stays put in the incomplete folder -
+        # guessing wrong would misplace it, and it's not urgent clutter.
+        if video_destinations:
+            for file_info in files:
+                basename = os.path.basename(file_info.path)
+                if not is_subtitle_file(basename):
+                    continue
+                file_path = _resolve(file_info)
+                if file_path is None:
+                    continue
+
+                subtitle_stem = os.path.splitext(basename)[0]
+                dest_dir = next(
+                    (d for stem, d in video_destinations if _subtitle_matches_video(subtitle_stem, stem)),
+                    None,
+                )
+                if dest_dir is None:
+                    continue
+
+                success, dest_path, error = move_subtitle_alongside_video(basename, file_path, dest_dir)
+                if success:
+                    moved_files.append(dest_path)
+                    self.store.update(name, moved_files=moved_files)
+                    logger.info(f"Moved subtitle alongside video: {dest_path}")
+                elif error:
+                    logger.warning(f"Could not move subtitle for '{name}': {error}")
+
+        # Everything else (cover art, NFOs, samples, promo images) is
+        # intentionally left alone in the incomplete folder - see the
+        # docstring above for why.
 
     # ── Seeding monitor ────────────────────────────────────────────────────────
 

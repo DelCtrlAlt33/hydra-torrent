@@ -615,6 +615,84 @@ def test_post_download_reports_moved_to_plex_even_when_extras_fall_back_after_it
     )
 
 
+@pytest.mark.parametrize("subtitle_stem,video_stem,expected", [
+    ("movie", "movie", True),
+    ("movie.en", "movie", True),
+    ("movie.eng", "movie", True),
+    ("Show.S01E01", "Show.S01E01", True),
+    ("Show.S01E01.eng", "Show.S01E01", True),
+    ("Show.S01E10", "Show.S01E1", False),  # the exact false-positive this guards against
+    ("movie2", "movie", False),
+    ("other", "movie", False),
+])
+def test_subtitle_matches_video(subtitle_stem, video_stem, expected):
+    assert hd._subtitle_matches_video(subtitle_stem, video_stem) is expected
+
+
+def test_post_download_moves_subtitle_alongside_video_and_leaves_everything_else(tmp_path, engine, monkeypatch):
+    """End-to-end for the actual feature request: subtitles should follow
+    their video into Plex; unrelated extras (cover art, promo images)
+    should stay in the incomplete folder rather than being scattered into
+    a local downloads fallback nobody asked for. Uses the real
+    auto_move_completed_download/move_subtitle_alongside_video path, not
+    a mock, so this also exercises the real movie-folder naming logic.
+    """
+    PIECE = 16 * 1024
+    save_dir = tmp_path / "incomplete"
+    save_dir.mkdir()
+    (save_dir / "Some.Movie.2024.1080p.mkv").write_bytes(os.urandom(PIECE))
+    (save_dir / "Some.Movie.2024.1080p.srt").write_bytes(os.urandom(PIECE))
+    (save_dir / "poster.jpg").write_bytes(os.urandom(PIECE))
+    fs = lt.file_storage()
+    lt.add_files(fs, str(save_dir))
+    t = lt.create_torrent(fs, piece_size=PIECE)
+    lt.set_piece_hashes(t, str(tmp_path))
+    ti = lt.torrent_info(lt.bencode(t.generate()))
+    assert ti.num_files() == 3, "test setup issue: unexpected pad files in the torrent"
+
+    name = "SubtitlePairingTorrent"
+    params = lt.add_torrent_params()
+    params.ti = ti
+    params.save_path = str(tmp_path)  # parent of save_dir - see the note on this pattern above
+    handle = engine.ses.add_torrent(params)
+    engine.store.add(name, "magnet:?xt=urn:btih:" + "4" * 40, ti.total_size(), handle)
+    engine.store.update(name, status="Seeding")
+
+    # _is_under_library_root (hydra_daemon.py) and move_to_plex
+    # (media_organizer.py) each imported their own copy of these
+    # constants from config.py - patching one name doesn't affect the
+    # other, both need it.
+    movies_root = tmp_path / "media" / "movies"
+    movies_root.mkdir(parents=True)
+    monkeypatch.setattr(hd, "MEDIA_DIR_MOVIES", str(movies_root))
+    monkeypatch.setattr(hd, "MEDIA_DIR_TV", str(tmp_path / "media" / "tv"))
+    monkeypatch.setattr("media_organizer.MEDIA_DIR_MOVIES", str(movies_root))
+    monkeypatch.setattr("media_organizer.MEDIA_DIR_TV", str(tmp_path / "media" / "tv"))
+
+    engine._post_download(name, handle)
+
+    result = engine.store.get(name)
+    assert result.get("moved_to_plex") is True
+
+    moved_files = result.get("moved_files") or []
+    video_dest = next((p for p in moved_files if p.endswith(".mkv")), None)
+    srt_dest = next((p for p in moved_files if p.endswith(".srt")), None)
+    assert video_dest is not None, "the video must have been moved into the Plex library"
+    assert srt_dest is not None, "the subtitle must have been moved too, not left behind"
+    assert os.path.dirname(srt_dest) == os.path.dirname(video_dest), (
+        "the subtitle must land in the exact same folder as its video, "
+        f"got video={video_dest!r} srt={srt_dest!r}"
+    )
+
+    assert not any(p.endswith("poster.jpg") for p in moved_files), (
+        "an unrelated extra (cover art) must never be moved - it belongs to neither "
+        "the video pass nor the subtitle pass"
+    )
+    assert os.path.exists(save_dir / "poster.jpg"), (
+        "poster.jpg must still be sitting in the incomplete folder, untouched"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Default SAVE AT path (see CHANGELOG.md 2026-08-23 "SAVE AT defaulted to
 # local downloads even with a real, working Plex library configured",

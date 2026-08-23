@@ -46,6 +46,11 @@ class MediaOrganizer:
     VIDEO_EXTENSIONS = {'.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv',
                        '.webm', '.mpg', '.mpeg', '.m4v', '.ts'}
 
+    # Subtitle extensions - these ride alongside whichever video they
+    # belong to (see move_alongside / hydra_daemon.py's _post_download)
+    # rather than going through movie/TV classification themselves.
+    SUBTITLE_EXTENSIONS = {'.srt', '.ass', '.ssa', '.vtt', '.sub'}
+
     def __init__(self):
         self.config = load_config()
 
@@ -53,6 +58,11 @@ class MediaOrganizer:
         """Check if file is a video file."""
         ext = os.path.splitext(filename)[1].lower()
         return ext in self.VIDEO_EXTENSIONS
+
+    def is_subtitle_file(self, filename):
+        """Check if file is a subtitle file."""
+        ext = os.path.splitext(filename)[1].lower()
+        return ext in self.SUBTITLE_EXTENSIONS
 
     def detect_media_type(self, filename, torrent_name=None):
         """
@@ -275,6 +285,35 @@ class MediaOrganizer:
             logger.error(error_msg)
             return False, None, error_msg
 
+    def move_alongside(self, filename, source_path, dest_dir):
+        """
+        Move a companion file (currently: subtitles) into a directory a
+        sibling file already claimed. No classification, no library
+        lookup - the caller already knows exactly where this belongs,
+        because it matched it to a video that was just moved there.
+
+        Returns: (success: bool, dest_path: str, error: str)
+        """
+        try:
+            if not os.path.exists(source_path):
+                return False, None, f"Source file not found: {source_path}"
+
+            dest_path = os.path.join(dest_dir, filename)
+            if os.path.exists(dest_path):
+                base, ext = os.path.splitext(dest_path)
+                counter = 1
+                while os.path.exists(f"{base} ({counter}){ext}"):
+                    counter += 1
+                dest_path = f"{base} ({counter}){ext}"
+
+            shutil.move(source_path, dest_path)
+            logger.info(f"Moved alongside video: {dest_path}")
+            return True, dest_path, None
+        except Exception as e:
+            error_msg = f"Failed to move {filename}: {e}"
+            logger.error(error_msg)
+            return False, None, error_msg
+
     def _move_to_other_or_skip(self, filename, source_path, skip_reason):
         """
         General downloads fallback: used for non-video files, and for video
@@ -375,3 +414,22 @@ def auto_move_completed_download(filename, source_path=None, torrent_name=None):
     """
     organizer = MediaOrganizer()
     return organizer.move_to_plex(filename, source_path, torrent_name=torrent_name)
+
+
+# Plain module-level classification - no self.config/load_config() needed
+# for an extension check, so callers (hydra_daemon.py's _post_download,
+# deciding per-file which pass a file belongs in) don't have to construct
+# a whole MediaOrganizer just to ask "is this a video/subtitle file".
+def is_video_file(filename):
+    return os.path.splitext(filename)[1].lower() in MediaOrganizer.VIDEO_EXTENSIONS
+
+
+def is_subtitle_file(filename):
+    return os.path.splitext(filename)[1].lower() in MediaOrganizer.SUBTITLE_EXTENSIONS
+
+
+def move_subtitle_alongside_video(filename, source_path, dest_dir):
+    """Convenience wrapper for MediaOrganizer.move_alongside - same shape
+    as auto_move_completed_download above."""
+    organizer = MediaOrganizer()
+    return organizer.move_alongside(filename, source_path, dest_dir)

@@ -13,6 +13,41 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-23 - Subtitles now follow their video into Plex; unrelated extras stay in the incomplete folder
+
+- **Request**: after the previous fix made it clear that non-video
+  extras (subtitles, cover art, NFOs, promo images) were all being
+  swept into the local Downloads fallback regardless of Plex being
+  configured, asked for two specific changes: subtitles should follow
+  their video into the Plex library (so Plex can actually use them as
+  an external subtitle track), and everything else that isn't real
+  media should just stay in the incomplete folder instead of being
+  scattered into Downloads.
+- **Change**: `_post_download()` now runs in two passes instead of one
+  blanket loop over every file. Pass 1 moves video files exactly as
+  before (real Plex library, or the general-downloads fallback if no
+  library is configured/reachable) and records where each one landed.
+  Pass 2 looks at subtitle files (`.srt`/`.ass`/`.ssa`/`.vtt`/`.sub`)
+  and pairs each one to its video by filename - exact stem match, or
+  the video's stem extended with a `.`-separated suffix (e.g.
+  `movie.en.srt` → `movie.mp4`, boundary-checked so `Show.S01E1` can't
+  wrongly claim `Show.S01E10`'s subtitle in a season pack) - then moves
+  it into that same destination directory with a plain filesystem move
+  (`MediaOrganizer.move_alongside`, new). Anything that's neither a
+  video nor a matched subtitle (cover art, NFOs, samples, release-group
+  promo images) is no longer touched at all - it stays in the
+  incomplete folder, where libtorrent's own delete-on-remove already
+  cleans it up correctly without Hydra needing to track a second copy
+  of its location.
+- **Verified**: new tests cover `is_subtitle_file`, `move_alongside`
+  (including the collision-avoidance and missing-source paths), the
+  stem-matching boundary case that guards against the season-pack
+  false positive, and a full end-to-end `_post_download()` run against
+  a real three-file torrent (video + matching subtitle + unrelated
+  cover art) confirming the subtitle lands in the exact same folder as
+  its video and the cover art is left untouched in the incomplete
+  folder (227 tests total, all passing).
+
 ## 2026-08-23 - A movie genuinely moved to Plex was reported as "moved to Downloads"
 
 - **Symptom**: reported live - a real download whose movie file had

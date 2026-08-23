@@ -41,6 +41,71 @@ def test_is_video_file(organizer, filename, expected):
 
 
 # ---------------------------------------------------------------------------
+# is_subtitle_file
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("filename,expected", [
+    ("Movie.2024.1080p.srt", True),
+    ("Movie.2024.1080p.en.srt", True),
+    ("Show.S01E01.ass", True),
+    ("Show.S01E01.vtt", True),
+    ("Movie.2024.1080p.mkv", False),
+    ("cover.jpg", False),
+    ("readme.txt", False),
+    ("NO_EXTENSION", False),
+])
+def test_is_subtitle_file(organizer, filename, expected):
+    assert organizer.is_subtitle_file(filename) is expected
+
+
+# ---------------------------------------------------------------------------
+# move_alongside (see CHANGELOG.md 2026-08-23 "subtitles should follow
+# their video into Plex; everything else stays in the incomplete folder")
+# ---------------------------------------------------------------------------
+
+def test_move_alongside_moves_into_given_destination(organizer, tmp_path):
+    dest_dir = tmp_path / "Plex" / "movies" / "Some Movie (2024)"
+    dest_dir.mkdir(parents=True)
+    src = tmp_path / "incoming" / "Some.Movie.2024.srt"
+    src.parent.mkdir()
+    src.write_text("1\n00:00:01,000 --> 00:00:02,000\nHello\n")
+
+    ok, dest, error = organizer.move_alongside("Some.Movie.2024.srt", str(src), str(dest_dir))
+
+    assert ok is True
+    assert error is None
+    assert dest == str(dest_dir / "Some.Movie.2024.srt")
+    assert os.path.exists(dest)
+    assert not src.exists()
+
+
+def test_move_alongside_avoids_collision(organizer, tmp_path):
+    dest_dir = tmp_path / "Plex" / "movies" / "Some Movie (2024)"
+    dest_dir.mkdir(parents=True)
+    (dest_dir / "movie.srt").write_text("existing")
+    src = tmp_path / "incoming" / "movie.srt"
+    src.parent.mkdir()
+    src.write_text("new")
+
+    ok, dest, error = organizer.move_alongside("movie.srt", str(src), str(dest_dir))
+
+    assert ok is True
+    assert dest == str(dest_dir / "movie (1).srt")
+    assert (dest_dir / "movie.srt").read_text() == "existing"
+
+
+def test_move_alongside_reports_missing_source(organizer, tmp_path):
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    ok, dest, error = organizer.move_alongside(
+        "gone.srt", str(tmp_path / "nonexistent.srt"), str(dest_dir)
+    )
+    assert ok is False
+    assert dest is None
+    assert "not found" in error.lower()
+
+
+# ---------------------------------------------------------------------------
 # detect_media_type - every documented pattern from the README, plus the
 # ambiguous/ordering cases that make this function worth testing at all.
 # ---------------------------------------------------------------------------
