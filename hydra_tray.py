@@ -297,7 +297,15 @@ class HydraTray:
         """Show a Windows toast notification for a completed download."""
         try:
             plex_path = transfer.get('plex_path')
-            if plex_path:
+            # plex_path is set for both a genuine Plex/Jellyfin-organized
+            # move AND the safe general-downloads fallback (no library
+            # configured/reachable) - moved_to_plex is the field that
+            # actually distinguishes them (see hydra_daemon.py's
+            # _is_under_library_root). Checking plex_path alone here was
+            # the same false-claim bug already fixed for the transfer
+            # row's on-screen label, just in the Windows toast instead -
+            # confirmed live, a fallback move fired "Moved to Plex" too.
+            if transfer.get('moved_to_plex') and plex_path:
                 dest = 'TV' if ('/tv' in plex_path or '\\tv' in plex_path) else 'Movies'
                 msg = f"Moved to Plex {dest}"
             else:

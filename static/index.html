@@ -991,6 +991,8 @@
     }
 
     .file-item:hover { background: rgba(255,255,255,0.03); }
+    .file-item.readonly { cursor: default; }
+    .file-item.readonly:hover { background: none; }
 
     .file-name {
       flex: 1;
@@ -4586,7 +4588,7 @@ function _renderDetail(name) {
 
   if (tab === 'files') {
     if (_fileData[name]) {
-      body.innerHTML = _filesHtml(name, _fileData[name]);
+      body.innerHTML = _filesHtml(name, _fileData[name], false);
     } else {
       body.innerHTML = '<div class="detail-loading">Loading files…</div>';
       fetchAndShowFiles(name);
@@ -4627,19 +4629,36 @@ async function fetchAndShowFiles(name) {
     }
     const files = await r.json();
     _fileData[name] = files;
-    _setDetailBody(name, 'files', _filesHtml(name, files));
+    _setDetailBody(name, 'files', _filesHtml(name, files, false));
   } catch (e) {
     _setDetailBody(name, 'files', `<div class="detail-loading">Load failed: ${escHtml(e.message)}</div>`);
   }
 }
 
-function _filesHtml(name, files) {
+// editable=true (the add-torrent dialog, before commit) is the only
+// context where file selection is still a live choice - checkboxes,
+// can tick/untick anything. Once a torrent is actually committed and
+// downloading, the FILES panel is just a record of what's being
+// downloaded: no checkboxes, and files the user excluded before commit
+// aren't listed at all, instead of showing as an unchecked box that
+// implies you can still change your mind about them here.
+function _filesHtml(name, files, editable = true) {
   if (!files || files.length === 0) {
     return '<div class="detail-loading">No files found</div>';
   }
   const nameJson = escHtml(JSON.stringify(name));
-  const rows = files.map(f => {
+  const visible = editable ? files : files.filter(f => f.priority > 0);
+  if (visible.length === 0) {
+    return '<div class="detail-loading">No files found</div>';
+  }
+  const rows = visible.map(f => {
     const fname = f.path.replace(/\\/g, '/').split('/').pop() || f.path;
+    if (!editable) {
+      return `<div class="file-item readonly">
+        <span class="file-name" title="${escHtml(f.path)}">${escHtml(fname)}</span>
+        <span class="file-size">${fmtBytes(f.size)}</span>
+      </div>`;
+    }
     const checked = f.priority > 0 ? 'checked' : '';
     return `<label class="file-item">
       <input type="checkbox" ${checked} style="cursor:pointer;accent-color:var(--accent);flex-shrink:0"

@@ -13,6 +13,42 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-23 - File checkboxes stayed live-editable after a torrent was already downloading, and the Windows toast repeated the false "Plex" claim
+
+- **Symptom**: reported live, right after the file-selection race fix
+  above shipped. Two things: (1) opening the FILES panel on an
+  already-downloading transfer still showed clickable checkboxes for
+  every file, including ones excluded before commit - implying you
+  could still change your mind about them there, when in fact ticking
+  one back on did nothing meaningful for a file that was never part of
+  the active download; (2) the Windows toast notification for a
+  finished download said "Moved to Plex Movies" even though the file
+  had genuinely fallen back to the general downloads folder - the
+  exact same false claim as the on-screen "→ Plex:" label fixed
+  earlier tonight, just in a second, separate place.
+- **Root cause (1)**: `_filesHtml()` is one shared renderer used both
+  by the pre-commit add-dialog (where ticking/unticking is a real,
+  meaningful choice) and the post-commit Transfers-tab file panel
+  (where the download has already started and priorities are fixed) -
+  with no distinction between the two contexts.
+- **Root cause (2)**: `hydra_tray.py`'s `_fire_notification()` decided
+  the toast wording from `plex_path` alone - which, same as the
+  on-screen label bug, is set for both a genuine organized move and
+  the safe fallback. It should have checked `moved_to_plex` (already
+  fixed on the backend earlier tonight to correctly distinguish the
+  two) instead.
+- **Fix**: `_filesHtml()` now takes an `editable` flag - `true` for the
+  add-dialog (unchanged), `false` for the post-commit view, which
+  drops the checkboxes entirely and only lists files that were
+  actually included, exactly matching what's really downloading. The
+  tray notification now checks `moved_to_plex`, matching the frontend
+  fix.
+- **Verified**: extracted and ran the real, updated `_filesHtml()`
+  function against the exact real 3-file scenario from tonight's bug
+  report - confirmed the read-only view shows only the real movie
+  file, no checkboxes, and the excluded poster/NFO files aren't
+  present at all.
+
 ## 2026-08-23 - Unchecked files in the add-torrent dialog downloaded anyway
 
 - **Symptom**: reported live - unticked the poster/NFO files in the
