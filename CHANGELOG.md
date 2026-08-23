@@ -13,6 +13,36 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-23 - SAVE AT defaulted to local downloads even with a real, working Plex library configured
+
+- **Symptom**: reported live, after finally getting a real, verified,
+  reachable Plex library path configured on Windows (a whole separate
+  SMB-access saga - see the entries below). The add-torrent dialog's
+  "SAVE AT" field still defaulted to the plain local downloads folder
+  every time, completely ignoring that a real Plex path was now
+  properly set up and confirmed reachable.
+- **Root cause**: `GET /disk-space` (which supplies the SAVE AT
+  default) always defaulted to `DOWNLOAD_DIR_INCOMPLETE`
+  unconditionally - there was no path from "Plex is configured and
+  reachable" to "use its sibling incomplete folder as the real
+  default." `DOWNLOAD_DIR_INCOMPLETE` was acting as the default every
+  time, when it's meant to be the fallback specifically for "Plex
+  isn't set up, or its path isn't reachable from this machine."
+- **Fix**: added `_default_save_path()` - checks whether
+  MEDIA_DIR_MOVIES/MEDIA_DIR_TV are configured AND have a genuinely
+  reachable sibling "incomplete" folder (same mount = an instant
+  rename instead of a slow cross-filesystem copy once the download
+  completes), using that as the real default. Falls back to
+  DOWNLOAD_DIR_INCOMPLETE exactly when it should: library not
+  configured, or its path/sibling folder isn't actually reachable from
+  this machine.
+- **Verified**: 5 new unit tests (197 total passing) plus a live,
+  unmocked run of the real production function against this desktop's
+  actual live config and a real API round-trip against the running
+  daemon - confirmed it correctly returns the real
+  \\\\192.168.20.4\\Plex\\incomplete path with real free-space numbers
+  from the real share.
+
 ## 2026-08-23 - File checkboxes stayed live-editable after a torrent was already downloading, and the Windows toast repeated the false "Plex" claim
 
 - **Symptom**: reported live, right after the file-selection race fix

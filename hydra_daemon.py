@@ -1915,23 +1915,51 @@ def commit_transfer(name: str, req: CommitPreviewRequest) -> dict:
     return {"name": real_name}
 
 
+def _default_save_path() -> str:
+    """
+    The real default for a new download's save location: a sibling
+    "incomplete" folder next to the configured Plex/Jellyfin library, if
+    that library is actually configured AND genuinely reachable from
+    here - same mount means the completion move becomes an instant
+    rename instead of a slow cross-filesystem copy. DOWNLOAD_DIR_INCOMPLETE
+    (a plain local folder) is the fallback, not the default: it's meant
+    to catch the "Plex isn't set up, or its path isn't reachable from
+    this machine" cases, not to be where every download lands regardless
+    of a real, working media library being configured - confirmed live,
+    that's exactly what it was doing before this fix.
+    """
+    for library_root in (MEDIA_DIR_MOVIES, MEDIA_DIR_TV):
+        if not library_root:
+            continue
+        parent = os.path.dirname(library_root.rstrip('\\/'))
+        if not parent:
+            continue
+        candidate = os.path.join(parent, 'incomplete')
+        if os.path.isdir(candidate):
+            return candidate
+    return DOWNLOAD_DIR_INCOMPLETE
+
+
 @app.get("/disk-space", dependencies=[Depends(_require_api_key)])
 def get_disk_space(path: Optional[str] = None) -> dict:
     """
-    Free/total bytes for a save-location path, defaulting to Hydra's
-    configured download directory when no path is given. Walks up to the
-    nearest existing parent directory if the exact path doesn't exist yet
-    (e.g. the user is still typing it).
+    Free/total bytes for a save-location path, defaulting to the real
+    Plex-adjacent incomplete folder when one is configured and reachable
+    (see _default_save_path), falling back to Hydra's plain local
+    download directory otherwise. Walks up to the nearest existing
+    parent directory if the exact path doesn't exist yet (e.g. the user
+    is still typing it).
     """
-    check_path = path or DOWNLOAD_DIR_INCOMPLETE
+    default_path = _default_save_path()
+    check_path = path or default_path
     seen = set()
     while check_path and not os.path.isdir(check_path) and check_path not in seen:
         seen.add(check_path)
         parent = os.path.dirname(check_path.rstrip('\\/'))
-        check_path = parent if parent and parent != check_path else DOWNLOAD_DIR_INCOMPLETE
+        check_path = parent if parent and parent != check_path else default_path
     try:
         usage = shutil.disk_usage(check_path)
-        return {"path": path or DOWNLOAD_DIR_INCOMPLETE, "free": usage.free, "total": usage.total}
+        return {"path": path or default_path, "free": usage.free, "total": usage.total}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
