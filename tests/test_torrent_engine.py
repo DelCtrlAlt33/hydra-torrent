@@ -543,6 +543,78 @@ def test_is_under_library_root_false_when_nothing_configured(tmp_path, monkeypat
     assert hd._is_under_library_root(str(tmp_path / "anything")) is False
 
 
+def test_post_download_reports_moved_to_plex_even_when_extras_fall_back_after_it(tmp_path, engine, monkeypatch):
+    """The actual bug: _post_download() calls store.update(moved_to_plex=...)
+    once per successfully-moved file, unconditionally - so whichever file
+    is processed *last* decides the whole torrent's reported outcome. A
+    torrent's main video file often lands in the real Plex library while
+    its extras (subtitle, cover art) correctly fall back to the general
+    downloads folder afterward - both individually correct - but that
+    made the overall summary flip back to "moved to Downloads" the moment
+    a fallback extra was processed after the real Plex move. Confirmed
+    live: a real movie genuinely organized into Plex, immediately
+    followed by its .srt/.jpg landing in the local fallback, reported
+    moved_to_plex=False and plex_path=the local folder for the whole
+    torrent.
+    """
+    PIECE = 16 * 1024
+    save_dir = tmp_path / "incomplete"
+    save_dir.mkdir()
+    (save_dir / "movie.mp4").write_bytes(os.urandom(PIECE))
+    (save_dir / "extra.jpg").write_bytes(os.urandom(PIECE))
+    fs = lt.file_storage()
+    lt.add_files(fs, str(save_dir))
+    t = lt.create_torrent(fs, piece_size=PIECE)
+    lt.set_piece_hashes(t, str(tmp_path))
+    ti = lt.torrent_info(lt.bencode(t.generate()))
+    assert ti.num_files() == 2, "test setup issue: unexpected pad files in the torrent"
+
+    name = "PlexLabelClobberTorrent"
+    params = lt.add_torrent_params()
+    params.ti = ti
+    # file_info.path already includes save_dir's own basename (add_files
+    # roots relative to it) - save_path must be its *parent*, matching
+    # the pattern used elsewhere in this file, or _post_download's
+    # os.path.join(actual_save_path, file_info.path) double-nests it.
+    params.save_path = str(tmp_path)
+    handle = engine.ses.add_torrent(params)
+    engine.store.add(name, "magnet:?xt=urn:btih:" + "3" * 40, ti.total_size(), handle)
+    engine.store.update(name, status="Seeding", moved_to_plex=False, plex_path=None)
+
+    plex_movies = tmp_path / "media" / "movies" / "PlexLabelClobberTorrent"
+    local_fallback = tmp_path / "Downloads" / "HydraTorrent"
+    monkeypatch.setattr(hd, "MEDIA_DIR_MOVIES", str(tmp_path / "media" / "movies"))
+    monkeypatch.setattr(hd, "MEDIA_DIR_TV", str(tmp_path / "media" / "tv"))
+
+    call_order = []
+
+    def fake_mover(basename, file_path, torrent_name=None):
+        # First call (the video) really lands in Plex; every call after
+        # (the extras) correctly falls back to the local downloads folder -
+        # matching the real order this bug was found in.
+        call_order.append(basename)
+        if len(call_order) == 1:
+            dest = plex_movies / basename
+            dest.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            dest = local_fallback / basename
+            dest.parent.mkdir(parents=True, exist_ok=True)
+        return True, str(dest), None
+
+    monkeypatch.setattr(hd, "auto_move_completed_download", fake_mover)
+
+    engine._post_download(name, handle)
+
+    result = engine.store.get(name)
+    assert result.get("moved_to_plex") is True, (
+        "a torrent whose main file genuinely landed in Plex must not have that overwritten "
+        "back to False just because an extra file afterward correctly fell back elsewhere"
+    )
+    assert str(plex_movies) in (result.get("plex_path") or ""), (
+        f"plex_path must still point at the real Plex destination, got {result.get('plex_path')!r}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Default SAVE AT path (see CHANGELOG.md 2026-08-23 "SAVE AT defaulted to
 # local downloads even with a real, working Plex library configured",

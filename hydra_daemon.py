@@ -1187,8 +1187,22 @@ class TorrentEngine:
                 plex_dir = os.path.dirname(dest_path)
                 moved_files.append(dest_path)
                 really_organized = _is_under_library_root(plex_dir)
+                # Sticky once true, not last-write-wins: a torrent's main
+                # video file often lands in the real Plex library while
+                # its extras (subtitle, cover art, sample) correctly fall
+                # back to the general downloads folder afterward - both
+                # individually correct, but each successful move used to
+                # unconditionally overwrite moved_to_plex/plex_path, so
+                # whichever file happened to be processed last decided
+                # the whole torrent's reported outcome. Confirmed live: a
+                # movie genuinely organized into Plex, followed by its
+                # .srt/.jpg landing in the local fallback, reported the
+                # entire torrent as "moved to Downloads" instead of Plex.
+                entry = self.store.get(name) or {}
+                moved_to_plex = really_organized or bool(entry.get('moved_to_plex'))
+                plex_path = plex_dir if really_organized else entry.get('plex_path', plex_dir)
                 self.store.update(
-                    name, moved_to_plex=really_organized, plex_path=plex_dir, moved_files=moved_files,
+                    name, moved_to_plex=moved_to_plex, plex_path=plex_path, moved_files=moved_files,
                 )
                 logger.info(f"{'Moved to Plex' if really_organized else 'Moved'}: {dest_path}")
             elif error and error not in ("Not a video file", "Library path not configured"):

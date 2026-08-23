@@ -13,6 +13,36 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-23 - A movie genuinely moved to Plex was reported as "moved to Downloads"
+
+- **Symptom**: reported live - a real download whose movie file had
+  genuinely landed in the Plex library folder (confirmed by checking
+  the actual file on disk) was displayed as having moved to the local
+  Downloads folder instead, even with Plex configured and reachable.
+- **Root cause**: `_post_download()` calls `store.update(moved_to_plex=
+  ..., plex_path=...)` once per successfully-moved file, unconditionally
+  - so whichever file is processed *last* decides the whole torrent's
+  reported outcome. A torrent's main video file often lands in the real
+  Plex library while its extras (subtitle, cover art, sample images)
+  correctly fall back to the general downloads folder afterward - both
+  individually correct - but the second, unrelated result silently
+  overwrote the first. Confirmed live via the daemon's own stored state
+  on a real completed download: `moved_files` listed the `.mp4` under
+  the real `\\...\Plex\movies\...` path *and* the `.srt`/`.jpg` under
+  the local Downloads folder, yet the torrent's final `moved_to_plex`
+  read `false` and `plex_path` pointed at the local folder - the last
+  file processed, not the one that actually mattered.
+- **Fix**: `moved_to_plex` is now sticky once true - a later file
+  falling back to the general downloads folder can no longer un-set it
+  - and `plex_path` only ever updates to a new value on a genuine Plex
+  placement, not on a subsequent fallback move.
+- **Verified**: a new test builds a real two-file torrent (a "movie" and
+  an "extra"), fakes the mover so the first call lands under a real
+  configured Plex library path and the second falls back to a separate
+  local folder - confirms the stored `moved_to_plex`/`plex_path` still
+  correctly reflect the real Plex placement afterward, and fails against
+  the pre-fix code when checked directly (207 tests total, all passing).
+
 ## 2026-08-23 - An already-downloaded, already-moved-to-Plex file showed "Downloading" again after a restart
 
 - **Symptom**: reported live, right after the previous fix - a torrent
