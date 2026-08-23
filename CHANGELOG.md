@@ -13,6 +13,54 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-23 - Connection Health stayed stale after editing Plex/Jackett/Jellyfin settings, and SAVE AT ignored Plex's actual reachability
+
+- **Symptom 1**: reported live - typed a wrong IP into the Plex URL
+  field and saved. Connection Health kept showing "connected" (the
+  result from before the edit) until manually clicking Refresh.
+- **Root cause 1**: `saveSettings()` never re-triggered a health check
+  after a successful save - Connection Health only ever ran on Settings
+  tab open or the manual Refresh button, so any edit that changed
+  Plex/Jackett/Jellyfin connectivity left the old badge showing
+  indefinitely until someone thought to hit Refresh themselves.
+- **Fix 1**: `saveSettings()` now calls `loadHealth()` right after a
+  successful save.
+
+- **Symptom 2**: with the wrong Plex IP still in effect, opening the
+  add-torrent dialog still showed SAVE AT defaulting to the
+  Plex-adjacent `\\...\Plex\incomplete` path - even though Plex itself
+  was now known to be unreachable, it should have fallen back to the
+  plain local downloads folder.
+- **Investigation**: `_default_save_path()` (added in the previous
+  entry) only checked whether the *filesystem path* was reachable, not
+  whether the *media server itself* was - a wrong Plex URL doesn't take
+  the underlying SMB/NFS share down with it, so the folder genuinely
+  still existed and the old logic correctly (by its own narrower
+  definition) kept using it. Added a live `check_plex()`/
+  `check_jellyfin()` gate (whichever server is actually configured) on
+  top of the filesystem check, with a short 2s timeout so a down server
+  doesn't stall opening the add-torrent dialog.
+- **A second, more fundamental bug found while verifying the above
+  live**: even after fixing the gate, a `PATCH /config` change still
+  didn't affect the running daemon's behavior at all until the whole
+  app restarted. Root cause: `MEDIA_DIR_MOVIES`/`MEDIA_DIR_TV`/
+  `DOWNLOAD_DIR_INCOMPLETE` are read once from `config.py`'s
+  module-level constants at daemon startup and never refresh - a
+  config change writes correctly to disk, but the already-running
+  process keeps computing from its stale in-memory value indefinitely.
+  `_default_save_path()` now reads all of this straight from
+  `load_config()` on every call instead, exactly like `plex_url`/
+  `plex_token` already did - proven live by changing Plex's URL and
+  the download path back and forth on the *same* running process with
+  no restart in between, both times reflected correctly and
+  immediately.
+- **Verified**: 4 new/rewritten unit tests (201 total passing,
+  including a dedicated staleness-regression test that deliberately
+  sets the module constants to a wrong answer to prove the function
+  ignores them) plus multiple rounds of live testing against a real
+  running daemon and the real TrueNAS share, flipping Plex between a
+  working and a broken URL on the same process without restarting.
+
 ## 2026-08-23 - SAVE AT defaulted to local downloads even with a real, working Plex library configured
 
 - **Symptom**: reported live, after finally getting a real, verified,

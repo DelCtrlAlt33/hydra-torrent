@@ -375,8 +375,33 @@ def test_is_under_library_root_false_when_nothing_configured(tmp_path, monkeypat
 
 # ---------------------------------------------------------------------------
 # Default SAVE AT path (see CHANGELOG.md 2026-08-23 "SAVE AT defaulted to
-# local downloads even with a real, working Plex library configured")
+# local downloads even with a real, working Plex library configured",
+# "SAVE AT still used the Plex-adjacent folder even after Plex itself
+# became unreachable", and "a PATCH /config change wasn't reflected until
+# the whole app restarted")
 # ---------------------------------------------------------------------------
+# _default_save_path() reads everything - media_dir_movies/tv,
+# download_dir_incomplete, plex/jellyfin url+token - straight from
+# load_config() each call, deliberately not from the MEDIA_DIR_MOVIES/
+# MEDIA_DIR_TV/DOWNLOAD_DIR_INCOMPLETE module-level constants (those are
+# frozen once at daemon startup - confirmed live, a PATCH /config change
+# to any of them wasn't reflected here until the whole app restarted).
+# Every test below mocks the complete load_config() dict instead of the
+# module constants, matching that.
+
+def _cfg(**overrides) -> dict:
+    """Full load_config()-shaped dict for these tests, with sane blank
+    defaults for every key _default_save_path() reads - override just
+    the ones a given test cares about."""
+    base = {
+        "plex_url": "", "plex_token": "",
+        "jellyfin_url": "", "jellyfin_api_key": "",
+        "media_dir_movies": "", "media_dir_tv": "",
+        "download_dir_incomplete": "",
+    }
+    base.update(overrides)
+    return base
+
 
 def test_default_save_path_uses_plex_adjacent_incomplete_when_reachable(tmp_path, monkeypatch):
     """The actual fix: a properly configured AND reachable media library
@@ -389,9 +414,10 @@ def test_default_save_path_uses_plex_adjacent_incomplete_when_reachable(tmp_path
     incomplete = tmp_path / "Plex" / "incomplete"
     incomplete.mkdir()
 
-    monkeypatch.setattr(hd, "MEDIA_DIR_MOVIES", str(library_root))
-    monkeypatch.setattr(hd, "MEDIA_DIR_TV", "")
-    monkeypatch.setattr(hd, "DOWNLOAD_DIR_INCOMPLETE", str(tmp_path / "local_fallback"))
+    monkeypatch.setattr(hd, "load_config", lambda: _cfg(
+        media_dir_movies=str(library_root),
+        download_dir_incomplete=str(tmp_path / "local_fallback"),
+    ))
 
     assert hd._default_save_path() == str(incomplete)
 
@@ -408,9 +434,10 @@ def test_default_save_path_falls_back_when_sibling_incomplete_missing(tmp_path, 
 
     local_fallback = tmp_path / "local_fallback"
     local_fallback.mkdir()
-    monkeypatch.setattr(hd, "MEDIA_DIR_MOVIES", str(library_root))
-    monkeypatch.setattr(hd, "MEDIA_DIR_TV", "")
-    monkeypatch.setattr(hd, "DOWNLOAD_DIR_INCOMPLETE", str(local_fallback))
+    monkeypatch.setattr(hd, "load_config", lambda: _cfg(
+        media_dir_movies=str(library_root),
+        download_dir_incomplete=str(local_fallback),
+    ))
 
     assert hd._default_save_path() == str(local_fallback)
 
@@ -424,9 +451,10 @@ def test_default_save_path_falls_back_when_media_dir_unreachable(tmp_path, monke
     """
     local_fallback = tmp_path / "local_fallback"
     local_fallback.mkdir()
-    monkeypatch.setattr(hd, "MEDIA_DIR_MOVIES", str(tmp_path / "does_not_exist" / "movies"))
-    monkeypatch.setattr(hd, "MEDIA_DIR_TV", "")
-    monkeypatch.setattr(hd, "DOWNLOAD_DIR_INCOMPLETE", str(local_fallback))
+    monkeypatch.setattr(hd, "load_config", lambda: _cfg(
+        media_dir_movies=str(tmp_path / "does_not_exist" / "movies"),
+        download_dir_incomplete=str(local_fallback),
+    ))
 
     assert hd._default_save_path() == str(local_fallback)
 
@@ -434,9 +462,9 @@ def test_default_save_path_falls_back_when_media_dir_unreachable(tmp_path, monke
 def test_default_save_path_falls_back_when_nothing_configured(tmp_path, monkeypatch):
     local_fallback = tmp_path / "local_fallback"
     local_fallback.mkdir()
-    monkeypatch.setattr(hd, "MEDIA_DIR_MOVIES", "")
-    monkeypatch.setattr(hd, "MEDIA_DIR_TV", "")
-    monkeypatch.setattr(hd, "DOWNLOAD_DIR_INCOMPLETE", str(local_fallback))
+    monkeypatch.setattr(hd, "load_config", lambda: _cfg(
+        download_dir_incomplete=str(local_fallback),
+    ))
 
     assert hd._default_save_path() == str(local_fallback)
 
@@ -447,8 +475,112 @@ def test_default_save_path_uses_tv_when_only_tv_configured(tmp_path, monkeypatch
     incomplete = tmp_path / "Plex" / "incomplete"
     incomplete.mkdir()
 
-    monkeypatch.setattr(hd, "MEDIA_DIR_MOVIES", "")
-    monkeypatch.setattr(hd, "MEDIA_DIR_TV", str(library_root))
-    monkeypatch.setattr(hd, "DOWNLOAD_DIR_INCOMPLETE", str(tmp_path / "local_fallback"))
+    monkeypatch.setattr(hd, "load_config", lambda: _cfg(
+        media_dir_tv=str(library_root),
+        download_dir_incomplete=str(tmp_path / "local_fallback"),
+    ))
 
     assert hd._default_save_path() == str(incomplete)
+
+
+def test_default_save_path_falls_back_when_plex_configured_but_unreachable(tmp_path, monkeypatch):
+    """The exact bug just reported live: typed a wrong Plex IP (Plex URL
+    now unreachable), but the underlying SMB/NFS share at the media path
+    was completely unaffected by that and still genuinely existed on
+    disk - the old filesystem-only check kept defaulting to the
+    Plex-adjacent folder anyway, which isn't what a user expects once
+    they know Plex itself is down. A wrong URL doesn't take the
+    underlying file share down with it, but the save-location default
+    should still reflect "the media server I configured isn't working
+    right now," not just "the folder happens to still exist."
+    """
+    library_root = tmp_path / "Plex" / "movies"
+    library_root.mkdir(parents=True)
+    incomplete = tmp_path / "Plex" / "incomplete"
+    incomplete.mkdir()  # the share itself is fine - only Plex's URL is wrong
+
+    local_fallback = tmp_path / "local_fallback"
+    local_fallback.mkdir()
+    monkeypatch.setattr(hd, "load_config", lambda: _cfg(
+        plex_url="http://192.168.20.99:32400",  # the wrong IP that was typed
+        plex_token="sometoken",
+        media_dir_movies=str(library_root),
+        download_dir_incomplete=str(local_fallback),
+    ))
+    monkeypatch.setattr(hd, "check_plex", lambda url, token, timeout=5.0: {
+        "configured": True, "reachable": False, "error": "connection refused",
+    })
+
+    assert hd._default_save_path() == str(local_fallback)
+
+
+def test_default_save_path_uses_plex_adjacent_when_plex_configured_and_reachable(tmp_path, monkeypatch):
+    """The positive case for the same fix: Plex genuinely configured AND
+    reachable must still use the Plex-adjacent folder as before - the
+    reachability gate shouldn't make things worse for the working case.
+    """
+    library_root = tmp_path / "Plex" / "movies"
+    library_root.mkdir(parents=True)
+    incomplete = tmp_path / "Plex" / "incomplete"
+    incomplete.mkdir()
+
+    monkeypatch.setattr(hd, "load_config", lambda: _cfg(
+        plex_url="http://192.168.20.33:32400",
+        plex_token="sometoken",
+        media_dir_movies=str(library_root),
+        download_dir_incomplete=str(tmp_path / "local_fallback"),
+    ))
+    monkeypatch.setattr(hd, "check_plex", lambda url, token, timeout=5.0: {
+        "configured": True, "reachable": True, "error": None,
+    })
+
+    assert hd._default_save_path() == str(incomplete)
+
+
+def test_default_save_path_uses_jellyfin_when_plex_not_configured(tmp_path, monkeypatch):
+    """Jellyfin-only setups (no Plex at all) must not get stuck falling
+    back to local downloads just because there's no Plex to check -
+    whichever media server is actually configured gates this, not Plex
+    specifically.
+    """
+    library_root = tmp_path / "Media" / "movies"
+    library_root.mkdir(parents=True)
+    incomplete = tmp_path / "Media" / "incomplete"
+    incomplete.mkdir()
+
+    monkeypatch.setattr(hd, "load_config", lambda: _cfg(
+        jellyfin_url="http://192.168.20.50:8096",
+        jellyfin_api_key="somekey",
+        media_dir_movies=str(library_root),
+        download_dir_incomplete=str(tmp_path / "local_fallback"),
+    ))
+    monkeypatch.setattr(hd, "check_jellyfin", lambda url, key, timeout=5.0: {
+        "configured": True, "reachable": True, "error": None,
+    })
+
+    assert hd._default_save_path() == str(incomplete)
+
+
+def test_default_save_path_uses_fresh_config_not_stale_module_constants(tmp_path, monkeypatch):
+    """The exact staleness bug just found live: PATCH /config updates the
+    file on disk, but MEDIA_DIR_MOVIES/DOWNLOAD_DIR_INCOMPLETE are frozen
+    at daemon startup and never refresh - so a value change wouldn't be
+    reflected here until the whole app restarted. Deliberately sets the
+    module constants to something that would produce the WRONG answer,
+    to prove _default_save_path() ignores them and reads load_config()
+    fresh instead.
+    """
+    stale_root = tmp_path / "stale_from_startup" / "movies"
+    stale_root.mkdir(parents=True)
+    (tmp_path / "stale_from_startup" / "incomplete").mkdir()
+    monkeypatch.setattr(hd, "MEDIA_DIR_MOVIES", str(stale_root))
+    monkeypatch.setattr(hd, "MEDIA_DIR_TV", "")
+    monkeypatch.setattr(hd, "DOWNLOAD_DIR_INCOMPLETE", str(tmp_path / "stale_local_fallback"))
+
+    fresh_root = tmp_path / "fresh_from_config" / "movies"
+    fresh_root.mkdir(parents=True)
+    fresh_incomplete = tmp_path / "fresh_from_config" / "incomplete"
+    fresh_incomplete.mkdir()
+    monkeypatch.setattr(hd, "load_config", lambda: _cfg(media_dir_movies=str(fresh_root)))
+
+    assert hd._default_save_path() == str(fresh_incomplete)

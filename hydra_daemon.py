@@ -1927,8 +1927,50 @@ def _default_save_path() -> str:
     this machine" cases, not to be where every download lands regardless
     of a real, working media library being configured - confirmed live,
     that's exactly what it was doing before this fix.
+
+    A filesystem path can still exist even when the media server itself
+    is down or misconfigured (e.g. a wrong Plex URL doesn't take the
+    underlying NFS/SMB share with it) - confirmed live, typing a wrong
+    Plex IP left this still defaulting to the Plex-adjacent folder,
+    which isn't what a user expects once they know Plex itself is
+    unreachable. If a media server is actually configured, its own
+    reachability gates this too, not just the raw filesystem check - a
+    short timeout so a slow/down server doesn't stall opening the
+    add-torrent dialog; if it's not configured at all, there's no
+    server to check and the plain filesystem check stands alone.
     """
-    for library_root in (MEDIA_DIR_MOVIES, MEDIA_DIR_TV):
+    # Read straight from the config file, not the MEDIA_DIR_MOVIES/
+    # MEDIA_DIR_TV/DOWNLOAD_DIR_INCOMPLETE module-level constants -
+    # those are frozen once at daemon startup (see config.py), so a
+    # PATCH /config change to any of them wouldn't be reflected here
+    # until the whole app restarted. Confirmed live: changed these via
+    # the API, the file on disk was correct, but the running daemon
+    # kept computing the default from the stale in-memory value anyway.
+    cfg = load_config()
+    plex_url = cfg.get('plex_url', '')
+    plex_token = cfg.get('plex_token', '')
+    jellyfin_url = cfg.get('jellyfin_url', '')
+    jellyfin_key = cfg.get('jellyfin_api_key', '')
+    media_dir_movies = cfg.get('media_dir_movies', '')
+    media_dir_tv = cfg.get('media_dir_tv', '')
+    download_dir_incomplete = cfg.get('download_dir_incomplete') or DOWNLOAD_DIR_INCOMPLETE
+
+    server_configured = bool(plex_url or jellyfin_url)
+    server_reachable = False
+    if plex_url:
+        try:
+            server_reachable = server_reachable or check_plex(plex_url, plex_token, timeout=2.0)['reachable']
+        except Exception:
+            pass
+    if jellyfin_url:
+        try:
+            server_reachable = server_reachable or check_jellyfin(jellyfin_url, jellyfin_key, timeout=2.0)['reachable']
+        except Exception:
+            pass
+    if server_configured and not server_reachable:
+        return download_dir_incomplete
+
+    for library_root in (media_dir_movies, media_dir_tv):
         if not library_root:
             continue
         parent = os.path.dirname(library_root.rstrip('\\/'))
@@ -1937,7 +1979,7 @@ def _default_save_path() -> str:
         candidate = os.path.join(parent, 'incomplete')
         if os.path.isdir(candidate):
             return candidate
-    return DOWNLOAD_DIR_INCOMPLETE
+    return download_dir_incomplete
 
 
 @app.get("/disk-space", dependencies=[Depends(_require_api_key)])

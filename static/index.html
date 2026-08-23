@@ -4150,6 +4150,13 @@ async function saveSettings(silent = false) {
       const d = await r.json();
       if (!silent) toast('Saved: ' + (d.saved.length ? d.saved.join(', ') : 'no changes'), 'ok');
       updateAccordionSummaries();
+      // Connection Health used to only re-check when the Settings tab
+      // first opened or on manual Refresh - saving a changed Plex/
+      // Jackett/Jellyfin URL or token left the old (now wrong) badge
+      // showing until someone thought to hit Refresh themselves.
+      // Confirmed live: typing a wrong Plex IP and saving still showed
+      // "connected" from before the edit.
+      loadHealth();
     } else {
       const d = await r.json().catch(() => ({}));
       toast('Save failed: ' + (d.detail || r.status), 'err');
