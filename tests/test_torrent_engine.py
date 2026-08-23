@@ -391,6 +391,74 @@ def test_commit_preview_defaults_to_all_files_when_never_explicitly_set(tmp_path
 
 
 # ---------------------------------------------------------------------------
+# Instant fake-complete on zero selected files (see CHANGELOG.md 2026-08-23
+# "the toast came up as downloaded, immediately")
+# ---------------------------------------------------------------------------
+
+def test_monitor_download_fails_instead_of_faking_completion_when_nothing_selected(tmp_path, engine):
+    """The actual bug: set_file_priorities() sets file_priorities_set=True
+    unconditionally, even when the resulting priorities are still all
+    zero. commit_preview()'s only safety net (default to downloading
+    everything) only fires when file_priorities_set is False, so it never
+    catches this. libtorrent then correctly reports is_finished/is_seeding
+    - by its own definition, "nothing left that's wanted" - and the
+    completion branch used to trust that blindly and force bytes_done to
+    the full size. Confirmed live: a real torrent with real peers
+    "completed" in milliseconds with total_done at 0 and every entry in
+    s.pieces false, because every file was still sitting at priority 0.
+
+    This proves the fix: _monitor_download must verify at least one file
+    is genuinely wanted before accepting is_finished/is_seeding as a real
+    completion, and fail loudly instead of lying about a download that
+    never happened.
+    """
+    PIECE = 16 * 1024
+    data_dir = tmp_path / "nothing_selected"
+    data_dir.mkdir()
+    (data_dir / "a.bin").write_bytes(os.urandom(PIECE))
+    (data_dir / "b.bin").write_bytes(os.urandom(PIECE))
+    fs = lt.file_storage()
+    lt.add_files(fs, str(data_dir))
+    t = lt.create_torrent(fs, piece_size=PIECE)
+    lt.set_piece_hashes(t, str(tmp_path))
+    ti = lt.torrent_info(lt.bencode(t.generate()))
+    magnet = lt.make_magnet_uri(ti)
+    assert ti.num_files() == 2, "test setup issue: unexpected pad files in the torrent"
+
+    name = "ZeroPriorityInstantCompleteTorrent"
+    params = lt.add_torrent_params()
+    params.ti = ti
+    params.save_path = str(tmp_path / "download_dest")
+    params.flags = (lt.torrent_flags.default_flags
+                     | lt.torrent_flags.default_dont_download) & ~lt.torrent_flags.paused
+    handle = engine.ses.add_torrent(params)
+    engine.store.add(name, magnet, ti.total_size(), handle)
+    engine.store.update(name, status="Metadata ready", hidden=True)
+
+    # Simulate the real trigger: set_file_priorities() got called (so the
+    # flag is True) but every file ended up at 0 anyway.
+    handle.prioritize_files([0, 0])
+    time.sleep(0.2)
+    engine.store.update(name, file_priorities_set=True, hidden=False, status="Downloading")
+
+    th = threading.Thread(
+        target=engine._monitor_download, args=(name, handle, ti.total_size()), daemon=True,
+    )
+    th.start()
+    th.join(timeout=5)
+
+    result = engine.store.get(name)
+    assert result.get("status") == "Failed", (
+        f"a torrent with zero files selected must not report success, got {result.get('status')!r}"
+    )
+    assert "no files" in (result.get("error") or "").lower()
+    assert result.get("bytes_done") != ti.total_size(), (
+        "bytes_done must not be force-set to the full size when nothing was actually downloaded"
+    )
+    assert not th.is_alive(), "monitor thread should exit, not hand off to seeding"
+
+
+# ---------------------------------------------------------------------------
 # Honest "moved to Plex" labeling (see CHANGELOG.md 2026-08-23 "it says it
 # moved to plex, which it did not")
 # ---------------------------------------------------------------------------

@@ -971,6 +971,7 @@ class TorrentEngine:
             6: 'Allocating', 7: 'Resuming',
         }
 
+        first_pass = True
         while True:
             t = self.store.get(name)
             if t is None:
@@ -1052,7 +1053,48 @@ class TorrentEngine:
                 prev_time=current_time,
             )
 
-            if s.progress >= 1.0 or s.is_seeding or s.is_finished:
+            # Never trust a completion signal on the very first pass:
+            # commit_preview()'s own fallback prioritize_files() call (for
+            # "file selection was never touched, default to everything")
+            # is itself fire-and-forget async into libtorrent - it may not
+            # have landed internally yet by the time this thread's first
+            # iteration runs a moment later. A torrent whose real data
+            # already sits on disk matching real hashes can also
+            # legitimately read total_done==0 on this exact first pass,
+            # simply because the on-disk recheck hasn't finished yet -
+            # so first_pass has to skip the whole completion decision
+            # (not just the total_done check below), success and failure
+            # alike, and let a real 2-second cycle pass before either one
+            # is trusted.
+            if (s.progress >= 1.0 or s.is_seeding or s.is_finished) and not first_pass:
+                # libtorrent's is_finished/is_seeding are true whenever
+                # nothing is left that's wanted - that includes the
+                # degenerate case where every file ended up at priority 0
+                # (e.g. file_priorities_set got flipped true - see
+                # set_file_priorities - without any file actually landing
+                # on a nonzero priority). Confirmed live: a fresh torrent
+                # with real peers and real metadata "completed" in
+                # milliseconds with s.total_done at 0 and every entry in
+                # s.pieces false, because nothing was ever actually
+                # selected to download and libtorrent correctly considers
+                # that finished. Trusting is_finished alone there turned
+                # "nothing was downloaded" into a lying "100% complete" -
+                # total_done is part of the same status() snapshot every
+                # other decision in this loop already trusts (no extra,
+                # separately-racy libtorrent call needed), and a torrent
+                # that's genuinely finished always has total_done > 0.
+                if s.total_done <= 0:
+                    logger.error(f"'{name}' reported finished with zero files selected - nothing was downloaded")
+                    self.store.update(
+                        name, status='Failed',
+                        error='No files were selected for download',
+                    )
+                    try:
+                        self.ses.remove_torrent(handle)
+                    except Exception:
+                        pass
+                    break
+
                 logger.info(f"Download complete: '{name}'")
                 # bytes_done/speed_down are only ever written by the loop
                 # above (from a real handle.status() snapshot each pass) -
@@ -1081,6 +1123,7 @@ class TorrentEngine:
                 self._monitor_seeding(name, handle)
                 break
 
+            first_pass = False
             time.sleep(2)
 
     # ── Post-download Plex move ───────────────────────────────────────────────
@@ -1114,9 +1157,23 @@ class TorrentEngine:
         # file of not taking that on faith - realpath + an explicit
         # "still under the download dir" check costs nothing and doesn't
         # rely on a guarantee from code Hydra doesn't own.
-        incomplete_dir = os.path.realpath(DOWNLOAD_DIR_INCOMPLETE)
+        # The actual save path can be a per-torrent choice (network share,
+        # SAVE AT override, move_storage() after commit) that has nothing
+        # to do with the module-level DOWNLOAD_DIR_INCOMPLETE default -
+        # confirmed live: a torrent saved to a configured network share
+        # never got picked up here because this used to join file paths
+        # against DOWNLOAD_DIR_INCOMPLETE regardless of where the torrent
+        # actually lived, so os.path.exists() below always failed and the
+        # move silently never happened. handle.status().save_path is
+        # libtorrent's own live answer, not a value Hydra has to keep in
+        # sync itself.
+        try:
+            actual_save_path = handle.status().save_path
+        except Exception:
+            actual_save_path = DOWNLOAD_DIR_INCOMPLETE
+        incomplete_dir = os.path.realpath(actual_save_path)
         for file_info in files:
-            file_path = os.path.realpath(os.path.join(DOWNLOAD_DIR_INCOMPLETE, file_info.path))
+            file_path = os.path.realpath(os.path.join(actual_save_path, file_info.path))
             if not file_path.startswith(incomplete_dir + os.sep):
                 logger.warning(f"Skipping file outside download dir for '{name}': {file_info.path!r}")
                 continue

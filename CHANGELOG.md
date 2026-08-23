@@ -13,6 +13,77 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-23 - A torrent "completed" in milliseconds with nothing actually downloaded
+
+- **Symptom**: reported live, twice, on real torrents with real peers -
+  a fresh download showed as fully complete (100% progress, a "Seeding"
+  toast) within milliseconds of being added, before any real data could
+  possibly have transferred. First traced to genuine leftover files on
+  a shared network folder (fixed separately - see the TrueNAS NFS
+  mapping note below), but recurred on a completely different torrent
+  right after that share was emptied, proving it wasn't only a stale-
+  files problem.
+- **Root cause**: `set_file_priorities()` (the `/transfers/{name}/files`
+  endpoint) sets `file_priorities_set = True` unconditionally after
+  calling `handle.prioritize_files()`, regardless of what the resulting
+  priorities actually ended up being. `commit_preview()`'s only safety
+  net - "if file selection was never explicitly touched, default to
+  downloading everything" - only fires when that flag is still `False`,
+  so it never catches the case where the flag is `True` but every file
+  is still sitting at priority 0. libtorrent's `is_finished`/`is_seeding`
+  are true whenever nothing is left that's *wanted* - which includes
+  "nothing was ever selected" as well as "everything genuinely
+  downloaded" - and the completion branch trusted either as a real
+  finish, then force-wrote `bytes_done = total_size` (see the seeding-
+  stats fix above), turning "zero bytes downloaded" into a confident
+  lie. Confirmed live via the daemon's own stored state: `bytes_done`
+  equal to the full file size and `progress: 100.0`, while every entry
+  in the real per-piece `pieces` array read `false` and `num_pieces`
+  read `0` - the real, synchronous signal directly contradicting the
+  reported outcome.
+- **Fix**: `_monitor_download()` no longer trusts a completion signal
+  on its very first poll at all (success or failure) - `commit_preview`'s
+  own fallback correction is itself async into libtorrent and may not
+  have landed internally yet a moment later, and real pre-existing data
+  can also legitimately read as not-yet-verified on that same first
+  pass. From the second poll onward, a reported completion is only
+  accepted if `status().total_done > 0` (checked from the same
+  synchronous snapshot already used for every other decision in the
+  loop, not a second racy `file_priorities()` read-back) - a torrent
+  that finished with nothing actually selected now fails loudly
+  ("No files were selected for download") instead of reporting fake
+  success.
+- **Also fixed in the same pass**: `_post_download()`'s Plex-move step
+  joined file paths against the frozen module-level
+  `DOWNLOAD_DIR_INCOMPLETE` constant instead of the torrent's real,
+  possibly-per-torrent `save_path` - the same class of staleness bug as
+  the `_default_save_path()` fix a few entries below, just never
+  applied to this function. Any download saved to a network share (the
+  current default when Plex is configured and reachable) would silently
+  never get auto-moved, since the existence check was always run
+  against the wrong path. Now reads the live path from
+  `handle.status().save_path`.
+- **Also fixed, separately (infrastructure, not code)**: the TrueNAS
+  NFS export for `/mnt/MainPool/Plex` was mapping all NFS writes to
+  `nobody:nogroup` while Windows connects to the same share over SMB as
+  `mediauser` - so files created via NFS (e.g. from LXC-side tooling)
+  could never be deleted from the Windows side. 47 folders had silently
+  accumulated in the shared `incomplete` staging folder since February
+  as a result, undeletable by anything on the Windows/SMB side. Fixed
+  the export's `mapall_user`/`mapall_group` to `mediauser` (matching the
+  already-correct `/mnt/MainPool/media` export) and cleared the
+  orphaned folders. Real, but a contributing/confounding factor for the
+  first occurrence of this symptom, not the actual root cause -
+  the code bug above is what actually mattered, since it reproduced
+  again immediately after the share was emptied.
+- **Verified**: a new test builds a real two-file torrent, forces both
+  files to priority 0 exactly as the real trigger does, and drives it
+  through the real `_monitor_download()` loop - confirms it now reports
+  `Failed` / "No files were selected for download" with `bytes_done`
+  left honest, instead of a fake `Seeding` at 100% (203 tests total,
+  all passing, both the libtorrent-integration tier and the
+  libtorrent-free main tier).
+
 ## 2026-08-23 - A completed, actively-seeding download still showed as barely started
 
 - **Symptom**: reported live - a real download showed "100%" progress
