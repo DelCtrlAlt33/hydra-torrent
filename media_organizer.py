@@ -231,6 +231,25 @@ class MediaOrganizer:
             if not library_dir:
                 return self._move_to_other_or_skip(filename, source_path, "Library path not configured")
 
+            # A real Plex/Jellyfin library is an *existing* library - Hydra
+            # should never be the thing that first creates it. Requiring the
+            # configured root to already exist catches a whole class of
+            # misconfiguration that would otherwise "succeed" silently:
+            # a Linux NFS-style path typed into the Windows build (confirmed
+            # live - Windows treats a leading '/' as "root of the current
+            # drive" and happily fabricates a brand-new C:\mnt\... tree,
+            # reports "Moved OK", and even triggers a Plex scan that finds
+            # nothing, since Plex's real library was never touched), a typo,
+            # or a network share that's just temporarily unmounted. Any of
+            # these used to end up silently inventing a new folder tree in
+            # a location nobody would think to check, rather than surfacing
+            # as the configuration problem it actually is.
+            if not os.path.isdir(library_dir):
+                return self._move_to_other_or_skip(
+                    filename, source_path,
+                    f"Library path does not exist: {library_dir} - check media_dir_movies/media_dir_tv in Settings",
+                )
+
             if media_type == 'tv':
                 dest_path = self.organize_tv_show(filename, source_path, torrent_name)
             else:

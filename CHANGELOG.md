@@ -13,6 +13,40 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-23 - A misconfigured media path silently fabricated a bogus folder instead of erroring
+
+- **Symptom**: reported live - a completed download reported "Moved to
+  Plex" successfully, but the actual video file wasn't anywhere Plex's
+  real library could see it.
+- **Root cause**: `media_dir_movies`/`media_dir_tv` was set to a
+  Linux-style NFS path (`/mnt/plex/movies` - correct on the Linux/LXC
+  deployment, meaningless on Windows). Windows silently reinterpreted
+  the leading `/` as "root of the current drive" and
+  `organize_movie()`'s `os.makedirs(..., exist_ok=True)` happily
+  fabricated a brand-new `C:\mnt\plex\movies\...` folder that never
+  existed before, moved the real file there, logged "Moved OK", and
+  even triggered a Plex library scan that predictably found nothing.
+  This isn't just a Windows/Linux path-syntax bug - the same silent
+  fabrication would happen for any misconfigured, unreachable, or
+  temporarily-unmounted media path, on any platform.
+- **Fix**: a real Plex/Jellyfin library already exists - Hydra should
+  never be the thing that first creates it. `move_to_plex()` now
+  requires the configured library root to already exist
+  (`os.path.isdir`) before organizing into it; if it doesn't, the file
+  falls back to the same safe general-downloads path used for an
+  unconfigured library, instead of silently inventing a new folder
+  tree in a location nobody would think to check.
+- **Verified two ways**: two new unit tests covering the exact
+  scenario (183 tests total, all passing), plus a live, unmocked,
+  in-process run of the real production `move_to_plex()` function
+  against a genuinely fresh, never-existed path and a real file on
+  disk - confirmed it correctly falls back and does not fabricate the
+  bogus path. Also surfaced a real, worth-noting limitation live: a
+  machine already "poisoned" by the old bug (a bogus folder the old
+  code already created) needs manual cleanup for this protection to
+  be fully restored there, since the fix can't distinguish an
+  old-bug-fabricated folder from a genuine library after the fact.
+
 ## 2026-08-23 - Add-torrent file list opened with every checkbox unchecked
 
 - **Symptom**: reported live - opening the file-selection dialog for a

@@ -298,6 +298,57 @@ def test_move_to_plex_video_falls_back_to_other_dir_when_library_not_configured(
     assert not src.exists()
 
 
+def test_move_to_plex_skips_when_library_path_configured_but_nonexistent(organizer, tmp_path, monkeypatch):
+    # A configured-but-nonexistent library root is a different, more
+    # dangerous case than the blank-path test above: os.makedirs(...,
+    # exist_ok=True) would happily fabricate a brand-new folder tree at
+    # whatever the path resolves to and report success - confirmed live
+    # against a real Windows install with media_dir_movies set to a
+    # Linux-style path ('/mnt/plex/movies'), which Windows silently
+    # reinterpreted as "root of the current drive" and created a bogus
+    # C:\mnt\plex\movies tree, logged "Moved OK", and even triggered a
+    # Plex scan that predictably found nothing. A real Plex/Jellyfin
+    # library already exists - Hydra should never be the thing that
+    # first creates it, so a missing root must be treated as a
+    # misconfiguration, same as an unset path, not silently "fixed" by
+    # creating it.
+    monkeypatch.setattr("media_organizer.MEDIA_DIR_MOVIES", str(tmp_path / "does_not_exist"))
+    src = tmp_path / "Movie.Name.2024.1080p.mkv"
+    src.write_bytes(b"fake video data")
+
+    ok, dest, error = organizer.move_to_plex(
+        "Movie.Name.2024.1080p.mkv", source_path=str(src)
+    )
+
+    assert ok is False
+    assert dest is None
+    assert "does not exist" in error
+    assert src.exists()  # untouched, not lost
+    assert not (tmp_path / "does_not_exist").exists()  # not silently fabricated
+
+
+def test_move_to_plex_falls_back_to_other_dir_when_library_path_nonexistent(organizer, tmp_path, monkeypatch):
+    # Same misconfiguration as above, but with DOWNLOAD_DIR_OTHER
+    # configured - should land there flat, exactly like the blank-path
+    # case, not get stranded or silently mis-filed.
+    monkeypatch.setattr("media_organizer.MEDIA_DIR_MOVIES", str(tmp_path / "does_not_exist"))
+    other_dir = tmp_path / "other"
+    monkeypatch.setattr("media_organizer.DOWNLOAD_DIR_OTHER", str(other_dir))
+    src = tmp_path / "Movie.Name.2024.1080p.mkv"
+    src.write_bytes(b"fake video data")
+
+    ok, dest, error = organizer.move_to_plex(
+        "Movie.Name.2024.1080p.mkv", source_path=str(src)
+    )
+
+    assert ok is True
+    assert error is None
+    assert dest == str(other_dir / "Movie.Name.2024.1080p.mkv")
+    assert os.path.exists(dest)
+    assert not src.exists()
+    assert not (tmp_path / "does_not_exist").exists()
+
+
 def test_move_to_plex_non_video_file_moves_to_configured_other_dir(organizer, tmp_path, monkeypatch):
     other_dir = tmp_path / "other"
     monkeypatch.setattr("media_organizer.DOWNLOAD_DIR_OTHER", str(other_dir))
