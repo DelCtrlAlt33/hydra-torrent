@@ -1202,11 +1202,6 @@ class TorrentEngine:
         Tracks cumulative upload across daemon restarts via total_uploaded offset.
         Checks seed_ratio from config each loop; auto-removes when target is hit.
         """
-        _state_map = {
-            0: 'Queued', 1: 'Checking', 2: 'DL Metadata',
-            3: 'Downloading', 4: 'Finished', 5: 'Seeding',
-            6: 'Allocating', 7: 'Resuming',
-        }
 
         # Snapshot state at seeding start
         t0 = self.store.get(name)
@@ -1275,7 +1270,22 @@ class TorrentEngine:
                 if s.paused and not t.get('vpn_paused', False):
                     handle.resume()
                 self.store.update(name,
-                    status=_state_map.get(s.state, 'Seeding'),
+                    # This thread only ever runs for a torrent already
+                    # known complete - the real completion handoff from
+                    # _monitor_download, or a restart-resume that found
+                    # status already 'Seeding' in transfers.json. Echoing
+                    # libtorrent's raw internal state here instead of just
+                    # asserting 'Seeding' (the same "true by definition,
+                    # every iteration" principle bytes_done/speed_down
+                    # already get below) meant a torrent whose resume data
+                    # had to be skipped - moved_to_plex forces a bare
+                    # magnet re-add, since saved resume data still points
+                    # at the pre-move path - showed as "Downloading" or
+                    # "Checking" for real, on the real Windows client,
+                    # while libtorrent re-verified the already-complete
+                    # file against its new post-move location. Nothing was
+                    # actually being re-downloaded; it was already there.
+                    status='Seeding',
                     speed_up=speed_up,
                     peers=s.num_peers,
                     seeds=s.num_seeds,

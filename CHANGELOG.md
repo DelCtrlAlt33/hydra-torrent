@@ -13,6 +13,42 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-23 - An already-downloaded, already-moved-to-Plex file showed "Downloading" again after a restart
+
+- **Symptom**: reported live, right after the previous fix - a torrent
+  that had genuinely finished downloading and been moved to Plex showed
+  "Downloading" again the moment the desktop app was restarted, even
+  though `transfers.json` still correctly had `moved_to_plex: true` and
+  the real destination in `moved_files`.
+- **Root cause**: `_monitor_seeding()` set `status` to whatever
+  libtorrent's *raw* internal state currently read
+  (`_state_map.get(s.state, 'Seeding')`), instead of asserting `'Seeding'`
+  unconditionally the way it already does for `bytes_done`/`speed_down`
+  a few lines above in the same function (see the 2026-08-23 seeding-
+  stats-freeze entry). This thread only ever runs for a torrent already
+  known complete - either the real completion handoff from
+  `_monitor_download`, or a restart-resume that found `status` already
+  `'Seeding'` in `transfers.json`. But a torrent that's already been
+  moved to Plex deliberately can't reuse its saved resume data on resume
+  (that data still points at the pre-move path - see `_load_transfers`'s
+  own docstring), so it gets re-added via a bare magnet instead, and
+  libtorrent has to re-verify the whole file from scratch against its
+  new post-move location. While that recheck ran, its raw state
+  genuinely read `Checking`/`Downloading`, and the code faithfully - but
+  misleadingly - echoed that straight through, even though nothing was
+  actually being re-downloaded.
+- **Fix**: `_monitor_seeding()` now asserts `status='Seeding'`
+  unconditionally in its normal (non-paused) branch, matching the same
+  "true by definition, every iteration" principle already applied to
+  `bytes_done`/`speed_down` in this exact function - closing a gap in
+  that same earlier fix rather than a new, unrelated bug. The now-unused
+  raw-state lookup table was removed from this function.
+- **Verified**: a new test hands `_monitor_seeding()` a fake handle
+  reporting raw state 3 (`'Downloading'` in the old map) on a torrent
+  already marked `moved_to_plex` and `status='Seeding'` - confirms
+  status now stays `'Seeding'` regardless of the underlying recheck
+  state (206 tests total, all passing).
+
 ## 2026-08-23 - Windows toast said "Download finished" while the progress bar was still healthily moving
 
 - **Symptom**: reported live, immediately after the previous fix - a

@@ -271,6 +271,56 @@ def test_monitor_seeding_reports_complete_bytes_done_not_stale_value(engine):
     assert t.get("speed_down") == 0.0, "a seeding torrent isn't downloading - speed_down must not show a stale rate"
 
 
+class _FakeRecheckingStatus:
+    """A torrent _monitor_seeding was handed already knowing it's complete
+    (real completion handoff, or a restart-resume that found status
+    already 'Seeding'), but whose libtorrent handle is mid-recheck -
+    exactly what a bare magnet re-add produces (the path moved_to_plex
+    forces, since saved resume data points at the pre-move location)."""
+    error = None
+    paused = False
+    state = 3  # 'Downloading' per the old _state_map - mid-recheck, not a real download
+    total_upload = 3249152
+    upload_rate = 1635.66
+    num_peers = 9
+    num_seeds = 8
+
+
+class _FakeRecheckingHandle:
+    def status(self):
+        return _FakeRecheckingStatus()
+
+
+def test_monitor_seeding_reports_seeding_even_mid_recheck(engine):
+    """The actual bug: _monitor_seeding() used to set status to whatever
+    libtorrent's raw internal state currently read
+    (_state_map.get(s.state, 'Seeding')) instead of asserting 'Seeding'
+    unconditionally the way it already does for bytes_done/speed_down a
+    few lines above. This thread only ever runs for a torrent already
+    known complete, so a mid-recheck raw state of 'Checking' or
+    'Downloading' is never a real download in progress - just libtorrent
+    re-verifying an already-complete file against a new location.
+    Confirmed live: right after a daemon restart, a real, already-moved-
+    to-Plex download displayed 'Downloading' again while its handle was
+    mid-recheck, alarming enough to be reported as a regression.
+    """
+    name = "AlreadyMovedRecheckingTorrent"
+    handle = _FakeRecheckingHandle()
+    total_size = 2_556_693_199
+    engine.store.add(name, "magnet:?xt=urn:btih:" + "2" * 40, total_size, handle)
+    engine.store.update(name, status="Seeding", moved_to_plex=True)
+
+    th = threading.Thread(target=engine._monitor_seeding, args=(name, handle), daemon=True)
+    th.start()
+    time.sleep(0.3)
+
+    t = engine.store.get(name)
+    assert t.get("status") == "Seeding", (
+        f"a torrent this thread already knows is complete must never report a mid-recheck "
+        f"raw libtorrent state as its status, got {t.get('status')!r}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # File-selection race condition (see CHANGELOG.md 2026-08-23 "a user's
 # unchecked files downloaded anyway")
