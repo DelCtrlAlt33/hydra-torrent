@@ -13,6 +13,32 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-23 - A completed, actively-seeding download still showed as barely started
+
+- **Symptom**: reported live - a real download showed "100%" progress
+  while simultaneously still reading "Downloading", and once it settled
+  into "Seeding" the bytes-downloaded figure stayed frozen at a small
+  fraction of the real file size, with a stale nonzero download speed
+  still showing next to it.
+- **Root cause**: `_monitor_seeding()`'s own `store.update()` calls
+  never included `bytes_done` or `speed_down` at all - only upload-side
+  stats. Once a torrent finished downloading and handed off from
+  `_monitor_download()` to `_monitor_seeding()`, those two fields froze
+  forever at whatever they happened to read on the exact final
+  iteration before the handoff - which could be well below the real
+  total size, since libtorrent's own `total_done` counter can genuinely
+  lag its `progress`/`is_seeding` flags by a beat right at the moment
+  of completion. Nothing ever corrected it afterward, for the rest of
+  that torrent's entire seeding lifetime.
+- **Fix**: a seeding torrent is complete by definition, so `bytes_done`
+  is set to the real total size and `speed_down` to 0 both at the
+  one-time handoff moment and on every subsequent `_monitor_seeding()`
+  iteration - not trusting whatever the last snapshot happened to say.
+- **Verified**: a new test using a fake handle that simulates exactly
+  the broken state found live (frozen low bytes_done, stale nonzero
+  speed_down) - confirms `_monitor_seeding()` now corrects both within
+  one real loop iteration (202 tests total, all passing).
+
 ## 2026-08-23 - Connection Health stayed stale after editing Plex/Jackett/Jellyfin settings, and SAVE AT ignored Plex's actual reachability
 
 - **Symptom 1**: reported live - typed a wrong IP into the Plex URL

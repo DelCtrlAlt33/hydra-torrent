@@ -220,6 +220,58 @@ def test_monitor_seeding_detects_and_surfaces_torrent_error(engine):
 
 
 # ---------------------------------------------------------------------------
+# Seeding progress/speed freeze (see CHANGELOG.md 2026-08-23 "a completed,
+# actively-seeding download still showed as barely started")
+# ---------------------------------------------------------------------------
+
+class _FakeSeedingStatus:
+    error = None
+    paused = False
+    state = 5  # 'Seeding' per _state_map
+    total_upload = 500_000
+    upload_rate = 1234.0
+    num_peers = 3
+    num_seeds = 3
+
+
+class _FakeSeedingHandle:
+    def status(self):
+        return _FakeSeedingStatus()
+
+
+def test_monitor_seeding_reports_complete_bytes_done_not_stale_value(engine):
+    """The actual bug: _monitor_seeding()'s own update() calls never
+    included bytes_done/speed_down at all - once a torrent started
+    seeding, those two fields froze forever at whatever they happened to
+    read on the exact final download-loop iteration before handoff,
+    which could be well below the real total size if libtorrent's
+    s.total_done genuinely lagged s.progress/is_seeding by a beat right
+    at completion. Confirmed live: a real, actively-seeding, 100%-
+    complete download kept reporting bytes_done far below its real file
+    size, with speed_down still showing an old nonzero rate, forever.
+    A torrent that's seeding is complete by definition - this proves
+    _monitor_seeding() now asserts that itself every iteration, instead
+    of trusting a stale value handed to it from before.
+    """
+    name = "SeedingStaleBytesTorrent"
+    handle = _FakeSeedingHandle()
+    total_size = 2_556_693_199  # a real torrent's actual size
+    engine.store.add(name, "magnet:?xt=urn:btih:" + "1" * 40, total_size, handle)
+    # Simulate exactly the stale state found live: frozen at a low
+    # bytes_done/nonzero speed_down from the last download-loop tick
+    # before the (untested here) handoff to seeding.
+    engine.store.update(name, status="Seeding", bytes_done=41_943_040, speed_down=6_464_736.9)
+
+    th = threading.Thread(target=engine._monitor_seeding, args=(name, handle), daemon=True)
+    th.start()
+    time.sleep(0.3)  # let one real loop iteration run
+
+    t = engine.store.get(name)
+    assert t.get("bytes_done") == total_size, "a seeding torrent must report its full size as downloaded"
+    assert t.get("speed_down") == 0.0, "a seeding torrent isn't downloading - speed_down must not show a stale rate"
+
+
+# ---------------------------------------------------------------------------
 # File-selection race condition (see CHANGELOG.md 2026-08-23 "a user's
 # unchecked files downloaded anyway")
 # ---------------------------------------------------------------------------

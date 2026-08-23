@@ -1054,7 +1054,24 @@ class TorrentEngine:
 
             if s.progress >= 1.0 or s.is_seeding or s.is_finished:
                 logger.info(f"Download complete: '{name}'")
-                self.store.update(name, status='Seeding', progress=100.0, eta='Seeding')
+                # bytes_done/speed_down are only ever written by the loop
+                # above (from a real handle.status() snapshot each pass) -
+                # _monitor_seeding(), which takes over right after this,
+                # never touches them at all (see its own update calls -
+                # upload stats only). Left alone, they freeze forever at
+                # whatever they happened to read on this exact final
+                # iteration - confirmed live: a completed, actively-
+                # seeding torrent kept showing "100% progress" next to a
+                # bytes_done reading far below the real file size, because
+                # s.total_done can genuinely lag s.progress/is_seeding by
+                # a beat inside libtorrent's own status update cycle, and
+                # nothing ever corrected it afterward. The torrent is
+                # complete at this point by definition, so bytes_done and
+                # speed_down have exactly one correct value each now.
+                self.store.update(
+                    name, status='Seeding', progress=100.0, eta='Seeding',
+                    bytes_done=total_size, speed_down=0.0,
+                )
                 threading.Thread(
                     target=self._post_download,
                     args=(name, handle),
@@ -1190,6 +1207,12 @@ class TorrentEngine:
                     status='Paused', paused=True, speed_up=0.0,
                     ratio=ratio, total_uploaded=all_time_upload,
                     prev_bytes=s.total_upload, prev_time=current_time,
+                    # Defense-in-depth alongside the one-time fix where
+                    # seeding starts: a seeding torrent is complete by
+                    # definition, every single iteration, not just the
+                    # first one - keep asserting that rather than ever
+                    # leaving it to whatever an earlier snapshot said.
+                    bytes_done=total_size, speed_down=0.0,
                 )
             else:
                 if s.paused and not t.get('vpn_paused', False):
@@ -1204,6 +1227,7 @@ class TorrentEngine:
                     total_uploaded=all_time_upload,
                     prev_bytes=s.total_upload,
                     prev_time=current_time,
+                    bytes_done=total_size, speed_down=0.0,
                 )
 
             # Auto-remove when seed ratio target is reached
