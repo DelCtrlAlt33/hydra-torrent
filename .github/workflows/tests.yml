@@ -50,8 +50,13 @@ jobs:
       - name: Run tests
         # --ignore: test_torrent_engine.py imports libtorrent, which isn't
         # installed in this job on purpose (see the install step above) -
-        # it has its own job below instead.
-        run: python -m pytest -v --cov=. --cov-report=term-missing --ignore=tests/test_torrent_engine.py
+        # it has its own job below instead. test_tray_notifications.py
+        # imports hydra_tray.py, which imports winreg (Windows-only stdlib,
+        # doesn't exist on this ubuntu-latest runner) - hydra_tray.py is a
+        # Windows desktop tray component with no Linux/server counterpart,
+        # so unlike libtorrent this doesn't get its own job here either;
+        # it only ever runs locally on the Windows desktop it's built for.
+        run: python -m pytest -v --cov=. --cov-report=term-missing --ignore=tests/test_torrent_engine.py --ignore=tests/test_tray_notifications.py
 
       - name: Report failure on scheduled (drift-detection) run
         if: failure() && github.event_name == 'schedule'
