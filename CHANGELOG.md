@@ -13,6 +13,34 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-08-23 - Windows toast said "Download finished" while the progress bar was still healthily moving
+
+- **Symptom**: reported live, immediately after the previous fix - a
+  real download with real peers was genuinely progressing normally (the
+  on-screen progress bar moving, status correctly showing
+  "Downloading"), but the Windows tray fired a "Download finished" toast
+  right away anyway.
+- **Root cause**: `hydra_tray.py`'s `_check_completions()` fired on
+  `status in ('Seeding', 'Finished') or progress >= 100` - an extra,
+  uncoordinated fallback on top of `status`. `progress` is written from
+  libtorrent's raw `s.progress` on every single poll in
+  `_monitor_download()`, independent of whether the daemon's own
+  (already-fixed, race-protected) completion check has accepted the
+  torrent as genuinely done - so it can transiently read 100 while
+  `status` correctly still says `Downloading`. The daemon-side fix above
+  made `status`/`bytes_done` the trustworthy signal; this tray check
+  never got the same treatment and kept trusting the untrustworthy one.
+- **Fix**: `_check_completions()` now fires only on `status in
+  ('Seeding', 'Finished')` - the same signal `_monitor_download()`
+  itself now guarantees is honest - both for the toast trigger and for
+  the "don't re-notify" baseline built when the tray first starts.
+- **Verified**: two new tests construct a bare stand-in for the tray's
+  notification state (no real pystray icon needed) and drive
+  `_check_completions()` directly - one proves a `Downloading` torrent
+  with `progress: 100` never fires, the other proves a genuine
+  `status: 'Seeding'` transition still fires exactly once (205 tests
+  total, all passing).
+
 ## 2026-08-23 - A torrent "completed" in milliseconds with nothing actually downloaded
 
 - **Symptom**: reported live, twice, on real torrents with real peers -

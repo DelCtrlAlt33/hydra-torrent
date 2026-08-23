@@ -276,9 +276,10 @@ class HydraTray:
     def _check_completions(self, transfers: list) -> None:
         """Fire a Windows toast for any transfer that just finished downloading."""
         if self._notified is None:
+            # status, not raw progress - see the loop below for why.
             self._notified = {
                 t['name'] for t in transfers
-                if t.get('status') in ('Seeding', 'Finished') or t.get('progress', 0) >= 100
+                if t.get('status') in ('Seeding', 'Finished')
             }
             return
 
@@ -287,7 +288,18 @@ class HydraTray:
             name = t['name']
             if name in self._notified:
                 continue
-            if t.get('status') in ('Seeding', 'Finished') or t.get('progress', 0) >= 100:
+            # status alone, not "or progress >= 100" - progress is written
+            # from libtorrent's raw s.progress every poll regardless of
+            # whether the daemon's own completion check has accepted it
+            # yet (see hydra_daemon.py's _monitor_download first_pass/
+            # total_done gating), so it can transiently read 100 while a
+            # real download is still genuinely in progress and status
+            # correctly still says 'Downloading'. Confirmed live: a real,
+            # healthily-progressing download fired "Download finished"
+            # immediately, well before it actually was. status is the
+            # signal the daemon guarantees is honest; a second, uncoordinated
+            # heuristic on top of it isn't needed and was the actual bug.
+            if t.get('status') in ('Seeding', 'Finished'):
                 self._fire_notification(name, t)
                 self._notified.add(name)
 
