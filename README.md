@@ -15,7 +15,7 @@ git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
 cd hydra-torrent
 docker compose up -d
 ```
-Edit `docker-compose.yml` to set your media volumes and VPN. Config is stored in `./data/`.
+Edit `docker-compose.yml` to set your media volumes and VPN. Config is stored in `./data/`. For the full recommended setup (VPN-protected Hydra + Jackett together, correctly-mapped NAS storage), see [Recommended Setup](#recommended-setup) below.
 
 ### Linux (Ubuntu, Debian, LXC, VM, bare metal)
 ```bash
@@ -225,6 +225,93 @@ Which setup you're in determines the fix:
 - **Hydra itself also runs in Docker, alongside Plex/Jellyfin.** Mount the same host folder to the *same* internal container path in both services' `docker-compose.yml`. If Plex has `- /mnt/plex:/data`, give Hydra the identical line - `- /mnt/plex:/data` - not a different internal path. With matching mounts, Detect works with zero manual fixing, container or not. This is the same "consistent path mapping" principle [TRaSH-Guides](https://trash-guides.info/) recommends for Sonarr/Radarr/qBittorrent, applied to Hydra.
 
 Rule of thumb either way: if Detect shows a green checkmark, you're done. If it shows the Docker warning, you're in one of the mixed setups above - follow the matching fix, not a guess.
+
+## Storage / NAS Setup (optional)
+
+Only matters if your media library lives on a NAS (Synology, TrueNAS, Unraid, plain Samba, whatever) that more than one machine or protocol connects to - e.g. Windows over SMB, and a Linux box or Docker host over NFS.
+
+**The rule:** if the same folder is reachable over multiple protocols, they need to resolve to the *same user identity* on the NAS side. If SMB writes as one user and NFS writes as a different one (a very common default - NFS often defaults to an anonymous `nobody` user unless you set it explicitly), files created by one protocol can become invisible or undeletable from the other. Everything still *works* at first, then folders quietly fill up with things nobody can clean up.
+
+Where to fix it depends on your NAS software, but the concept is the same everywhere: whatever user your Windows/SMB connection uses, make sure NFS exports for the same folder map to that identical user.
+- **TrueNAS SCALE:** NFS share → Edit → **Mapall User / Mapall Group**, set to match your SMB user.
+- **Synology:** Control Panel → Shared Folder → NFS Permissions → the "Squash" setting controls this.
+- **Plain Samba + `/etc/exports`:** use `anonuid=`/`anongid=` matching your Samba user's UID/GID, with `all_squash`.
+
+If everything reaching your NAS uses the *same* protocol (e.g. only Docker containers over NFS, nothing over SMB), this doesn't apply to you at all - skip it.
+
+## Recommended Setup
+
+The complete picture, for anyone who wants everything - Hydra, search, and VPN protection - running together, VPN-protected end to end with no gaps.
+
+**The goal:** not just "downloads go through a VPN" (that part's automatic - see [VPN Kill Switch](#vpn-kill-switch)), but that Jackett's *searches* are protected too. Jackett makes real outbound requests to indexer sites for every search - if Jackett itself isn't behind the VPN, those requests (and the domains they reveal) go out over your normal connection even while your downloads are fully protected. Easy to miss, since everything still works either way.
+
+The reliable way to guarantee this - not just for Jackett, but for anything added later - is a Docker network mode where a container has *no other path to the internet at all*, rather than configuring each app individually to remember to use the VPN:
+
+```yaml
+services:
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - VPN_SERVICE_PROVIDER=mullvad   # or protonvpn, nordvpn, surfshark, private internet access, etc.
+      - VPN_TYPE=wireguard
+      - WIREGUARD_PRIVATE_KEY=your_key_here
+      - WIREGUARD_ADDRESSES=10.x.x.x/32
+    ports:
+      - "9117:9117"   # Jackett's web UI, exposed through gluetun
+    restart: unless-stopped
+
+  jackett:
+    image: lscr.io/linuxserver/jackett:latest
+    network_mode: "service:gluetun"   # no network of its own - everything routes through gluetun
+    depends_on:
+      - gluetun
+    environment:
+      - PUID=1000
+      - PGID=1000
+    volumes:
+      - ./jackett-config:/config
+    restart: unless-stopped
+
+  hydra:
+    build: .
+    volumes:
+      - ./data:/data
+      - /path/to/movies:/movies
+      - /path/to/tv:/tv
+    ports:
+      - "8765:8765"
+    restart: unless-stopped
+```
+
+In Hydra's Settings, point the Jackett URL at `http://<docker-host-ip>:9117` (Jackett's UI is exposed through gluetun's port mapping, since it has no ports of its own to publish).
+
+Full list of [providers gluetun supports natively](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers) - most just need an API key or WireGuard config from your provider's dashboard, no extra steps.
+
+**PIA (Private Internet Access) is the one common exception** - gluetun doesn't support it natively in WireGuard mode, only OpenVPN. If OpenVPN mode doesn't authenticate cleanly with your PIA credentials (the account login you use for PIA's app/website is *not* the same credential as VPN protocol auth, and PIA's dashboard doesn't expose the protocol-specific one directly), the reliable fallback is generating a WireGuard config yourself with PIA's own official tool:
+
+```bash
+git clone https://github.com/pia-foss/manual-connections.git
+cd manual-connections
+sudo PIA_USER=p1234567 PIA_PASS=your_password ./get_token.sh
+# note the PIA_TOKEN it prints, then pick a region:
+PIA_TOKEN=<token from above> PREFERRED_REGION=<region id> ./get_region.sh
+# use the printed WireGuard IP/hostname for that region:
+PIA_TOKEN=<token> WG_SERVER_IP=<ip> WG_HOSTNAME=<hostname> PIA_CONNECT=false ./connect_to_wireguard_with_token.sh
+```
+`PIA_CONNECT=false` is important - it writes a config file instead of bringing up a live interface on your host, which is what you actually want when the destination is gluetun's `WIREGUARD_PRIVATE_KEY`/`WIREGUARD_ADDRESSES`/`WIREGUARD_PUBLIC_KEY`/`VPN_ENDPOINT_IP`/`VPN_ENDPOINT_PORT` env vars (`VPN_SERVICE_PROVIDER=custom` for this mode), not a second tunnel running directly on the machine.
+
+**Running this inside a Proxmox LXC?** Two extra things beyond the Docker/LXC note in [Install](#install) above:
+- `/dev/net/tun` usually isn't exposed inside an LXC by default. Add to the container's config (`/etc/pve/lxc/<vmid>.conf`) and reboot the LXC:
+  ```
+  lxc.cgroup2.devices.allow: c 10:200 rwm
+  lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file
+  ```
+- Docker inside an LXC with AppArmor enabled on the host can fail to start *new* containers with a `docker-default profile... Permission denied` error, even though Docker itself runs fine. Add `security_opt: [apparmor:unconfined]` to each service in `docker-compose.yml` - same fix already documented for GPU-passthrough LXCs running Docker.
+- If your Proxmox host runs its own per-container egress firewall, make sure it allows outbound to whatever port your VPN provider's WireGuard/OpenVPN endpoint actually uses - it's easy to only have the port your *existing* VPN client uses allowed, and silently block a second one on a different port.
 
 ## Status
 
