@@ -2,8 +2,8 @@
 Tests for search.py's pure/mockable functions: parse_size_to_bytes (pure)
 and search_jackett (pure XML parsing once the HTTP call is mocked out).
 
-search_online_public() (formerly here, scraping 1337x/Nyaa/TPB HTML
-directly) was removed 2026-08-20 - it was the one place Hydra had
+search_online_public() (formerly here, scraping specific named public
+indexers' HTML directly) was removed 2026-08-20 - it was the one place Hydra had
 hardcoded, built-in knowledge of specific named indexers instead of
 routing through a user-configured Jackett instance, which is a real
 difference in legal posture, not just a code-quality one. See CHANGELOG.md.

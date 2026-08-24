@@ -2663,8 +2663,8 @@ def do_search(req: SearchRequest) -> List[SearchResult]:
     mode: "jackett" (Jackett API, an indexer the user configured themselves)
           or "local" (a Hydra index server the user configured themselves).
 
-    There used to be a third mode, "online", that scraped named public
-    indexers (1337x, Nyaa, The Pirate Bay) directly - removed 2026-08-20.
+    There used to be a third mode, "online", that scraped specific named
+    public indexers directly - removed 2026-08-20 (see CHANGELOG.md).
     Sonarr/Radarr/Jackett have operated safely for years specifically
     because they contain no built-in knowledge of any particular indexer;
     every source is something the user configures themselves, at arm's

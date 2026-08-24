@@ -912,17 +912,17 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
   leaked the actual live API key in plain text into the captured image.
   Rotated the key on LXC 108 immediately, fixed the masking, retook clean.
 
-## 2026-08-20 - Removed hardcoded 1337x/Nyaa/The Pirate Bay scraping (the "Public" search mode)
+## 2026-08-20 - Removed hardcoded public-indexer scraping (the "Public" search mode)
 
 - **Symptom**: not a technical bug - a legal-risk-by-design one. `search.py`
-  had a `search_online_public()` function that scraped three named public
-  indexers (1337x, with four mirror domains hardcoded; Nyaa.si; The Pirate
-  Bay via apibay.org) directly, rotating fake browser user-agents to get
+  had a `search_online_public()` function that scraped three specific,
+  named, well-known public torrent indexers directly (domains and mirrors
+  hardcoded into the source), rotating fake browser user-agents to get
   past basic bot detection, and returning ready-to-download magnet links.
   It was the default: `hydra_app.py`'s self-install config set
   `"search_mode": "online"`, and the Search tab's mode dropdown listed
   "Public" first with no other option marked selected - a brand-new
-  install, zero configuration, searched The Pirate Bay by default.
+  install, zero configuration, searched one of those indexers by default.
 - **Root cause**: under *MGM v. Grokster* (2005), a tool that's otherwise
   protected by the Betamax "substantial non-infringing use" doctrine can
   still lose that protection if it's shown to be intentionally designed to
