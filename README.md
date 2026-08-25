@@ -1,6 +1,28 @@
 # Hydra Torrent
 
+[![Tests](https://github.com/DelCtrlAlt33/hydra-torrent/actions/workflows/tests.yml/badge.svg)](https://github.com/DelCtrlAlt33/hydra-torrent/actions/workflows/tests.yml)
+[![Latest release](https://img.shields.io/github/v/release/DelCtrlAlt33/hydra-torrent)](https://github.com/DelCtrlAlt33/hydra-torrent/releases/latest)
+[![License](https://img.shields.io/github/license/DelCtrlAlt33/hydra-torrent)](LICENSE)
+
 **A torrent client that actually protects your IP.** Auto-sorts to Plex/Jellyfin, grabs new episodes automatically, and replaces your entire qBittorrent + Sonarr + Radarr stack.
+
+![Hydra Torrent](screenshots/Title.png)
+
+## Contents
+
+- [Install](#install) ([Windows](#windows) · [Docker](#docker) · [Linux](#linux-ubuntu-debian-lxc-vm-bare-metal) · [Manual](#manual-any-os-with-python-310))
+- [Updating](#updating)
+- [Why Hydra?](#why-hydra)
+- [Features](#features)
+- [Troubleshooting](#troubleshooting)
+- [VPN Kill Switch](#vpn-kill-switch)
+- [VPN Setup](#vpn-setup-optional)
+- [Search & Auto-Download](#search--auto-download-optional)
+- [Plex & Jellyfin](#plex--jellyfin-optional)
+- [Storage / NAS Setup](#storage--nas-setup-optional)
+- [Recommended Setup](#recommended-setup)
+- [Status](#status)
+- [License](#license)
 
 ## Install
 
@@ -25,9 +47,7 @@ sudo bash install.sh
 ```
 Installs dependencies, creates a system user, registers a systemd service, and starts Hydra. Prints the URL when done.
 
-**Running inside a Proxmox LXC?** Two things that are Proxmox-specific and won't show up on a normal Linux box:
-- **Docker inside an LXC needs `nesting=1` enabled first** - Proxmox web UI → the LXC → Options → Features (or `pct set <vmid> --features nesting=1`). Without it, Docker either won't start or fails in confusing ways. Only matters if Hydra or Plex/Jellyfin runs via Docker inside the LXC - skip this if everything's installed natively.
-- **NAS/NFS storage gets bind-mounted through Proxmox itself, not `/etc/fstab` inside the container.** Add it as a Mount Point on the LXC's Resources tab (or `pct set <vmid> --mp0 /host/path,mp=/container/path`) rather than mounting NFS from inside the LXC directly - unprivileged LXCs generally can't mount NFS themselves even if you try.
+**Running inside a Proxmox LXC?** See [PROXMOX.md](PROXMOX.md) - a few things (Docker nesting, NFS mount points) are Proxmox-specific and won't show up on a normal Linux box.
 
 ### Manual (any OS with Python 3.10+)
 ```bash
@@ -71,8 +91,6 @@ python hydra_daemon.py
 **Everything works out of the box as a torrent client.** A config file is created automatically. Add Plex, Jackett, VPN whenever you want - all optional.
 
 ---
-
-![Hydra Torrent](screenshots/Title.png)
 
 ![Hydra Torrent - Downloads](screenshots/Downloads.png)
 
@@ -304,14 +322,7 @@ PIA_TOKEN=<token> WG_SERVER_IP=<ip> WG_HOSTNAME=<hostname> PIA_CONNECT=false ./c
 ```
 `PIA_CONNECT=false` is important - it writes a config file instead of bringing up a live interface on your host, which is what you actually want when the destination is gluetun's `WIREGUARD_PRIVATE_KEY`/`WIREGUARD_ADDRESSES`/`WIREGUARD_PUBLIC_KEY`/`VPN_ENDPOINT_IP`/`VPN_ENDPOINT_PORT` env vars (`VPN_SERVICE_PROVIDER=custom` for this mode), not a second tunnel running directly on the machine.
 
-**Running this inside a Proxmox LXC?** Two extra things beyond the Docker/LXC note in [Install](#install) above:
-- `/dev/net/tun` usually isn't exposed inside an LXC by default. Add to the container's config (`/etc/pve/lxc/<vmid>.conf`) and reboot the LXC:
-  ```
-  lxc.cgroup2.devices.allow: c 10:200 rwm
-  lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file
-  ```
-- Docker inside an LXC with AppArmor enabled on the host can fail to start *new* containers with a `docker-default profile... Permission denied` error, even though Docker itself runs fine. Add `security_opt: [apparmor:unconfined]` to each service in `docker-compose.yml` - same fix already documented for GPU-passthrough LXCs running Docker.
-- If your Proxmox host runs its own per-container egress firewall, make sure it allows outbound to whatever port your VPN provider's WireGuard/OpenVPN endpoint actually uses - it's easy to only have the port your *existing* VPN client uses allowed, and silently block a second one on a different port.
+**Running this inside a Proxmox LXC?** See [PROXMOX.md](PROXMOX.md) for the extra steps (`/dev/net/tun` passthrough, AppArmor, egress firewall ports) needed to get gluetun/Docker networking working inside an LXC specifically.
 
 ## Status
 
