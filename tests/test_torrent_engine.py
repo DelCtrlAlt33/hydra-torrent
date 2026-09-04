@@ -854,6 +854,36 @@ def test_post_download_per_transfer_override_true_beats_global_off(tmp_path, eng
     )
 
 
+def test_preview_magnet_has_supplemental_trackers_before_metadata_arrives(tmp_path, engine):
+    """Reported live: 'Retrieving metadata...' in the add-torrent dialog can
+    take a long time for some search results. Root cause - _TRACKERS
+    (Hydra's own list of solid public trackers, meant as a reliability net)
+    used to only get added in commit_preview(), *after* metadata had
+    already arrived - so the slowest part (finding and connecting to a
+    real peer for the ut_metadata handshake) ran on whatever trackers
+    happened to be embedded in that specific magnet, plus DHT alone,
+    without any help from the list that exists for exactly this. This
+    checks the trackers are on the handle immediately after preview_magnet()
+    returns - synchronous, no network/metadata wait needed to prove it.
+    """
+    data_dir, ti, magnet = _make_local_torrent(tmp_path)
+    # This synthetic magnet carries no tr= of its own (lt.make_magnet_uri
+    # here doesn't add any, since none were set on ti) - isolates the
+    # assertion to trackers Hydra itself adds, not ones already embedded.
+    assert "tr=" not in magnet, "test setup issue: magnet unexpectedly has its own trackers"
+
+    name = engine.preview_magnet(magnet, save_path=data_dir)
+    entry = engine.store.get(name)
+    handle = entry["handle"]
+
+    tracker_urls = {t["url"] for t in handle.trackers()}
+    missing = [t for t in hd._TRACKERS if t not in tracker_urls]
+    assert not missing, (
+        f"supplemental trackers must be present immediately after preview_magnet(), "
+        f"before metadata ever arrives - missing: {missing}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Default SAVE AT path (see CHANGELOG.md 2026-08-23 "SAVE AT defaulted to
 # local downloads even with a real, working Plex library configured",

@@ -678,6 +678,11 @@ class TorrentEngine:
             'storage_mode': lt.storage_mode_t(2),
         }
         handle = lt.add_magnet_uri(self.ses, magnet_uri, params)
+        # Same fix as preview_magnet() - add the supplemental tracker list
+        # before the metadata wait below, not after it, so it can actually
+        # help find a peer instead of arriving once the slow part is over.
+        for tracker in _TRACKERS:
+            handle.add_tracker({'url': tracker})
 
         # Extract display name from magnet URI for immediate display
         import urllib.parse
@@ -815,6 +820,16 @@ class TorrentEngine:
         params.storage_mode = lt.storage_mode_t(2)
         params.flags = (lt.torrent_flags.default_flags
                          | lt.torrent_flags.default_dont_download) & ~lt.torrent_flags.paused
+        # Hydra's own supplemental tracker list (_TRACKERS) used to only
+        # get added in commit_preview(), *after* metadata had already
+        # arrived - meaning the slowest part of a magnet-only add (the
+        # "Retrieving metadata..." spinner, which needs to find and
+        # connect to a real peer holding the full torrent) ran on
+        # whichever trackers happened to be embedded in that specific
+        # magnet plus DHT alone, missing the exact reliability net this
+        # list exists for. Setting it on params before add_torrent()
+        # means the initial announce already includes it.
+        params.trackers = list(dict.fromkeys(list(params.trackers) + _TRACKERS))
         handle = self.ses.add_torrent(params)
 
         import urllib.parse

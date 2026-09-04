@@ -13,6 +13,36 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-09-05 - "Retrieving metadata..." could sit for a long time on some search results
+
+- **Symptom**: reported live - the add-torrent dialog's file list can take
+  a genuinely long time to appear for some magnets, sometimes close to
+  the metadata-fetch timeout, while others resolve almost instantly.
+- **Root cause**: `_TRACKERS` (Hydra's own list of 11 solid, well-known
+  public trackers, meant as a reliability net) was only ever added to a
+  torrent *after* its metadata had already arrived - in `commit_preview()`
+  and, separately, in `add_magnet()`'s own post-metadata block. The one
+  part of the whole add flow where a supplemental tracker list would
+  actually matter - the initial "Retrieving metadata..." wait, which
+  needs to find and connect to a real peer for the ut_metadata handshake
+  (BEP 9) - ran on nothing but whatever trackers happened to be embedded
+  in that specific magnet (varies a lot by indexer) plus DHT alone,
+  getting none of the benefit `_TRACKERS` exists for. `.torrent`-file
+  previews were never affected - they carry their own real trackers
+  already, with no metadata fetch needed at all.
+- **Fix**: `preview_magnet()` now sets `_TRACKERS` on `params.trackers`
+  (deduped against the magnet's own, order preserved) before calling
+  `add_torrent()`, and `add_magnet()` now calls `handle.add_tracker()`
+  for each one right after `add_magnet_uri()`, before its metadata-wait
+  loop starts - both moved from after the slow part to before it.
+- **Separately noted, not changed this round**: libtorrent's DHT routing
+  table is never persisted across restarts (no `save_state`/`load_state`
+  or `write_session_params_buf`/`read_session_params` anywhere), so every
+  daemon launch starts DHT bootstrap cold from just the 3 router nodes.
+  Real secondary contributor to metadata-fetch slowness, especially right
+  after opening the app - touches core session init/shutdown though, so
+  left as a known, deliberate follow-up rather than bundled in here.
+
 ## 2026-09-05 - A custom SAVE AT folder was silently ignored; the video got auto-organized into Plex anyway
 
 - **Symptom**: reported live - picking a search result, changing SAVE AT
