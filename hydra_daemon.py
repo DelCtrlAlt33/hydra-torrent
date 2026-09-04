@@ -898,7 +898,8 @@ class TorrentEngine:
         logger.info(f"Preview '{real_name}' metadata ready from URL ({ti.total_size():,} bytes)")
         return real_name
 
-    def commit_preview(self, name: str, save_path: Optional[str] = None) -> str:
+    def commit_preview(self, name: str, save_path: Optional[str] = None,
+                        auto_organize: Optional[bool] = None) -> str:
         """Turn a previewed (hidden, paused) torrent into a real, visible,
         downloading transfer. File priorities are expected to already be
         set via POST /transfers/{name}/files before this is called."""
@@ -962,12 +963,14 @@ class TorrentEngine:
         if vpn_required and not self.vpn_ip:
             handle.pause()
             self.store.update(real_name, hidden=False, size=total_size,
-                               vpn_paused=True, paused=True, status='Waiting for VPN')
+                               vpn_paused=True, paused=True, status='Waiting for VPN',
+                               auto_organize=auto_organize)
             logger.info(f"Committed preview '{real_name}' - paused, kill switch on, no VPN")
         else:
             handle.resume()
             self.store.update(real_name, hidden=False, size=total_size,
-                               paused=False, status='Downloading')
+                               paused=False, status='Downloading',
+                               auto_organize=auto_organize)
             logger.info(f"Committed preview → downloading '{real_name}'")
 
         threading.Thread(
@@ -1178,7 +1181,17 @@ class TorrentEngine:
         a second copy of its location.
         """
         cfg = load_config()
-        if not cfg.get('auto_move_to_plex', True):
+        # Per-transfer override (set at commit time, e.g. from the Save At
+        # dialog) beats the global setting - a user who explicitly chose a
+        # custom folder for this one download means it, and shouldn't have
+        # the video silently relocated into Plex/Jellyfin out from under
+        # them anyway. None (never set, or explicitly "use the default")
+        # falls through to the global auto_move_to_plex toggle as before.
+        entry = self.store.get(name) or {}
+        auto_organize = entry.get('auto_organize')
+        if auto_organize is None:
+            auto_organize = cfg.get('auto_move_to_plex', True)
+        if not auto_organize:
             return
 
         try:
@@ -2108,7 +2121,7 @@ def commit_transfer(name: str, req: CommitPreviewRequest) -> dict:
     if store.get(name) is None:
         raise HTTPException(status_code=404, detail=f"Transfer '{name}' not found")
     try:
-        real_name = engine.commit_preview(name, req.save_path)
+        real_name = engine.commit_preview(name, req.save_path, req.auto_organize)
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except KeyError:

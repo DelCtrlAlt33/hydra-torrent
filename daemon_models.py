@@ -70,6 +70,12 @@ class PreviewTorrentRequest(BaseModel):
 
 class CommitPreviewRequest(BaseModel):
     save_path: Optional[str] = None
+    # None = use the global "auto_move_to_plex" setting (default). True/False
+    # explicitly overrides it for this one transfer - lets a user pick a
+    # custom Save At folder and actually have it stick, instead of the
+    # video file getting auto-organized into Plex/Jellyfin out from under
+    # them regardless of where they told it to go.
+    auto_organize: Optional[bool] = None
 
 
 class SearchRequest(BaseModel):

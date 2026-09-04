@@ -13,6 +13,35 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-09-05 - A custom SAVE AT folder was silently ignored; the video got auto-organized into Plex anyway
+
+- **Symptom**: reported live - picking a search result, changing SAVE AT
+  in the add-torrent dialog to a folder of your own choosing (e.g.
+  `C:\Users\Matth\Downloads`), downloading it, and the finished video
+  file ends up moved into the Plex library instead, with only the
+  non-video extras (subtitles, cover art) actually landing where SAVE AT
+  said. The dialog told you where it was going; the daemon did something
+  else.
+- **Root cause**: not actually a bug in what the code did - it did
+  exactly what it was written to do, which turned out not to match what
+  the SAVE AT field implied. `_post_download()`'s decision to move a
+  completed video into Plex/Jellyfin was gated purely on the single
+  global `auto_move_to_plex` setting, with zero awareness of whether the
+  user had just hand-picked a different destination for this specific
+  download two clicks earlier. SAVE AT only ever controlled where
+  libtorrent wrote the download; auto-organize ran as a fully separate,
+  unconditional post-processing step afterward whenever the global
+  toggle was on - which is most installs, since it defaults on.
+- **Fix**: added a real per-transfer override. `commit_preview()` (and
+  the `POST /transfers/{name}/commit` request body, `CommitPreviewRequest.
+  auto_organize`) now accepts an explicit True/False that's stored on the
+  transfer and checked first in `_post_download()`, before falling back
+  to the global setting when unset. The add-torrent dialog got a new
+  "Move the video into Plex/Jellyfin automatically when done" checkbox
+  next to SAVE AT, defaulted from the real global setting so it never
+  surprises anyone who already has it off, and unchecking it for one
+  download now actually keeps that video exactly where SAVE AT put it.
+
 ## 2026-08-24 - A real, healthily-downloading torrent fired the completion toast within seconds of being added
 
 - **Symptom**: reported live, with the Activity Log screenshot to prove

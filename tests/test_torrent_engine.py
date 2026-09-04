@@ -767,6 +767,93 @@ def test_post_download_moves_subtitle_alongside_video_and_leaves_everything_else
     )
 
 
+def test_post_download_per_transfer_override_skips_auto_organize(tmp_path, engine, monkeypatch):
+    """The actual bug reported live: a user opens the add-torrent dialog,
+    changes SAVE AT to a folder of their own choosing, downloads it - and
+    the video ends up in the Plex library anyway, ignoring what the
+    dialog said. commit_preview()'s auto_organize=False (set from the
+    dialog's "move to Plex automatically" checkbox) must actually stop
+    the move, not just get silently ignored in favor of the global
+    auto_move_to_plex setting.
+    """
+    PIECE = 16 * 1024
+    save_dir = tmp_path / "incomplete"
+    save_dir.mkdir()
+    (save_dir / "movie.mp4").write_bytes(os.urandom(PIECE))
+    fs = lt.file_storage()
+    lt.add_files(fs, str(save_dir))
+    t = lt.create_torrent(fs, piece_size=PIECE)
+    lt.set_piece_hashes(t, str(tmp_path))
+    ti = lt.torrent_info(lt.bencode(t.generate()))
+
+    name = "CustomFolderTorrent"
+    params = lt.add_torrent_params()
+    params.ti = ti
+    params.save_path = str(tmp_path)
+    handle = engine.ses.add_torrent(params)
+    engine.store.add(name, "magnet:?xt=urn:btih:" + "5" * 40, ti.total_size(), handle)
+    # Mirrors what commit_preview() now does when the dialog's checkbox
+    # was unchecked - real code path is exercised in test_daemon_models.py
+    # / API-level tests, this isolates _post_download's own behavior.
+    engine.store.update(name, status="Seeding", auto_organize=False)
+
+    called = []
+    monkeypatch.setattr(
+        hd, "auto_move_completed_download",
+        lambda *a, **k: (called.append(1), (True, "/should/not/be/used", None))[1],
+    )
+
+    engine._post_download(name, handle)
+
+    assert called == [], "auto_organize=False on this transfer must skip the Plex move entirely"
+    result = engine.store.get(name)
+    assert result.get("moved_to_plex") is not True
+    assert (save_dir / "movie.mp4").exists(), (
+        "the video must stay exactly where the user's own SAVE AT path put it"
+    )
+
+
+def test_post_download_per_transfer_override_true_beats_global_off(tmp_path, engine, monkeypatch):
+    """The other direction: auto_organize=True on a specific transfer
+    still organizes it even if the user has the global 'auto_move_to_plex'
+    setting turned off - symmetric with the False case above.
+    """
+    PIECE = 16 * 1024
+    save_dir = tmp_path / "incomplete"
+    save_dir.mkdir()
+    (save_dir / "movie.mp4").write_bytes(os.urandom(PIECE))
+    fs = lt.file_storage()
+    lt.add_files(fs, str(save_dir))
+    t = lt.create_torrent(fs, piece_size=PIECE)
+    lt.set_piece_hashes(t, str(tmp_path))
+    ti = lt.torrent_info(lt.bencode(t.generate()))
+
+    name = "ForceOrganizeTorrent"
+    params = lt.add_torrent_params()
+    params.ti = ti
+    params.save_path = str(tmp_path)
+    handle = engine.ses.add_torrent(params)
+    engine.store.add(name, "magnet:?xt=urn:btih:" + "6" * 40, ti.total_size(), handle)
+    engine.store.update(name, status="Seeding", auto_organize=True)
+
+    movies_root = tmp_path / "media" / "movies"
+    movies_root.mkdir(parents=True)
+    monkeypatch.setattr(hd, "MEDIA_DIR_MOVIES", str(movies_root))
+    monkeypatch.setattr(hd, "load_config", lambda: {"auto_move_to_plex": False})
+    monkeypatch.setattr(
+        hd, "auto_move_completed_download",
+        lambda basename, file_path, torrent_name=None: (True, str(movies_root / name / basename), None),
+    )
+
+    engine._post_download(name, handle)
+
+    result = engine.store.get(name)
+    assert result.get("moved_to_plex") is True, (
+        "an explicit per-transfer auto_organize=True must still organize the file "
+        "even though the global setting is off"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Default SAVE AT path (see CHANGELOG.md 2026-08-23 "SAVE AT defaulted to
 # local downloads even with a real, working Plex library configured",

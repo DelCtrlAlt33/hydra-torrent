@@ -3680,6 +3680,10 @@ function _addDialogSkeleton(r) {
       <button class="browse-btn" onclick="_browseSavePath()" title="Browse for a folder">&#128193;</button>
     </div>
     <div class="free-space" id="modal-free-space">&nbsp;</div>
+    <label class="auto-organize-row" style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;">
+      <input type="checkbox" id="modal-auto-organize" checked>
+      Move the video into Plex/Jellyfin automatically when done
+    </label>
 
     <div class="modal-meta-grid" style="margin-top:14px;">
       <span class="modal-label">Size</span><span id="modal-size">${sizeStr}</span>
@@ -3725,6 +3729,15 @@ async function _openAddDialog(r) {
       _updateFreeSpace(d.free);
     }
   } catch (e) { /* free-space is a nicety, not required to keep going */ }
+
+  try {
+    const cr = await fetch(BASE + '/config', { headers: HEADERS });
+    if (cr.ok) {
+      const cfg = await cr.json();
+      const orgEl = document.getElementById('modal-auto-organize');
+      if (orgEl) orgEl.checked = cfg.auto_move_to_plex !== false;
+    }
+  } catch (e) { /* defaults to checked if this fails */ }
 
   try {
     const body = r.magnet
@@ -3841,6 +3854,7 @@ async function _confirmAddTorrent() {
   const okBtn = document.getElementById('modal-ok-btn');
   if (okBtn) { okBtn.disabled = true; okBtn.textContent = 'Adding…'; }
   const savePath = document.getElementById('modal-save-path')?.value.trim() || null;
+  const autoOrganize = document.getElementById('modal-auto-organize')?.checked ?? null;
   try {
     // Every file sits at real priority 0 on the backend throughout
     // preview (that's what stops it downloading early) - _fileData is
@@ -3858,7 +3872,8 @@ async function _confirmAddTorrent() {
       });
     }
     const r = await fetch(`${BASE}/transfers/${encodeURIComponent(_previewName)}/commit`, {
-      method: 'POST', headers: HEADERS, body: JSON.stringify({ save_path: savePath }),
+      method: 'POST', headers: HEADERS,
+      body: JSON.stringify({ save_path: savePath, auto_organize: autoOrganize }),
     });
     if (!r.ok) {
       const d = await r.json().catch(() => ({}));
