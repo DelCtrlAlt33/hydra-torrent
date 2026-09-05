@@ -13,7 +13,31 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
-## 2026-09-05 - A resumed torrent could show "vpn paused" forever despite genuinely transferring data
+## 2026-09-05 - The "move to Plex automatically" checkbox now follows SAVE AT instead of needing a separate click
+
+- **Why a checkbox instead of just inferring intent from the SAVE AT
+  path**: asked live, and worth recording the actual reasoning, not just
+  the mechanism. A real, common workflow is downloading to a fast local
+  drive for I/O reasons (random-write torrent activity performs badly on
+  a NAS share) while still wanting the *finished* video organized into
+  the real Plex library afterward - a custom SAVE AT there does not mean
+  "keep this out of Plex." Silently inferring that from the path alone
+  would break that case with no way to override it. A separate, visible
+  control keeps the two questions ("where does this download live" vs
+  "should it also end up in Plex when done") legible and independently
+  answerable, matching the whole point of the original bug this session
+  (SAVE AT quietly not being the whole story) - the fix for one silent
+  side effect shouldn't introduce a different one.
+- **The actual gap, now fixed**: the checkbox itself didn't need to
+  exist as a *second, separate click* for the common case it was built
+  for. It now starts matching the real global `auto_move_to_plex`
+  setting, same as before, but also auto-unchecks itself the moment
+  SAVE AT is changed away from the pre-filled default - covering "I
+  moved this to Downloads because I don't want it in Plex" with zero
+  extra clicks, exactly what was reported as missing. Clicking the
+  checkbox directly at any point locks in that explicit choice from then
+  on, so retyping the path afterward won't fight it - covering the
+  fast-scratch-drive case with one click instead of none.
 
 - **Symptom**: reported live, with a screenshot to prove it - several
   transfers sitting at "vpn paused" with real download/upload speed and

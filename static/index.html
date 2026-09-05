@@ -3632,6 +3632,19 @@ let _previewName = null;
 let _previewCommitted = false;
 let _previewPollTimer = null;
 let _savePathDebounce = null;
+// Smart default for the "move to Plex/Jellyfin automatically" checkbox:
+// starts matching the real global setting, and auto-follows SAVE AT
+// (unchecking itself the moment you point SAVE AT somewhere other than
+// the pre-filled default) until the user clicks the checkbox directly -
+// after that their explicit choice always wins, even if they keep
+// editing the path. This covers both intents without asking anyone to
+// think about it: "I moved this to Downloads because I don't want it in
+// Plex" (the common case - unchecks itself) and "I moved this to a fast
+// scratch drive but still want it organized into Plex once done" (an
+// explicit re-check sticks).
+let _previewDefaultPath = '';
+let _previewGlobalAutoOrganize = true;
+let _autoOrganizeUserTouched = false;
 
 function _parseInfoHash(magnet) {
   if (!magnet) return null;
@@ -3681,7 +3694,7 @@ function _addDialogSkeleton(r) {
     </div>
     <div class="free-space" id="modal-free-space">&nbsp;</div>
     <label class="auto-organize-row" style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;">
-      <input type="checkbox" id="modal-auto-organize" checked>
+      <input type="checkbox" id="modal-auto-organize" checked onchange="_autoOrganizeUserTouched = true">
       Move the video into Plex/Jellyfin automatically when done
     </label>
 
@@ -3713,6 +3726,8 @@ function _addDialogSkeleton(r) {
 async function _openAddDialog(r) {
   _previewName = null;
   _previewCommitted = false;
+  _previewDefaultPath = '';
+  _autoOrganizeUserTouched = false;
   if (_previewPollTimer) { clearTimeout(_previewPollTimer); _previewPollTimer = null; }
 
   document.getElementById('result-detail-box').innerHTML = _addDialogSkeleton(r);
@@ -3724,6 +3739,7 @@ async function _openAddDialog(r) {
     if (dr.ok) {
       const d = await dr.json();
       defaultPath = d.path || '';
+      _previewDefaultPath = defaultPath;
       const pathEl = document.getElementById('modal-save-path');
       if (pathEl) pathEl.value = defaultPath;
       _updateFreeSpace(d.free);
@@ -3734,8 +3750,9 @@ async function _openAddDialog(r) {
     const cr = await fetch(BASE + '/config', { headers: HEADERS });
     if (cr.ok) {
       const cfg = await cr.json();
+      _previewGlobalAutoOrganize = cfg.auto_move_to_plex !== false;
       const orgEl = document.getElementById('modal-auto-organize');
-      if (orgEl) orgEl.checked = cfg.auto_move_to_plex !== false;
+      if (orgEl) orgEl.checked = _previewGlobalAutoOrganize;
     }
   } catch (e) { /* defaults to checked if this fails */ }
 
@@ -3764,7 +3781,26 @@ function _updateFreeSpace(freeBytes) {
   if (el) el.innerHTML = (freeBytes != null) ? `<b>${fmtBytes(freeBytes)}</b> free at this location` : '&nbsp;';
 }
 
+function _normalizePathForCompare(p) {
+  return (p || '').trim().replace(/[\\/]+$/, '').toLowerCase();
+}
+
 function _onSavePathChange() {
+  // Smart-default the "move to Plex automatically" checkbox from the
+  // path itself, unless the user has directly clicked it this dialog -
+  // see the comment on _autoOrganizeUserTouched above. Runs immediately
+  // (not debounced) since it's just a local comparison, no request.
+  if (!_autoOrganizeUserTouched) {
+    const pathNow = document.getElementById('modal-save-path')?.value;
+    const orgEl = document.getElementById('modal-auto-organize');
+    const atDefault = _normalizePathForCompare(pathNow) === _normalizePathForCompare(_previewDefaultPath);
+    // At the pre-filled default path: match the real global setting.
+    // Anywhere else: assume the custom path was chosen to keep this one
+    // out of Plex, and uncheck - a click on the checkbox itself always
+    // overrides this from then on (see _autoOrganizeUserTouched).
+    if (orgEl) orgEl.checked = atDefault ? _previewGlobalAutoOrganize : false;
+  }
+
   if (_savePathDebounce) clearTimeout(_savePathDebounce);
   _savePathDebounce = setTimeout(async () => {
     const path = document.getElementById('modal-save-path')?.value.trim();
