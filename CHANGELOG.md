@@ -13,6 +13,30 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-09-05 - A resumed torrent could show "vpn paused" forever despite genuinely transferring data
+
+- **Symptom**: reported live, with a screenshot to prove it - several
+  transfers sitting at "vpn paused" with real download/upload speed and
+  real peer counts shown right next to that label, while a torrent added
+  fresh in the same session showed correctly with no such label.
+- **Root cause**: `_resume_persisted()` (runs on every daemon startup,
+  restoring whatever was in `transfers.json` from the last shutdown)
+  correctly re-evaluates the real libtorrent handle against the *current*
+  VPN state (`handle.resume()` when the kill switch isn't actually
+  active) - but it never touched the store's own `vpn_paused`/`paused`
+  display fields, which were simply carried over as-is from whatever they
+  were the last time the app quit. A torrent that got genuinely
+  kill-switch-paused in an earlier session, then resumed on a later
+  restart where VPN just happened to already be connected, kept showing
+  the stale "vpn paused" label indefinitely - even though the real
+  transfer was working correctly the whole time. `_on_vpn_change()`
+  already does this exact reconciliation for a *live* VPN-reconnect event
+  (see its own `vpn_paused=False` update); `_resume_persisted()` had no
+  equivalent for "VPN was already up when the daemon started."
+- **Fix**: `_resume_persisted()` now sets `vpn_paused`/`paused` from the
+  same kill-switch-active check that already decides real pause/resume,
+  instead of leaving them untouched from the last save.
+
 ## 2026-09-05 - "Retrieving metadata..." could sit for a long time on some search results
 
 - **Symptom**: reported live - the add-torrent dialog's file list can take

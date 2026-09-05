@@ -182,6 +182,39 @@ def test_moved_to_plex_torrent_skips_resume_data(tmp_path, engine):
     assert uses_resume_data is False, "a moved-to-Plex torrent must not use its (now-stale) resume data"
 
 
+def test_resume_persisted_clears_stale_vpn_paused_when_vpn_already_up(tmp_path, engine, monkeypatch):
+    """Reported live: a torrent genuinely kill-switch-paused in an earlier
+    session came back after a restart still labeled 'vpn paused' in the
+    UI - while showing real throughput and real peers - because VPN was
+    already connected by the time this restart's _resume_persisted() ran.
+    The real libtorrent-level decision was already correct (handle.resume()
+    does get called, kill_switch_active is correctly False) - only the
+    store's vpn_paused/paused display fields, inherited as-is from the old
+    saved transfers.json, were never reconciled against that. _on_vpn_change()
+    already does this reconciliation for a *live* reconnect event; this is
+    the same fix for "VPN was already up when the daemon started."
+    """
+    _, ti, magnet = _make_local_torrent(tmp_path)
+    name = "StaleVpnPausedTorrent"
+
+    engine.store.add(name, magnet, ti.total_size(), None)
+    engine.store.update(name, status="Downloading", magnet=magnet,
+                         vpn_paused=True, paused=True, intended_pause=False)
+
+    engine.vpn_ip = "10.0.0.5"  # VPN already connected by the time this runs
+    monkeypatch.setattr(hd, "load_config", lambda: {"vpn_required": True})
+
+    engine._resume_persisted()
+    time.sleep(0.3)
+
+    result = engine.store.get(name)
+    assert result.get("vpn_paused") is False, (
+        "a torrent resumed while VPN is already up must not keep showing "
+        "'vpn paused' from a stale earlier session"
+    )
+    assert result.get("paused") is False
+
+
 # ---------------------------------------------------------------------------
 # Seeding-phase error surfacing (see CHANGELOG.md 2026-08-22 "Torrent
 # errors while seeding were never surfaced, only while downloading")

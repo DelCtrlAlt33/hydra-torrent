@@ -1670,14 +1670,32 @@ class TorrentEngine:
                         'storage_mode': lt.storage_mode_t(2),
                     }
                     handle = lt.add_magnet_uri(self.ses, t['magnet'], magnet_params)
+                # A torrent's saved vpn_paused/paused fields reflect
+                # whatever was true when the daemon last shut down - if
+                # that was a real kill-switch pause and VPN happens to
+                # already be connected again by the time this restart
+                # runs, the real handle below correctly resumes, but
+                # without also updating these display fields they stay
+                # stuck showing "vpn paused" forever afterward, even
+                # though real bytes are flowing. _on_vpn_change() already
+                # clears them on a *live* reconnect event; this is the
+                # same reconciliation for "VPN was already up when the
+                # daemon started" - confirmed live: a resumed download
+                # showing real throughput and peers while still labeled
+                # vpn paused, because nothing here had ever re-checked it
+                # against the current VPN state.
                 if t.get('intended_pause', False) or kill_switch_active:
                     handle.pause()
+                    vpn_paused = kill_switch_active and not t.get('intended_pause', False)
                 else:
                     handle.resume()
+                    vpn_paused = False
                 self.store.update(name,
                     handle=handle,
                     prev_bytes=0,
                     prev_time=time.time(),
+                    vpn_paused=vpn_paused,
+                    paused=vpn_paused or t.get('intended_pause', False),
                 )
                 if t.get('status') == 'Seeding':
                     threading.Thread(
