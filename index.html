@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hydra Torrent: a BitTorrent client for Plex and Jellyfin</title>
+<meta name="description" content="Hydra Torrent is a free, open-source BitTorrent client for Plex and Jellyfin. Automatic library filing, RSS rules, Jackett search and a VPN kill switch.">
+<meta property="og:title" content="Hydra Torrent: a BitTorrent client for Plex and Jellyfin">
+<meta property="og:description" content="A free, open-source BitTorrent client for Plex and Jellyfin: automatic library filing, RSS rules, Jackett search and a VPN kill switch.">
+<meta property="og:image" content="https://delctrlalt33.github.io/hydra-torrent/img/Downloads.png">
+<meta property="og:url" content="https://delctrlalt33.github.io/hydra-torrent/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="https://delctrlalt33.github.io/hydra-torrent/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23070b07'/%3E%3Ctext x='16' y='23' font-size='20' font-family='monospace' font-weight='700' text-anchor='middle' fill='%2300ff41'%3EH%3C/text%3E%3C/svg%3E">
+<link rel="preload" href="fonts/jetbrains-mono-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+  @font-face { font-family:"JetBrains Mono"; font-weight:400; font-style:normal; font-display:swap; src:url(fonts/jetbrains-mono-latin-400-normal.woff2) format("woff2"); }
+  @font-face { font-family:"JetBrains Mono"; font-weight:600; font-style:normal; font-display:swap; src:url(fonts/jetbrains-mono-latin-600-normal.woff2) format("woff2"); }
+  @font-face { font-family:"JetBrains Mono"; font-weight:700; font-style:normal; font-display:swap; src:url(fonts/jetbrains-mono-latin-700-normal.woff2) format("woff2"); }
+  @font-face { font-family:"Inter"; font-weight:400; font-style:normal; font-display:swap; src:url(fonts/inter-latin-400-normal.woff2) format("woff2"); }
+  @font-face { font-family:"Inter"; font-weight:600; font-style:normal; font-display:swap; src:url(fonts/inter-latin-600-normal.woff2) format("woff2"); }
+  :root {
+    color-scheme: dark;
+    --bg:#0e110f; --panel:#141815; --panel-2:#181d19; --line:#242b26; --line-2:#323b34;
+    --accent:#3fb771; --accent-dim:#2f8f58; --text:#d9dfda; --muted:#8f9a92; --link:#6fcf97;
+    --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "SF Mono", Consolas, Menlo, "Liberation Mono", monospace;
+    --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.65 var(--sans);
+          }
+  a { color:var(--link); text-underline-offset:3px; } a:hover { color:#fff; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:3px; }
+  .wrap { max-width:62rem; margin:0 auto; padding:0 1.25rem; }
+  code, pre, .mono { font-family:var(--mono); }
+  h2 { font:700 1.5rem/1.2 var(--sans); letter-spacing:-.015em; color:#fff; margin:3.4rem 0 1.2rem; padding-top:.9rem; border-top:1px solid var(--line); position:relative; }
+  h2::before { content:""; position:absolute; left:0; top:-1px; width:2.6rem; height:2px; background:var(--accent); }
+  h3 { font:600 1.02rem var(--sans); color:#fff; margin:0 0 .35rem; }
+  p { margin:.6rem 0; }
+
+  /* hero */
+  .hero { display:grid; grid-template-columns:minmax(0,19.5rem) minmax(0,1fr); gap:1.8rem; padding:2.6rem 0 1rem; align-items:start; }
+  .art-col { min-width:0; }
+  pre#art { font-size:12px; line-height:1.3; letter-spacing:.03em; margin:0; color:#9fb0a4; cursor:pointer;
+            overflow:hidden; user-select:none;  }
+  pre#art i { font-style:normal; color:#ff3b3b; }
+  pre#log { font-size:12px; line-height:1.5; color:var(--muted); min-height:6.5em; margin:.7rem 0 0; overflow-x:auto; white-space:pre-wrap; }
+  pre#log small { color:var(--muted); }
+  h1 { font:700 2.6rem/1.08 var(--sans); letter-spacing:-.025em; color:#fff; margin:0 0 .55rem;
+        }
+  .kicker { font:600 1.1rem/1.4 var(--sans); color:var(--muted); margin:0 0 1.1rem; }
+  .promise { font:600 1.7rem/1.25 var(--sans); letter-spacing:-.01em; color:#fff; margin:0 0 1.1rem; }
+  .lead p { color:var(--text); max-width:42rem; }
+
+  /* download */
+  .cta { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.8rem; max-width:38rem; margin:1.5rem 0 .7rem; }
+  .btn { display:inline-flex; flex-direction:column; justify-content:center; gap:.12rem; padding:.8rem 1.1rem;
+         border-radius:6px; text-decoration:none; font-family:var(--sans); line-height:1.25; }
+  .btn .t { font-weight:600; font-size:1rem; }
+  .btn .s { white-space:nowrap; font-size:.78rem; font-weight:400; opacity:.85; }
+  .btn-primary { background:var(--accent); color:#06140b; }
+  .btn-primary .s { color:#0c3a1e; }
+  .btn-primary:hover { background:#52c682; color:#06140b; }
+  .btn-ghost { background:var(--panel); border:1px solid var(--line-2); color:var(--text); }
+  .btn-ghost .s { color:var(--muted); }
+  .btn-ghost:hover { border-color:var(--accent-dim); color:#fff; background:var(--panel-2); }
+  .smartscreen { font-size:.86rem; color:var(--muted); max-width:44rem; margin:.5rem 0 0; }
+  .sha { font:.78rem/1.5 var(--mono); color:var(--muted); margin:.5rem 0 0; display:none; align-items:center; gap:.5rem; flex-wrap:wrap; }
+  .sha.on { display:flex; }
+  .sha code { color:#9fcf9f; overflow-wrap:anywhere; }
+  .copy { font:.74rem var(--mono); color:var(--text); background:var(--panel-2); border:1px solid var(--line-2); border-radius:4px;
+          padding:.15rem .55rem; cursor:pointer; }
+  .copy:hover { border-color:var(--accent-dim); color:#fff; }
+  .rel { font:.88rem var(--sans); color:var(--muted); margin:.9rem 0 0; }
+
+  /* screenshot */
+  figure { margin:0; }
+  .shot { margin:1.6rem 0 0; border:1px solid var(--line-2); border-radius:8px; overflow:hidden; background:#000;
+           }
+  .shot img { display:block; width:100%; height:auto; aspect-ratio:1576/640; object-fit:cover; object-position:top; }
+  .shot figcaption, .gal figcaption { font:.82rem var(--sans); color:var(--muted); padding:.5rem .8rem; border-top:1px solid var(--line); background:var(--panel); }
+
+  /* how it works */
+  .steps { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1rem; counter-reset:s; }
+  .steps li { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:1.1rem 1.2rem 1.2rem; counter-increment:s; position:relative; }
+  .steps li::before { content:counter(s); font:600 .9rem/1 var(--sans); color:var(--accent); display:block; margin-bottom:.7rem; }
+  .steps li::after { content:"\2192"; position:absolute; right:-.85rem; top:1.6rem; color:var(--accent-dim); font:1.2rem var(--mono); }
+  .steps li:last-child::after { display:none; }
+  .steps p { margin:.2rem 0 0; color:var(--text); font-size:.96rem; }
+
+  /* features */
+  .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:1rem 1.15rem 1.1rem; min-width:0; }
+  .steps li, .gal figure { min-width:0; }
+  .card.wide { grid-column:1 / -1; border-color:var(--line-2); background:linear-gradient(180deg,var(--panel-2),var(--panel)); }
+  .card p { margin:.15rem 0 0; font-size:.96rem; }
+
+  /* gallery */
+  .gal { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+  .gal figure { border:1px solid var(--line); border-radius:8px; overflow:hidden; background:#000; display:flex; flex-direction:column; }
+  .gal figure.wide { grid-column:1 / -1; }
+  .gal img { display:block; width:100%; height:auto; }
+  .gal figure:not(.wide) img { aspect-ratio:16/9; object-fit:cover; object-position:top; }
+  .gal figcaption { margin-top:auto; }
+
+  /* install */
+  .install { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+  .install .card:first-child { grid-column:1 / -1; }
+  .card-head { display:flex; justify-content:space-between; align-items:center; gap:.8rem; margin-bottom:.5rem; }
+  .card-head h3 { margin:0; }
+  .code pre { margin:0; padding:.8rem .9rem; background:#050805; border:1px solid var(--line); border-radius:6px;
+              white-space:pre-wrap; overflow-wrap:anywhere; font-size:.8rem; line-height:1.6; color:#bfe3bf; }
+  .note { font-size:.9rem; color:var(--muted); }
+
+  .before { background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--accent-dim); border-radius:8px; padding:1.1rem 1.3rem; }
+  .before ul { margin:.6rem 0 0; padding-left:1.2rem; } .before li { margin:.45rem 0; }
+
+  .faq details { background:var(--panel); border:1px solid var(--line); border-radius:8px; margin:0 0 .6rem; }
+  .faq summary { cursor:pointer; padding:.8rem 1.1rem; font:600 1rem var(--sans); color:#fff; list-style:none; }
+  .faq summary::-webkit-details-marker { display:none; }
+  .faq summary::before { content:"+"; display:inline-block; width:1.1rem; color:var(--accent); font-family:var(--mono); }
+  .faq details[open] summary::before { content:"\2212"; }
+  .faq details p { margin:0; padding:0 1.1rem 1rem; font-size:.95rem; }
+  footer { margin:3.5rem 0 2.5rem; padding-top:1.3rem; border-top:1px solid var(--line); font-size:.85rem; color:var(--muted); }
+
+  @media (max-width:820px) {
+    .hero { grid-template-columns:1fr; gap:1.4rem; padding-top:1.6rem; }
+    .art-col { order:2; } pre#art { font-size:2.5vw; }
+    h1 { font-size:2rem; }
+    .steps { grid-template-columns:minmax(0,1fr); } .steps li::after { content:"\2193"; right:auto; left:1.2rem; top:auto; bottom:-1.05rem; }
+    .grid, .gal, .install { grid-template-columns:minmax(0,1fr); }
+    .cta { grid-template-columns:minmax(0,1fr); max-width:none; } .btn { min-width:0; }
+  }
+</style>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Hydra Torrent","alternateName":"Hydra Torrent client","applicationCategory":"MultimediaApplication","operatingSystem":"Windows, Linux, Docker","description":"A free, open-source BitTorrent client for Plex and Jellyfin with automatic library filing, RSS rules, Jackett search and a VPN kill switch.","url":"https://delctrlalt33.github.io/hydra-torrent/","downloadUrl":"https://github.com/DelCtrlAlt33/hydra-torrent/releases/latest","codeRepository":"https://github.com/DelCtrlAlt33/hydra-torrent","license":"https://opensource.org/licenses/MIT","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}
+</script>
+</head><body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="art-col">
+    <pre id="art" title="click" aria-label="ASCII art of a hydra"></pre>
+    <pre id="log" aria-live="polite"><small>click the head</small></pre>
+  </div>
+  <div class="lead">
+    <h1>Hydra Torrent</h1>
+    <p class="kicker">A BitTorrent client, built for your media server.</p>
+    <p class="promise">Your shows, downloaded and filed while you sleep.</p>
+    <p>Hydra Torrent is free, open source, and does the boring part for you. It searches through your own Jackett, picks up new episodes with RSS rules, sorts finished downloads into your Plex or Jellyfin library, and tells the server to take a look. You just open Plex.</p>
+
+    <div class="cta">
+      <a class="btn btn-primary" id="dl-win" href="https://github.com/DelCtrlAlt33/hydra-torrent/releases/latest">
+        <span class="t">Download for Windows</span>
+        <span class="s" id="dl-win-sub">HydraTorrent.exe &middot; latest release</span>
+      </a>
+      <a class="btn btn-ghost" id="dl-linux" href="#install">
+        <span class="t">Linux &amp; Docker</span>
+        <span class="s">install in two commands</span>
+      </a>
+    </div>
+    <p class="smartscreen">The Windows exe isn't code-signed yet, so SmartScreen may warn the first time you run it. Choose <b>More info</b>, then <b>Run anyway</b>.</p>
+    <p class="sha" id="sha-row"><span>SHA256</span> <code id="sha-val"></code> <button class="copy" type="button" data-copy-from="sha-val">copy</button></p>
+    <p class="rel"><span id="ver">Open source &middot; MIT licensed &middot; Windows, Linux and Docker</span> &middot; <a href="https://github.com/DelCtrlAlt33/hydra-torrent">Source code</a></p>
+  </div>
+</header>
+
+<figure class="shot">
+  <img src="img/Downloads.png" width="1576" height="640" alt="Hydra Torrent showing three active downloads, a VPN-protected badge, and the live peer list with a country flag for each peer">
+  <figcaption>Three downloads running, VPN protected, and the live peer list with a flag for every peer.</figcaption>
+</figure>
+
+<h2 id="how">How it works</h2>
+<ol class="steps">
+  <li><h3>Find it</h3><p>Search through your own Jackett, or add an RSS rule for a show and let new episodes come to you.</p></li>
+  <li><h3>Download it</h3><p>Hydra downloads on libtorrent. Bind it to your VPN and every transfer stops in about a second if the tunnel drops.</p></li>
+  <li><h3>Watch it</h3><p>Finished downloads are sorted into your Plex or Jellyfin library, and the server is told to scan. You just open Plex.</p></li>
+</ol>
+
+<h2>What it does</h2>
+<div class="grid">
+  <div class="card"><h3>Everything in one place</h3><p>Search, download, RSS, filing and the Plex or Jellyfin scan all happen in the same app.</p></div>
+  <div class="card"><h3>Search is built in</h3><p>Connect your own Jackett and pick your own indexers. Hydra ships with none, so every source is your choice.</p></div>
+  <div class="card"><h3>Built on libtorrent</h3><p>The same BitTorrent library that qBittorrent and Deluge use.</p></div>
+  <div class="card"><h3>RSS rules</h3><p>New episodes get grabbed as they appear. Seed ratio limits and auto-remove.</p></div>
+  <div class="card"><h3>Auto-filing</h3><p>Movies, TV and anime go into the right folders, and Plex and Jellyfin are told to scan.</p></div>
+  <div class="card"><h3>Runs anywhere</h3><p>Windows exe with a tray icon, a Linux service, or Docker. Manage it from any browser on your network.</p></div>
+  <div class="card"><h3>Pick your files</h3><p>Choose which files in a torrent to download, and where to save them, before anything starts.</p></div>
+  <div class="card"><h3>See your swarm</h3><p>A live map of where your peers are, as it happens (country level).</p></div>
+  <div class="card wide"><h3>VPN kill switch</h3><p>Hydra binds torrent traffic to your VPN interface and arms the kill switch itself the first time it sees a VPN. If the tunnel drops, every transfer pauses and no sockets stay open on your real connection, then everything resumes when the VPN is back. I measured it on a real drop: with the switch off, Hydra rebound to the real network and kept downloading on my real IP. With it on, nothing ran on a real interface within about a second. Click the head up top to see it.</p></div>
+</div>
+
+<h2>Screenshots</h2>
+<div class="gal">
+  <figure><img src="img/VPN.gif" loading="lazy" width="1000" height="456" alt="VPN dropping and reconnecting, with the kill switch pausing the transfer"><figcaption>VPN status and the kill switch.</figcaption></figure>
+  <figure><img src="img/Search.gif" loading="lazy" width="1100" height="528" alt="Searching through Jackett"><figcaption>Searching through your Jackett.</figcaption></figure>
+  <figure class="wide"><img src="img/Title.gif" loading="lazy" width="960" height="361" alt="The live world map of connected peers"><figcaption>The live swarm map.</figcaption></figure>
+</div>
+
+<h2 id="faq">FAQ</h2>
+<div class="faq">
+  <details><summary>Is it free?</summary><p>Yes. Hydra Torrent is open source under the MIT licence. No accounts, no ads, no cookies, no analytics.</p></details>
+  <details><summary>Is it legal?</summary><p>The software is. BitTorrent is an ordinary file-sharing protocol, and it is widely used to distribute Linux ISOs, open-source software, game updates and public-domain media. What you download with it is your responsibility. Downloading copyrighted material without permission is illegal in most countries, and Hydra does not change that. Hydra ships with no indexers and no content, so it only finds what you point it at. A VPN kill switch protects your privacy, not your legal position. This is not legal advice.</p></details>
+  <details><summary>Do I need Plex, Jellyfin or Jackett?</summary><p>No. Paste a magnet link or open a .torrent file and it downloads. Plex and Jellyfin are only for auto-filing and library scans, and Jackett is only for the built-in search.</p></details>
+  <details><summary>What does the VPN kill switch actually do?</summary><p>Hydra binds torrent traffic to your VPN interface. If the tunnel drops, transfers pause and nothing stays open on your real connection. They resume when the VPN is back. It is measured on a real drop, and the details are in the repo.</p></details>
+  <details><summary>Why does Windows show a SmartScreen warning?</summary><p>The exe is not code-signed yet, because a signing certificate costs money. Choose More info, then Run anyway. You can check the download against the SHA256 shown above the screenshot.</p></details>
+  <details><summary>Is it safe to expose to the internet?</summary><p>No. There is no login screen yet, so keep Hydra on your own network or behind a VPN, and do not forward port 8765.</p></details>
+  <details><summary>Where do I report a bug?</summary><p>On the <a href="https://github.com/DelCtrlAlt33/hydra-torrent/issues">GitHub issue tracker</a>.</p></details>
+</div><h2 id="install">Install</h2>
+<div class="install">
+  <div class="card">
+    <h3>Windows</h3>
+    <p class="note">Download <b>HydraTorrent.exe</b> from the latest release and run it. It installs itself (shortcut, Start Menu, tray icon). SmartScreen will warn because the exe is not code-signed: choose More info, then Run anyway. Hydra opens in its own window; to use a browser instead, open <code>http://localhost:8765/ui</code>.</p>
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>Docker</h3><button class="copy" type="button" data-copy-from="c-docker">copy</button></div>
+    <div class="code"><pre id="c-docker">git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
+cd hydra-torrent
+docker compose up -d</pre></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>Linux</h3><button class="copy" type="button" data-copy-from="c-linux">copy</button></div>
+    <div class="code"><pre id="c-linux">git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
+cd hydra-torrent
+sudo bash install.sh</pre></div>
+  </div>
+</div>
+<p class="note">On Linux and Docker your browser will show a certificate warning on the first visit. That's expected: the certificate is self-signed.</p>
+
+<h2>Before you start</h2>
+<div class="before">
+  <p style="margin-top:0">Hydra works with the Plex, Jellyfin and Jackett you already have. None of them are required to download torrents; paste a magnet link or open a .torrent file and go.</p>
+  <ul>
+    <li><b>Search</b> goes through your own Jackett, since Hydra ships with no indexers. Point it at your Jackett in Settings.</li>
+    <li><b>Plex and Jellyfin filing</b> needs Hydra to be able to open your library folders (a mapped drive or a network share works).</li>
+    <li><b>There is no login screen yet.</b> Keep Hydra on your own network or behind a VPN, and do not expose port 8765 to the internet.</li>
+    <li><b>The Windows exe isn't code-signed,</b> so SmartScreen warns the first time you run it. Choose More info, then Run anyway.</li>
+    <li><b>Peer locations</b> are country level.</li>
+  </ul>
+</div>
+
+<footer>
+  <p>Hydra Torrent &middot; MIT licence &middot; <a href="https://github.com/DelCtrlAlt33/hydra-torrent/issues">Report a bug</a> &middot; <a href="https://github.com/DelCtrlAlt33/hydra-torrent/src/branch/main/CHANGELOG.md">Changelog</a> &middot; <a href="https://github.com/DelCtrlAlt33/hydra-torrent">Source</a></p>
+  <p>No cookies, no analytics. The page only asks GitHub for the latest version number. Only use Hydra for things you have the right to download.</p>
+</footer>
+
+</div>
+
+<script>
+// Fill the download button from the latest release: version, size, checksum.
+// Everything works without it (static fallbacks above); nothing else depends on it.
+(function(){
+  var isWin = /Windows/i.test(navigator.userAgent);
+  var win = document.getElementById("dl-win"), lin = document.getElementById("dl-linux");
+  if (!isWin && win && lin) {                      // Linux / Mac visitors: lead with the install commands
+    win.className = "btn btn-ghost"; lin.className = "btn btn-primary";
+    lin.querySelector(".s").textContent = "install in two commands";
+    win.querySelector(".t").textContent = "Windows exe";
+  }
+  if (!window.fetch) return;
+  fetch("https://api.github.com/repos/DelCtrlAlt33/hydra-torrent/releases/latest")
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(rel){
+      if (!rel || !rel.tag_name) return;
+      var asset = (rel.assets || []).filter(function(a){ return /\.exe$/i.test(a.name); })[0];
+      var mb = asset ? Math.round(asset.size / 1048576) + " MB" : "";
+      var sub = document.getElementById("dl-win-sub");
+      if (asset) { win.href = asset.browser_download_url; }
+      if (sub) sub.textContent = (asset ? asset.name : "HydraTorrent.exe") + " · " + rel.tag_name + (mb ? " · " + mb : "");
+      var d = rel.published_at ? new Date(rel.published_at) : null;
+      var when = d && !isNaN(d) ? " (" + d.toLocaleDateString(undefined, {year:"numeric", month:"short", day:"numeric"}) + ")" : "";
+      document.getElementById("ver").textContent = "Latest release " + rel.tag_name + when + " · Open source · MIT licensed · Windows, Linux and Docker";
+      var m = /SHA256:\**\s*`([0-9a-f]{64})`/i.exec(rel.body || "");
+      if (m) { document.getElementById("sha-val").textContent = m[1]; document.getElementById("sha-row").className = "sha on"; }
+    })
+    .catch(function(){});
+})();
+
+// Copy buttons
+(function(){
+  document.addEventListener("click", function(e){
+    var b = e.target.closest && e.target.closest("button.copy");
+    if (!b) return;
+    var src = document.getElementById(b.getAttribute("data-copy-from"));
+    if (!src || !navigator.clipboard) return;
+    navigator.clipboard.writeText(src.textContent.trim()).then(function(){
+      var old = b.textContent; b.textContent = "copied"; setTimeout(function(){ b.textContent = old; }, 1400);
+    }).catch(function(){});
+  });
+})();
+</script>
+<script>
+(function(){
+  var ART = [
+"                  ++++",
+"           +##++#%@%########+++",
+"       +++%@@%%%%%#++%%%%%%###++",
+"      #@%%%%%%%%%%++#%###%%%%####++",
+"    #%@%%%%%%%%##+%%%#++#%#+++####++",
+"  +%@%%%%%%%%%%++#%%##%%%#+ +++++##+",
+"  %%%%%%%@%##+#%%%++ #%##++  ++++++#+",
+"  #%%%%%%% ## %%%%#+###+++     ++++ ++",
+" +%%%%%%#+###%###+++++++#++     +++ ++",
+"#%%##%%%####++#  +++++#+         +++ +",
+"##%####+++ +  +++##++++           +",
+"+##+++%  + + #+++++",
+" +++  + + +++",
+"   ++++++++       +      ++",
+"    +++++               +",
+"               +++++++++",
+"             +#+++++++  ++",
+"             #+++++++  +",
+"           #++++++++  +",
+"          +#+++++++",
+"          +++##++++",
+"         ++ +++++++"
+  ];
+  var HEAD_ROWS = 13;
+  var reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var pre = document.getElementById("art"), logEl = document.getElementById("log");
+  var W = 0; ART.forEach(function(l){ if (l.length > W) W = l.length; });
+  var NOISE = "#%@+*01/|=:;^~";
+  function rnd(){ return NOISE.charAt(Math.floor(Math.random()*NOISE.length)); }
+  function esc(c){ return c==="<" ? "&lt;" : c===">" ? "&gt;" : c==="&" ? "&amp;" : c; }
+
+  var disp = [], red = [];
+  for (var r=0;r<ART.length;r++){ disp[r] = []; red[r] = []; for (var c=0;c<W;c++){ disp[r][c] = c<ART[r].length ? ART[r].charAt(c) : " "; red[r][c] = false; } }
+  function draw(){
+    var out = [];
+    for (var r=0;r<disp.length;r++){
+      var s = "", open = false;
+      for (var c=0;c<W;c++){
+        var isRed = red[r][c];
+        if (isRed && !open){ s += "<i>"; open = true; }
+        if (!isRed && open){ s += "</i>"; open = false; }
+        s += esc(disp[r][c]);
+      }
+      if (open) s += "</i>";
+      out.push(s);
+    }
+    pre.innerHTML = out.join("\n");
+  }
+  function restoreRow(r){ for (var c=0;c<W;c++){ disp[r][c] = c<ART[r].length ? ART[r].charAt(c) : " "; red[r][c] = false; } }
+  function solid(r,c){ return c<ART[r].length && ART[r].charAt(c) !== " "; }
+
+  var busy = false;
+  function decrypt(a, b, dur, done){
+    var cells = [];
+    for (var r=a;r<=b;r++) for (var c=0;c<W;c++) if (solid(r,c)) cells.push({r:r,c:c,t:((r-a)/(b-a+1))*dur*.6 + Math.random()*dur*.4});
+    var t0 = Date.now();
+    var iv = setInterval(function(){
+      var e = Date.now() - t0;
+      cells.forEach(function(k){
+        if (e >= k.t){ disp[k.r][k.c] = ART[k.r].charAt(k.c); red[k.r][k.c] = false; }
+        else { disp[k.r][k.c] = rnd(); red[k.r][k.c] = Math.random() < .05; }
+      });
+      draw();
+      if (e > dur + 80){ clearInterval(iv); for (var r=a;r<=b;r++) restoreRow(r); draw(); if (done) done(); }
+    }, 45);
+  }
+
+  function stamp(){ var d = new Date(), p = function(n){ return (n<10?"0":"")+n; }; return p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds()); }
+  var lines = [];
+  function say(t){ lines.push(t); if (lines.length > 5) lines.shift(); logEl.textContent = lines.join("\n"); }
+  function cut(){
+    if (busy) return; busy = true;
+    var t1 = stamp();
+    say(t1+"  vpn    link lost");
+    for (var r=0;r<HEAD_ROWS;r++) (function(row){
+      setTimeout(function(){ for (var c=0;c<W;c++) red[row][c] = true; draw(); }, row*60);
+      setTimeout(function(){ for (var c=0;c<W;c++){ disp[row][c] = " "; red[row][c] = false; } draw(); }, row*60 + 90);
+    })(r);
+    var cutDone = HEAD_ROWS*60 + 120;
+    setTimeout(function(){ say(t1+"  hydra  3 transfers paused (0.94s)"); }, 500);
+    setTimeout(function(){
+      say(stamp()+"  vpn    link restored");
+      decrypt(0, HEAD_ROWS-1, 1300, function(){ say(stamp()+"  hydra  head regrown, 3 transfers resumed"); busy = false; });
+    }, cutDone + 1100);
+  }
+  pre.addEventListener("click", function(){
+    if (reduce) { say(stamp()+"  vpn    link lost"); say(stamp()+"  hydra  3 transfers paused. link restored, resumed."); return; }
+    cut();
+  });
+
+  function glitch(){
+    if (!busy) {
+      var r = Math.floor(Math.random()*ART.length), orig = disp[r].slice(), sh = (Math.random()<.5?-1:1)*(1+Math.floor(Math.random()*3)), moved = [];
+      for (var c=0;c<W;c++){ var s = c - sh; moved[c] = (s>=0 && s<W) ? orig[s] : " "; }
+      disp[r] = moved;
+      var hits = [];
+      for (var n=0;n<6;n++){ var rr = Math.floor(Math.random()*ART.length), cc = Math.floor(Math.random()*W); if (solid(rr,cc) && rr!==r){ disp[rr][cc] = rnd(); red[rr][cc] = true; hits.push([rr,cc]); } }
+      draw();
+      setTimeout(function(){ disp[r] = orig; hits.forEach(function(h){ disp[h[0]][h[1]] = ART[h[0]].charAt(h[1]); red[h[0]][h[1]] = false; }); draw(); }, 130 + Math.random()*120);
+    }
+    setTimeout(glitch, 3500 + Math.random()*5500);
+  }
+
+  if (reduce) { draw(); }
+  else {
+    for (var r=0;r<disp.length;r++) for (var c=0;c<W;c++) if (solid(r,c)) disp[r][c] = rnd();
+    draw();
+    busy = true;
+    setTimeout(function(){ decrypt(0, ART.length-1, 1900, function(){ busy = false; setTimeout(glitch, 2500); }); }, 300);
+  }
+})();
+</script>
+</body>
+</html>
