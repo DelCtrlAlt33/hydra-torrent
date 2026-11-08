@@ -1,5 +1,5 @@
 """
-Update-availability check against the project's Codeberg (Forgejo) releases. Pure function, same
+Update-availability check against the project's GitHub releases. Pure function, same
 shape as health.py's reachability checks - no daemon/GUI references.
 
 This is deliberately "Phase 1" only: tell the user they're behind and
@@ -14,10 +14,9 @@ import re
 
 import requests
 
-# Forgejo/Gitea API root. The releases JSON uses the same field names we read
-# (tag_name, html_url) as GitHub's did, and returns 404 when nothing is
-# published yet, so the logic below is unchanged.
-API_BASE = "https://codeberg.org/api/v1"
+# GitHub REST API root. The releases JSON carries the fields we read
+# (tag_name, html_url) and returns 404 when nothing is published yet.
+API_BASE = "https://api.github.com"
 
 
 def _parse_version(v: str):
@@ -40,7 +39,7 @@ def check_for_update(current_version: str, repo: str, timeout: float = 5.0) -> d
         'release_url': str | None,
         'error': str | None,
     }
-    Never raises - a failed check (offline, Codeberg down, rate-limited)
+    Never raises - a failed check (offline, GitHub down, rate-limited)
     just means "couldn't tell," not a daemon startup failure.
     """
     result = {
@@ -53,7 +52,7 @@ def check_for_update(current_version: str, repo: str, timeout: float = 5.0) -> d
     try:
         resp = requests.get(
             f"{API_BASE}/repos/{repo}/releases/latest",
-            headers={"Accept": "application/json"},
+            headers={"Accept": "application/vnd.github+json"},
             timeout=timeout,
         )
         if resp.status_code == 404:

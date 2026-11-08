@@ -1635,7 +1635,7 @@
 <div class="titlebar pywebview-drag-region">
   <img class="titlebar-icon" src="/static/logo.png" alt="Hydra">
   <span class="titlebar-title">Hydra Torrent <span id="app-version" style="opacity:0.4;font-size:11px;font-weight:400;"></span></span>
-  <a class="titlebar-update-badge" id="titlebar-update-badge" href="#" target="_blank" rel="noopener" title="A newer version is available on Codeberg"></a>
+  <a class="titlebar-update-badge" id="titlebar-update-badge" href="#" target="_blank" rel="noopener" title="A newer version is available on GitHub"></a>
   <div class="titlebar-rates" id="titlebar-rates"></div>
   <div class="titlebar-spacer"></div>
   <div class="titlebar-controls">
@@ -1657,7 +1657,7 @@
 <header>
   <div class="logo"><span class="brand">H Y D R A</span> &nbsp;<span class="sub">T O R R E N T</span></div>
   <span class="header-version" id="header-app-version"></span>
-  <a class="update-badge" id="update-badge" href="#" target="_blank" rel="noopener" title="A newer version is available on Codeberg"></a>
+  <a class="update-badge" id="update-badge" href="#" target="_blank" rel="noopener" title="A newer version is available on GitHub"></a>
   <div class="spacer"></div>
   <div class="header-rates" id="header-rates"></div>
 </header>
@@ -2115,7 +2115,7 @@
         <div class="acc-body-inner single">
           <div class="acc-subtext">
             Found something broken? Report it with your version, platform, and connection health
-            already filled in. Nothing is sent anywhere until you actually submit it on Codeberg -
+            already filled in. Nothing is sent anywhere until you actually submit it on GitHub -
             this just opens a pre-filled issue in a new tab.
           </div>
           <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -4196,7 +4196,7 @@ function renderHealthBadge(id, state) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Bug reporting: opens a pre-filled Codeberg issue with version/platform/
+// Bug reporting: opens a pre-filled GitHub issue with version/platform/
 // health already in the body, and a separate clipboard copy for the log
 // (Issue-form URLs have a practical length cap, nowhere near enough for
 // a real log excerpt) - reads already-rendered health badges instead of a
@@ -4227,7 +4227,7 @@ async function reportBug() {
     + `**Diagnostics (auto-filled):**\n${diagnostics}\n\n`
     + `Got a diagnostic log? Settings → Help & Feedback → Copy Diagnostic Log, then paste it below:\n\n\`\`\`\n\n\`\`\`\n`;
 
-  const url = 'https://codeberg.org/DelCtrlAlt33/hydra-torrent/issues/new'
+  const url = 'https://github.com/DelCtrlAlt33/hydra-torrent/issues/new'
     + '?title=' + encodeURIComponent('Bug: ')
     + '&body=' + encodeURIComponent(body);
   window.open(url, '_blank', 'noopener');
@@ -4242,7 +4242,7 @@ async function copyDiagnosticLog() {
     const text = (data.lines || []).join('\n');
     await navigator.clipboard.writeText(text);
     if (resultEl) { resultEl.textContent = `Copied ${(data.lines || []).length} log lines to clipboard`; resultEl.className = 'acc-result ok'; }
-    toast('Diagnostic log copied - paste it into your Codeberg issue', 'ok');
+    toast('Diagnostic log copied - paste it into your GitHub issue', 'ok');
   } catch (e) {
     if (resultEl) { resultEl.textContent = 'Could not copy log: ' + e.message; resultEl.className = 'acc-result err'; }
     toast('Could not copy log: ' + e.message, 'err');
@@ -4976,7 +4976,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 // Update check: Phase 1 only, tell the user, link to the release, never
 // download or install anything. Checked once per app open, not polled;
-// this hits Codeberg's API, not a local endpoint. Silent when there's
+// this hits GitHub's API, not a local endpoint. Silent when there's
 // nothing to report, same as the health panel's "not configured" state.
 // ═══════════════════════════════════════════════════════════════════════════
 // Matches #pane-transfers' own max-width (1400px) plus margin for the
@@ -5042,7 +5042,7 @@ async function checkForUpdate() {
       titlebarBadge.classList.add('visible');
     }
   } catch (e) {
-    // Offline / Codeberg unreachable: say nothing, don't nag.
+    // Offline / GitHub unreachable: say nothing, don't nag.
   }
 }
 </script>

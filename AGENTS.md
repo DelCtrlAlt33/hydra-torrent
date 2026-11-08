@@ -13,8 +13,8 @@ Instructions for AI coding agents setting up Hydra Torrent for a user. Humans: s
 
 | Situation | Method |
 |-----------|--------|
-| Windows desktop | Download `HydraTorrent.exe` from the [latest release](https://codeberg.org/DelCtrlAlt33/hydra-torrent/releases/latest) and run it. It installs itself. When updating, fully quit the running instance first (tray icon, Exit). |
-| Docker host | `git clone https://codeberg.org/DelCtrlAlt33/hydra-torrent.git`, then `docker compose up -d` in the repo. No edits needed. |
+| Windows desktop | Download `HydraTorrent.exe` from the [latest release](https://github.com/DelCtrlAlt33/hydra-torrent/releases/latest) and run it. It installs itself. When updating, fully quit the running instance first (tray icon, Exit). |
+| Docker host | `git clone https://github.com/DelCtrlAlt33/hydra-torrent.git`, then `docker compose up -d` in the repo. No edits needed. |
 | Ubuntu / Debian / LXC / VM | `git clone` as above, then `sudo bash install.sh`. It installs to `/opt/hydra` and creates a systemd service named `hydra-torrent`. |
 | Anything else with Python 3.10 to 3.13 | `pip install -r requirements.txt`, then `python hydra_daemon.py` |
 

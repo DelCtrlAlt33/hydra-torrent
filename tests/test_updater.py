@@ -41,7 +41,7 @@ def _release_response(tag_name, status_code=200):
     resp.status_code = status_code
     resp.json.return_value = {
         "tag_name": tag_name,
-        "html_url": f"https://codeberg.org/DelCtrlAlt33/hydra-torrent/releases/tag/{tag_name}",
+        "html_url": f"https://github.com/DelCtrlAlt33/hydra-torrent/releases/tag/{tag_name}",
     }
     return resp
 
@@ -56,15 +56,14 @@ def test_update_available_when_latest_is_newer():
     assert result["error"] is None
 
 
-def test_checks_codeberg_not_github():
-    # GitHub no longer hosts the project; the check must hit Codeberg's
-    # Forgejo releases API for the given owner/name.
+def test_checks_github_releases_api():
+    # The check must hit GitHub's releases API for the given owner/name.
     with patch("updater.requests.get", return_value=_release_response("v1.0.4")) as get:
         check_for_update("1.0.4", "DelCtrlAlt33/hydra-torrent")
 
     called_url = get.call_args[0][0]
-    assert called_url == "https://codeberg.org/api/v1/repos/DelCtrlAlt33/hydra-torrent/releases/latest"
-    assert "github" not in called_url
+    assert called_url == "https://api.github.com/repos/DelCtrlAlt33/hydra-torrent/releases/latest"
+    assert "codeberg" not in called_url
 
 
 def test_no_update_when_current_is_latest():

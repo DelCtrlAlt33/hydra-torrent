@@ -26,12 +26,12 @@ BASE_DIR = get_base_dir()
 
 # ----------------------------------------------------------------------
 # Version - single source of truth. Matches the tag of the last published
-# Codeberg release (checked via the Releases API), NOT
+# GitHub release (checked via the Releases API), NOT
 # whatever a stray print statement elsewhere might claim. Bump this as
 # part of cutting each release, alongside the git tag.
 # ----------------------------------------------------------------------
-VERSION = "1.4.31"
-REPO_SLUG = "DelCtrlAlt33/hydra-torrent"   # owner/name on Codeberg (see updater.py)
+VERSION = "1.4.32"
+REPO_SLUG = "DelCtrlAlt33/hydra-torrent"   # owner/name on GitHub (see updater.py)
 
 # ----------------------------------------------------------------------
 # Paths

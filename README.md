@@ -1,9 +1,9 @@
 # Hydra Torrent
 
-[![release](https://img.shields.io/gitea/v/release/DelCtrlAlt33/hydra-torrent?gitea_url=https://codeberg.org&label=release&color=brightgreen)](https://codeberg.org/DelCtrlAlt33/hydra-torrent/releases)
+[![release](https://img.shields.io/github/v/release/DelCtrlAlt33/hydra-torrent?label=release&color=brightgreen)](https://github.com/DelCtrlAlt33/hydra-torrent/releases)
 [![platform](https://img.shields.io/static/v1?label=platform&message=Windows%20%7C%20Linux%20%7C%20Docker%20%7C%20Browser&color=lightgrey)](#install)
 [![license: MIT](https://img.shields.io/static/v1?label=license&message=MIT&color=blue)](LICENSE)
-[![last commit](https://img.shields.io/gitea/last-commit/DelCtrlAlt33/hydra-torrent?gitea_url=https://codeberg.org&label=last%20commit)](https://codeberg.org/DelCtrlAlt33/hydra-torrent/commits/branch/main)
+[![last commit](https://img.shields.io/github/last-commit/DelCtrlAlt33/hydra-torrent?label=last%20commit)](https://github.com/DelCtrlAlt33/hydra-torrent/commits/main)
 
 **A BitTorrent client, built for your media server.** Search through your own Jackett, pick up new episodes with RSS rules, and have finished downloads filed into Plex or Jellyfin automatically, with a VPN kill switch built in. Free and open source.
 
@@ -15,14 +15,14 @@ Pick one. Everything works out of the box. Plex, search and VPN are all optional
 
 ### Windows
 
-**[Download HydraTorrent.exe](https://codeberg.org/DelCtrlAlt33/hydra-torrent/releases/latest)** and double-click it. It installs itself (desktop shortcut, Start Menu entry, tray icon). No Python, no terminal.
+**[Download HydraTorrent.exe](https://github.com/DelCtrlAlt33/hydra-torrent/releases/latest)** and double-click it. It installs itself (desktop shortcut, Start Menu entry, tray icon). No Python, no terminal.
 
 Windows may show a SmartScreen warning because the exe is not code-signed. Click **More info**, then **Run anyway**.
 
 ### Docker
 
 ```bash
-git clone https://codeberg.org/DelCtrlAlt33/hydra-torrent.git
+git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
 cd hydra-torrent
 docker compose up -d
 ```
@@ -32,7 +32,7 @@ Settings and downloads live in `./data` (finished and in-progress downloads are 
 ### Linux (Ubuntu, Debian, LXC, VM)
 
 ```bash
-git clone https://codeberg.org/DelCtrlAlt33/hydra-torrent.git
+git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
 cd hydra-torrent
 sudo bash install.sh
 ```
@@ -42,7 +42,7 @@ It installs everything, starts Hydra as a service, and prints the address when i
 ### Any other OS (Python 3.10 to 3.13)
 
 ```bash
-git clone https://codeberg.org/DelCtrlAlt33/hydra-torrent.git
+git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
 cd hydra-torrent
 pip install -r requirements.txt
 python hydra_daemon.py
@@ -108,7 +108,7 @@ None of this is needed to download torrents. Add what you want, when you want it
 An AI coding assistant with shell access (Claude Code, Cursor, and similar) can install Hydra for you. Give it this prompt:
 
 ```text
-Install Hydra Torrent from https://codeberg.org/DelCtrlAlt33/hydra-torrent on this machine.
+Install Hydra Torrent from https://github.com/DelCtrlAlt33/hydra-torrent on this machine.
 Read README.md and AGENTS.md first and follow AGENTS.md. Pick the right install method for
 this OS. When it is running, tell me the URL, then run the verification checklist in
 AGENTS.md and report each check as pass, fail, or "could not test", with evidence.
@@ -119,7 +119,7 @@ An assistant can't know your Plex token, Jackett key, VPN credentials or your re
 
 ## Status
 
-Works. Runs on Docker, bare-metal Linux, and Windows. Battle-tested on my homelab, shipping it for yours. Issues and pull requests are welcome on [Codeberg](https://codeberg.org/DelCtrlAlt33/hydra-torrent/issues).
+Works. Runs on Docker, bare-metal Linux, and Windows. Battle-tested on my homelab, shipping it for yours. Issues and pull requests are welcome on [GitHub](https://github.com/DelCtrlAlt33/hydra-torrent/issues).
 
 ## License
 

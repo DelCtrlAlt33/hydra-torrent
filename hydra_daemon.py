@@ -2110,7 +2110,7 @@ def get_health() -> HealthStatus:
 def get_update_check() -> UpdateStatus:
     """
     Phase 1 update check - tells the UI whether a newer release exists on
-    Codeberg. Does not download or install anything (see updater.py).
+    GitHub. Does not download or install anything (see updater.py).
     """
     result = check_for_update(VERSION, REPO_SLUG)
     return UpdateStatus(**result)

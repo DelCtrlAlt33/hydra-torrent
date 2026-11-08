@@ -13,6 +13,15 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-11-08 - Project moved back to GitHub; update check and bug reporter repointed (v1.4.32)
+
+- **Context:** the GitHub account was restricted from about 2026-08-24 to 2026-11-08, so releases, the update check and the in-app bug reporter all pointed at Codeberg. With the account reinstated, GitHub is the home again.
+- **Change:** `updater.py` now queries the GitHub releases API (`api.github.com`), the "Report a bug" button opens a pre-filled GitHub issue, and the README badges, download link and clone URLs point at GitHub. Test: `test_checks_github_releases_api`.
+- **Upgrade note:** copies of v1.4.31 and earlier keep checking Codeberg for updates, so releases are published on both for now.
+- **README media:** the full set of screenshots and GIFs (previously only on the Codeberg `easy-install` branch) is now on `main`.
+
+---
+
 ## 2026-10-18 - Search results showed a literal `&amp;` in titles (v1.4.31; found while retaking screenshots)
 
 - **Symptom:** a Search result such as "Linux Command Line (Hands-On) Ubuntu Linux &amp; Linux Scripting" displayed the `&amp;` as typed.
