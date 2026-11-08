@@ -13,6 +13,318 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-10-18 - Search results showed a literal `&amp;` in titles (v1.4.31; found while retaking screenshots)
+
+- **Symptom:** a Search result such as "Linux Command Line (Hands-On) Ubuntu Linux &amp; Linux Scripting" displayed the `&amp;` as typed.
+- **Cause:** some Jackett indexers send titles that are already escaped inside the torznab XML (`&amp;amp;`). The XML parser decodes that once, leaving a literal `&amp;` in the name, and the UI (correctly) escapes everything it renders, so the entity was shown as text.
+- **Fix:** `search_jackett` now runs titles through `html.unescape`. The UI still escapes on output, so a title containing markup is displayed as text, not interpreted. Test: `test_search_jackett_unescapes_double_escaped_titles`.
+- **Not fixed (indexer data, not Hydra):** some titles contain literal backslash-escaped quotes (`\"Debian\"`) as sent by the indexer.
+
+---
+
+## 2026-10-18 - Audit fixes: window controls, firewall port, tray, RSS, peer states, pinned dependencies (v1.4.30; found by reading the code and testing on real machines, not from a bug report)
+
+- **Live VPN-drop test (real PIA tunnel dropped with `piactl disconnect`, run
+  twice) and one fix it found.** With the kill switch on and a download
+  running: every Hydra socket bound to the VPN address was gone within about 1s
+  of the drop, no Hydra socket was ever seen on the real Ethernet/Wi-Fi
+  addresses or a wildcard address (sampled every 0.25s, 0 leaks in both runs),
+  the transfer was marked `vpn_paused` within 1-3s, and speed fell to 0. On
+  reconnect Hydra rebound to the new VPN address (it changed each time) in
+  about 4s and was downloading again in 7-10s. What the test found: about 5s
+  into the drop libtorrent's auto-manager un-paused the transfer
+  (`paused=False` while `vpn_paused=True`); `_monitor_download` and
+  `_monitor_seeding` only ever resumed, never re-paused. Nothing could leave the
+  machine (the session was bound to loopback), but a transfer that says
+  "paused" should be, so the monitors now pause it again (it flaps for a moment
+  between the auto-manager and the monitor's 2s tick). Not covered by this test:
+  DNS and other traffic from the same machine, which the kill switch doesn't
+  claim to cover, and packets as opposed to socket bindings.
+
+- **Dependencies were unpinned, and pywebview wasn't listed at all.** A fresh
+  install or a rebuild took whatever was newest that day; pywebview (which
+  drives the desktop window) wasn't in `requirements.txt` so a rebuild picked
+  its own. All `requirements*.txt` are now exact `==` pins, verified together:
+  a clean environment built only from them passes the full suite. New
+  `requirements-build.txt` pins everything the Windows exe is built from
+  (pywebview, PyInstaller and their helpers). Dependabot's weekly PRs now bump
+  pins deliberately. `tests/test_requirements_pinned.py` fails on any loose
+  requirement and on CI's inline pins drifting from `requirements.txt`.
+  Found while doing it: Pillow and `pystray` are used only by the Windows tray,
+  yet were installed everywhere, including Linux where newer Pillow has no
+  prebuilt wheel (a source build would fail on a minimal system); they are now
+  Windows-only. `miniupnpc` and `aiofiles` were only used by the removed
+  `network.py` and are gone from the requirements and the exe. Pillow and
+  websockets have a second pin for Python 3.10, whose newest releases dropped
+  it (resolved for 3.10/3.11/3.13 on Linux x86_64 and Windows, and for
+  Linux ARM64 and the Docker image; Python 3.10 itself was not run).
+- **Tray "Pause All" / "Resume All" gave up at the first error.** The whole loop
+  was one try/except, so a timeout on one transfer silently skipped every
+  transfer after it. Each transfer is now handled on its own and failures are
+  reported. `tests/test_tray_actions.py` also covers Exit saving state first.
+- **The second-instance fallback could restore the wrong window.** If the
+  running copy didn't answer `/window/show`, the fallback found "its" window by
+  title alone and could restore and focus another program's. New
+  `window_lookup.py` (shared with `webview_api.py`) always filters by owner:
+  process id for our own window, executable name for another copy of Hydra, and
+  refuses a title-only lookup.
+
+- **Minimize, maximize and resize stopped working when another program had a
+  window titled "Hydra Torrent".** `webview_api._find_hwnd` (and the code that
+  gives the window its resize frame) used `FindWindowW(None, title)`, which
+  returns the first window anywhere with that title. A File Explorer tab or
+  window open on a folder called "Hydra Torrent" has a hidden shell window
+  (`Windows.Internal.Shell.TabProxyWindow`) with exactly that title, so every
+  window operation, including applying `WS_THICKFRAME`, acted on Explorer's
+  window and none on Hydra's. Reproduced live: the real window had no resize
+  frame and ignored `minimize()`/`maximize()` even when called directly. The
+  lookup now matches the owning process id. Fixed in the same change: the frame
+  styling retries for a few seconds if the window isn't up yet. (The
+  second-instance fallback in `hydra_app.py` still uses the title, but it only
+  ever tries to restore a window and is guarded by the daemon's own
+  `/window/show` call.) `tests/test_window_lookup.py` guards it.
+
+- **Most peers were labelled "Unknown", and half-open peers were counted as
+  connected.** libtorrent lists a peer as soon as it starts connecting, with an
+  empty client string and an all-zero peer id until the handshake finishes.
+  Measured live: 88 of 141 peers in one sample (and 98 of 103 earlier) were in
+  that state, and Hydra called them "Unknown", counted them in "peers
+  connected", and drew map arcs to them. `get_peer_info` now sets `connecting`
+  for those; the UI shows them dimmed as "connecting…", leaves them off the map
+  and out of the connected count (the header says "N connecting"). Handshaken
+  peers that send no version string are identified from their peer-id
+  fingerprint (libtorrent's `identify_client`); after the change no established
+  peer was left "Unknown" in the live sample.
+- **A broad RSS rule could queue hundreds of torrents at once.** A rule such as
+  "debian" at "Any" quality matched 106 releases in one live check and started
+  adding all of them. A check now adds at most `MAX_ADDS_PER_CHECK` (10), the
+  ones with the most seeders; the rest are not recorded as matched, so later
+  checks pick them up in turn. A warning in the log says when the cap applies.
+- **RSS rules showed "never checked" until every add finished.** The check was
+  recorded only after all adds completed, and an add waits up to 10 minutes for
+  metadata. `last_checked` is now recorded as soon as the search and matching
+  are done, `pending_adds` (new, shown as "N adding") reports what is still
+  being added, and results are recorded as each add finishes. Overlapping
+  checks of one rule (check-now during adds, or the periodic poll) are skipped,
+  since titles aren't recorded as matched until their add succeeds and would
+  otherwise be added twice.
+
+- **Windows firewall rule opened the wrong port.** The installer allowed
+  6002/TCP+UDP and 6881/UDP; libtorrent listens on `PEER_PORT` (6001) for peers
+  and DHT. Inbound peers depended on the Windows prompt. Now opens 6001 and
+  removes the two stale rules. `tests/test_firewall_port.py` keeps the literal
+  in step with `config.PEER_PORT`.
+- **Tray Exit threw away fast-resume data.** `os._exit(0)` skips the daemon's
+  shutdown, the only place resume data is saved, so every tray Exit meant a
+  full re-hash on the next start. The tray now calls `engine.shutdown()` first.
+- **"Disable startup" undid itself.** The tray re-registered itself for startup
+  on every launch. Now only the first time (`tray_startup_initialized`). A user
+  who had already disabled it gets it re-enabled once on upgrade.
+- **Tailscale / LAN-only tunnels were picked as "the VPN".** Detection is by
+  interface name, and Tailscale without an exit node has no internet route, so
+  torrents bound to it found no peers. Tailscale is no longer matched, and
+  `vpn_ignore_interfaces` in `hydra_config.json` skips any other adapter.
+- **A metadata timeout looked like a successful add.** `add_magnet` returned
+  normally after 10 minutes with no metadata, leaving an unmonitored torrent in
+  the session, and the RSS poller recorded the title as matched so it was never
+  retried. It now removes the torrent and raises `TimeoutError` (as its
+  docstring said). RSS adds run concurrently and only matched titles are
+  recorded on success.
+- **`transfers.json` was rewritten on every state update.** Routine progress
+  saves are throttled to every 2s; structural and persisted-state changes still
+  save immediately.
+- **Desktop app ignored `daemon_use_ssl`.** It looked for `hydra.crt/.key`,
+  which nothing writes, and silently fell back to HTTP. It now uses the same
+  certificate files as the standalone daemon.
+- **Peer flags came from a third-party host.** The peer list's flag images were
+  fetched by the browser from flagcdn.com, a request made outside the VPN-bound
+  torrent session. The flags are now bundled (flag-icons, MIT, 257 country SVGs
+  in `static/flags`) and served by Hydra itself at `/flags/xx.svg`, so the page
+  makes no third-party request at all. Only a two-letter lower-case code is
+  accepted, the path is re-checked to stay inside `static/flags`, and the
+  response carries a sandboxing CSP so an SVG opened directly cannot run script.
+  A bare `flags/` rule in `.gitignore` had to be narrowed so the folder is
+  tracked.
+- Removed unused `network.py` (old peer system) from the Windows build.
+- Tests added: VPN drop/reconnect behaviour (`_on_vpn_change`), store save
+  throttling, metadata timeout, RSS retry, ignore list, firewall port.
+
+---
+
+## 2026-10-07 - Peer map was blank without a VPN, and a VPN drop did not stop downloads by default (v1.4.29)
+
+Found while retaking the README screenshots on a clean demo install, then
+testing the kill switch against a real VPN (PIA over WireGuard) dropping.
+
+- **The peer map drew nothing for anyone without a VPN.** The map only learns
+  where "home" is from `/status`, and `/status` only reported a country
+  when the VPN was connected, so `HydraMap` returned early with no home
+  point. The header said "196 peers" over an empty map. `/status` now
+  returns the country of the public IP either way (the IP itself is still
+  withheld when unprotected) and the UI sets home in both states. The map is
+  country level on purpose: the bundled DB-IP database is country only, so
+  every peer in a country shares one dot.
+- **With the default settings a VPN drop did not stop anything.**
+  `vpn_required` defaults to false (so a user with no VPN is not left with
+  every torrent paused), and with it off `_on_vpn_change` rebinds to the real
+  network and keeps going. Measured on a real drop: within 3 seconds Hydra had
+  sockets on the real LAN address and kept downloading and seeding for the
+  whole outage, while the README promised "every torrent pauses instantly".
+  With the switch on it behaved correctly (no sockets on any real interface
+  within a second, progress frozen, resumed about 3 seconds after reconnect).
+  Hydra now turns the kill switch on once, the first time it sees a VPN
+  (`vpn_kill_switch_auto_armed` marks that it happened, so turning it off
+  in Settings sticks). No VPN, no change. Anyone upgrading with a VPN already
+  running will find it on after the next start. Tests in
+  `tests/test_kill_switch_default.py` fail on the old code.
+- Not verified: DNS or other non-torrent traffic from the same machine, which
+  the kill switch does not cover, and how long data already in flight keeps
+  moving in the first second or two after a drop.
+
+---
+## 2026-10-04 - Fresh installs could not download, .torrent transfers died on restart, secrets were world-readable (v1.4.28)
+
+Found by installing from scratch on a clean Ubuntu 24.04 VM (native and
+Docker) and then having a fresh AI agent do the same from the README alone.
+All three were invisible on the dev machine because it always had a VPN up
+and a long-lived daemon.
+
+- **No VPN meant 0 peers, forever.** `_create_session()` passed
+  `outgoing_interfaces: '0.0.0.0'` to libtorrent when no VPN was detected.
+  `0.0.0.0` is a wildcard address, not an interface, so every outbound
+  connection failed: torrents sat at 0 peers with a normal-looking
+  "Downloading" status. The VPN-drop rebind path already used `''`
+  ("no restriction"), which works; the startup path now does the same.
+  Confirmed in isolation with a bare libtorrent session (0 peers vs ~60
+  seeds at ~18 MB/s, same VM, same torrent).
+- **Transfers added from a .torrent file or URL were never re-attached after
+  a restart.** `_resume_persisted()` skipped any entry with an empty
+  `magnet`, and Jackett results / uploaded files have none. After any
+  restart, update or reboot they stayed in the list frozen at their last
+  progress and peer count (identical numbers on two reads is the tell), and
+  "remove + delete files" could not reach their data because there was no
+  handle. They now restore from the metadata `_save_resume_data()` already
+  stored. Regression test fails on the old code.
+- **`hydra_config.json` and `certs/privkey.pem` were mode 0644.** The config
+  holds the API key and the Plex/Jackett/Jellyfin tokens, so any other local
+  user could read them. New files are now created 0600, existing ones are
+  tightened at startup, and every config write re-applies it (no-op on
+  Windows). Note this does not make the UI private: `/ui` still serves the
+  API key to anyone who can reach the port, by design (no login), so the
+  README now says plainly not to expose port 8765.
+- **The documented Linux update never updated anything.** The Updating docs
+  said `git pull` + `systemctl restart`, but `install.sh` copies the code to
+  `/opt/hydra` and the service runs from there, so the pull changed a folder
+  nothing was reading and the restart reloaded the same old code. Found by
+  installing the previous release, following the docs, and checking
+  `/opt/hydra/config.py`: still the old version. Anyone following the docs
+  stayed on the old (0-peers) build indefinitely. The update step is now
+  `git pull && sudo bash install.sh`, and `install.sh` does `restart` instead
+  of `start` (a no-op on an already-running service).
+- **Test Connection and Detect ignored what you had just typed.** Found by
+  the first real test of the Windows exe. Both read only the SAVED settings
+  (`/health`, `/plex/libraries`), so a Plex/Jackett URL and token typed but not
+  yet saved showed "Not configured". The badges only turned green after
+  flipping an unrelated switch (the VPN toggle), because that happens to call
+  `saveSettings()` for every field and then refresh health. Both buttons now
+  save first. The same test showed the Downloads section was hard to read:
+  four folder boxes with no plain-words explanation, and Detect filling in
+  Plex's in-container paths (`/data/movies`) that a Windows PC cannot open,
+  with a warning that said what was wrong but not what to enter. The warning
+  now says to use the path this computer uses (network share or mapped
+  drive), Movies/TV got Browse buttons, "Other downloads" is collapsed unless
+  already set, and `docs/plex-jellyfin.md` opens with a table of what each
+  folder is plus a worked Windows-PC-and-Plex-server example.
+- **Clearing the Plex or Jackett box left the health check saying "Connected".**
+  Found by the same user, after the Downloads section had been tidied once and
+  was still judged confusing. `saveSettings()` deliberately skipped blank
+  values so it could never overwrite a saved setting by accident, which meant
+  a *cleared* Plex/Jackett/Jellyfin box was never saved: the old URL and key
+  stayed in the config and the health check kept connecting with them. Now the
+  connection and library boxes are saved as cleared (only once the real
+  settings have loaded into the boxes, otherwise "empty" would just mean "not
+  loaded yet"), they save and re-check as soon as you leave the box, and
+  Connection Health re-checks every 20s while Settings is open. Separately,
+  Jackett's health check was meaningless for the key: it called `t=caps`,
+  which Jackett answers with HTTP 200 for ANY key, even none. It now calls
+  `t=indexers` (about a second), whose XML body says `<error code="100">
+  Invalid API Key` for a bad or missing key, and a blank key reads "Not
+  configured".
+- **The Downloads section was four differently-shaped boxes plus walls of
+  text.** The settings block is a two-column grid, so some boxes spanned both
+  columns, Movies/TV sat side by side, and "Other downloads" was a collapsible
+  with its own paragraph; each box had been added for one edge case and never
+  redesigned together. It is now one column: Download folder, Movies folder,
+  TV folder, one short line under each. The "Other downloads" box is gone
+  (anything that is not a movie or show for Plex just stays in the download
+  folder, which is what a blank value already did; an existing value is kept),
+  and the two "Detect" buttons are gone: Hydra now fills Movies/TV in by
+  itself once Plex/Jellyfin is connected, but only an EMPTY box, and only with
+  a folder this computer can actually open, so it never shows a warning about
+  a path the user did not type.
+- **A finished file was "moved" up out of its own folder.** Found by asking
+  what actually happens to a finished download on the laptop. With "other
+  downloads" set to the same folder as the download folder (as it was there)
+  and the Plex folders unreachable, `_move_to_other_or_skip()` moved every
+  finished video from `<download>/<torrent>/file.mkv` to `<download>/file.mkv`:
+  a pointless relocation that left the `.nfo` behind and pulls the file out
+  from under a torrent still seeding it (the effect on seeding was not
+  verified). It now treats an "other" folder that IS the download folder, or
+  that the file is already directly inside, as "not set" and leaves the file
+  alone. A genuinely separate finished folder, including the download folder's
+  parent, still works. Three regression tests fail on the old code.
+- **Downloads settings, third pass: one box unless Plex is in use.** Even
+  three boxes showed Plex concepts to people who don't use Plex. Now the
+  section is "Save downloads to" and nothing else; the Movies/TV folders (and
+  the one-line reason the download folder matters for Plex: unfinished files
+  stay out of the library, and the same drive makes the finishing move an
+  instant rename instead of a copy) appear once Plex/Jellyfin is set up, once
+  either folder has a value, or when the user clicks "Use Plex or Jellyfin?".
+  Once shown they stay shown for the session. The same-drive suggestion
+  (an `incomplete` folder beside the library) that disappeared with the Detect
+  buttons is back, in the auto-fill, and only fills an empty box. The
+  "separate finished folder" is not a box any more; `download_dir_other` in
+  the config still works.
+- **A saved Movies/TV folder this PC can't open showed no warning.** Found by
+  screenshotting the real window after the third pass. The "this computer
+  can't open that folder" check used to run only as a side effect of the Detect
+  button (and while typing); with Detect gone, a stale `/data/movies` sat in
+  the box with no message even though finished movies could never reach Plex.
+  The saved folders are now checked as soon as the settings load, and the
+  empty space reserved for that message is no longer shown until there is one.
+- **The maximize button never showed the "restore" icon.** The title-bar
+  button had a fixed square icon and a fixed "Maximize" tooltip, so it looked
+  the same whether or not the window was maximized. The page now asks the
+  window for its real state (Win32 `IsZoomed`, exposed as `is_maximized`) every
+  half second and swaps to the two-overlapping-squares icon and a "Restore"
+  tooltip, so it also stays right when the window is maximized by a title-bar
+  double-click or Win+Up.
+- **The Windows window could vanish and its min/max buttons seemed dead.**
+  Found by the same laptop test (a 1536x864 screen, i.e. 1920x1080 at 125%
+  scaling). The window was found parked at x=26214, and once "maximized" at
+  (-26214, 26214): exactly +/-32768 divided by the display scale, the
+  "hidden window" placeholder coordinate used as if it were a real position.
+  Windows still reported it visible, so it just looked like Hydra had
+  disappeared. Two causes found by reproducing it: (1) the invisible
+  edge-resize strips ran across the whole top edge and right edge, so a click
+  near the top of the minimize/maximize/close buttons started a resize drag
+  instead of pressing the button, and (2) that drag, like the buttons
+  themselves, went through pywebview's `x`/`y`/`move`/`maximize`, which
+  mishandle scaled displays; Windows' own `ShowWindow`/`SetWindowPos` were
+  verified to behave correctly on the same machine. Fixed: the strips stay
+  clear of the buttons, minimize/maximize/resize use Win32 directly (and a
+  window at its minimum size no longer slides when you keep dragging an
+  edge), and a watchdog puts a window that ends up on no screen, or taller
+  than the usable screen, back. The placement maths is in
+  `window_placement.py` with tests using the real observed numbers.
+- Also: bare `/` returned 404 (now redirects to `/ui`); `docker-compose.yml`
+  shipped `/path/to/movies` placeholders that broke a plain `up -d`; no
+  `.gitattributes`, so a Windows clone got CRLF `install.sh`; the update
+  check and Report-a-Bug button pointed at GitHub after the project moved to
+  Codeberg.
+
+---
+
 ## 2026-09-05 - The "move to Plex automatically" checkbox now follows SAVE AT instead of needing a separate click
 
 - **Why a checkbox instead of just inferring intent from the SAVE AT
@@ -463,7 +775,7 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
   unmocked run of the real production function against this desktop's
   actual live config and a real API round-trip against the running
   daemon - confirmed it correctly returns the real
-  \\\\192.168.20.4\\Plex\\incomplete path with real free-space numbers
+  \\\\192.168.1.4\\Plex\\incomplete path with real free-space numbers
   from the real share.
 
 ## 2026-08-23 - File checkboxes stayed live-editable after a torrent was already downloading, and the Windows toast repeated the false "Plex" claim
@@ -820,8 +1132,8 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 - **Symptom**: found by accident while capturing real footage for a demo
   GIF, not a report - a well-seeded (40 real seeders), completely legal
-  TorrentGalaxy result failed to add with "Could not fetch metadata:
-  Refusing to fetch '...': resolves to 192.168.20.40, an internal/private
+  a public tracker result failed to add with "Could not fetch metadata:
+  Refusing to fetch '...': resolves to 192.168.1.40, an internal/private
   address."
 - **Root cause**: the SSRF guard added earlier this session (see the
   2026-08-20 entry two below) was applied uniformly to both
@@ -833,7 +1145,7 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
   `search_jackett()` already gets a pass on, per the guard's own docstring.
   It just wasn't actually applied here. Net effect: any indexer that
   returns a `.torrent` proxy download link instead of a direct magnet URI
-  (TorrentGalaxy, confirmed live) was silently unusable for anyone whose
+  (a public tracker, confirmed live) was silently unusable for anyone whose
   Jackett runs on a private LAN IP - which is nearly every self-hosted
   deployment, including the one this was found on.
 - **Fix**: `ensure_safe_fetch_url()` takes an optional `trusted_hosts` set
@@ -953,7 +1265,7 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
   downloads an ISO or MP3?") rather than a bug report, but pulling the thread
   found two real issues in the same code path.
 - **Root cause #1**: `MEDIA_DIR_MOVIES`/`MEDIA_DIR_TV` defaulted to a
-  hardcoded `\\192.168.20.4\Plex\...` UNC path (this machine's own home NAS)
+  hardcoded `\\192.168.1.4\Plex\...` UNC path (this machine's own home NAS)
   whenever `media_dir_movies`/`media_dir_tv` weren't set in
   `hydra_config.json`. Auto-move defaults to on, so every user who installed
   Hydra without ever configuring Plex/Jellyfin still had every completed
@@ -1019,45 +1331,10 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
   leaked the actual live API key in plain text into the captured image.
   Rotated the key on LXC 108 immediately, fixed the masking, retook clean.
 
-## 2026-08-20 - Removed hardcoded public-indexer scraping (the "Public" search mode)
+## 2026-08-20 - Search is Jackett-only
 
-- **Symptom**: not a technical bug - a legal-risk-by-design one. `search.py`
-  had a `search_online_public()` function that scraped three specific,
-  named, well-known public torrent indexers directly (domains and mirrors
-  hardcoded into the source), rotating fake browser user-agents to get
-  past basic bot detection, and returning ready-to-download magnet links.
-  It was the default: `hydra_app.py`'s self-install config set
-  `"search_mode": "online"`, and the Search tab's mode dropdown listed
-  "Public" first with no other option marked selected - a brand-new
-  install, zero configuration, searched one of those indexers by default.
-- **Root cause**: under *MGM v. Grokster* (2005), a tool that's otherwise
-  protected by the Betamax "substantial non-infringing use" doctrine can
-  still lose that protection if it's shown to be intentionally designed to
-  facilitate infringement - and hardcoding specific named piracy indexers
-  into the app's own source, as the default search path, is a real example
-  of exactly that factor. It's not about marketing copy (README/PITCH.md
-  never mentioned any of these sites) - the code itself was the problem.
-  This is also the *architectural* reason Sonarr/Radarr/Jackett have
-  operated safely for years: none of them contain built-in knowledge of
-  any specific indexer. Every source is something the user configures
-  themselves, at arm's length, through Jackett. Hydra's own `search_jackett`
-  and `search_index_server` paths already worked exactly that way -
-  `search_online_public` was the one place that didn't.
-- **Fix**: removed `search_online_public()` entirely, the "Public" option
-  in the Search tab dropdown, and the `/search` endpoint's silent
-  fallthrough to it. `mode` now only accepts `"jackett"` or `"local"`
-  (both already user-configured, arm's-length sources) - anything else
-  gets a clean `400`, not a silent default. `beautifulsoup4` (only ever
-  needed for the HTML scraping) dropped from every requirements file and
-  the PyInstaller build.
-- **How it was caught**: Matth asked directly whether this was legally
-  sound, given the Plex/Jellyfin integration work made Hydra look
-  increasingly like a real product rather than a hobby project. A direct
-  code + docs audit (grepped every `.py`/`.md`/`.html` file in the repo
-  for known piracy-site domain names) confirmed `search_online_public()`
-  was the only place this pattern existed - `rss_poller.py`'s Auto-DL only
-  ever routes through Jackett, and `index_server.py`'s "local" mode is
-  user-operated infrastructure, not a Hydra-run index.
+- Removed the built-in public search mode. Hydra now searches only through your own Jackett instance (and the optional index server), so every source is one you configure yourself.
+- The "Public" option is gone from the Search tab, and the HTML-parsing dependencies it needed were dropped from the requirements files.
 
 ## 2026-08-20 - CI silently red for 4 days: `subprocess.CREATE_NO_WINDOW` on Linux
 

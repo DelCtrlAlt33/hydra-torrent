@@ -1,335 +1,130 @@
 # Hydra Torrent
 
-[![Tests](https://github.com/DelCtrlAlt33/hydra-torrent/actions/workflows/tests.yml/badge.svg)](https://github.com/DelCtrlAlt33/hydra-torrent/actions/workflows/tests.yml)
-[![Latest release](https://img.shields.io/github/v/release/DelCtrlAlt33/hydra-torrent)](https://github.com/DelCtrlAlt33/hydra-torrent/releases/latest)
-[![License](https://img.shields.io/github/license/DelCtrlAlt33/hydra-torrent)](LICENSE)
+[![release](https://img.shields.io/gitea/v/release/DelCtrlAlt33/hydra-torrent?gitea_url=https://codeberg.org&label=release&color=brightgreen)](https://codeberg.org/DelCtrlAlt33/hydra-torrent/releases)
+[![platform](https://img.shields.io/static/v1?label=platform&message=Windows%20%7C%20Linux%20%7C%20Docker%20%7C%20Browser&color=lightgrey)](#install)
+[![license: MIT](https://img.shields.io/static/v1?label=license&message=MIT&color=blue)](LICENSE)
+[![last commit](https://img.shields.io/gitea/last-commit/DelCtrlAlt33/hydra-torrent?gitea_url=https://codeberg.org&label=last%20commit)](https://codeberg.org/DelCtrlAlt33/hydra-torrent/commits/branch/main)
 
-**A torrent client that actually protects your IP.** Auto-sorts to Plex/Jellyfin, grabs new episodes automatically, and replaces your entire qBittorrent + Sonarr + Radarr stack.
+**A BitTorrent client, built for your media server.** Search through your own Jackett, pick up new episodes with RSS rules, and have finished downloads filed into Plex or Jellyfin automatically, with a VPN kill switch built in. Free and open source.
 
-![Hydra Torrent](screenshots/Title.png)
-
-## Contents
-
-- [Install](#install) ([Windows](#windows) · [Docker](#docker) · [Linux](#linux-ubuntu-debian-lxc-vm-bare-metal) · [Manual](#manual-any-os-with-python-310))
-- [Updating](#updating)
-- [Why Hydra?](#why-hydra)
-- [Features](#features)
-- [Troubleshooting](#troubleshooting)
-- [VPN Kill Switch](#vpn-kill-switch)
-- [VPN Setup](#vpn-setup-optional)
-- [Search & Auto-Download](#search--auto-download-optional)
-- [Plex & Jellyfin](#plex--jellyfin-optional)
-- [Storage / NAS Setup](#storage--nas-setup-optional)
-- [Recommended Setup](#recommended-setup)
-- [Status](#status)
-- [License](#license)
+![Hydra Torrent](screenshots/Title.gif)
 
 ## Install
 
-### Windows
-**[>>> Download for Windows <<<](https://github.com/DelCtrlAlt33/hydra-torrent/releases/latest/download/HydraTorrent.exe)**
+Pick one. Everything works out of the box. Plex, search and VPN are all optional extras you can add later.
 
-Double-click `HydraTorrent.exe`. It self-installs on first run - desktop shortcut, Start Menu entry, system tray icon. No Python, no dependencies, no terminal, nothing to extract.
+### Windows
+
+**[Download HydraTorrent.exe](https://codeberg.org/DelCtrlAlt33/hydra-torrent/releases/latest)** and double-click it. It installs itself (desktop shortcut, Start Menu entry, tray icon). No Python, no terminal.
+
+Windows may show a SmartScreen warning because the exe is not code-signed. Click **More info**, then **Run anyway**.
 
 ### Docker
+
 ```bash
-git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
+git clone https://codeberg.org/DelCtrlAlt33/hydra-torrent.git
 cd hydra-torrent
 docker compose up -d
 ```
-Edit `docker-compose.yml` to set your media volumes and VPN. Config is stored in `./data/`. For the full recommended setup (VPN-protected Hydra + Jackett together, correctly-mapped NAS storage), see [Recommended Setup](#recommended-setup) below.
 
-### Linux (Ubuntu, Debian, LXC, VM, bare metal)
+Settings and downloads live in `./data` (finished and in-progress downloads are in `./data/downloads`). The container runs as root, so those files are root-owned: use `sudo` to move or delete them, or run `sudo chown -R $USER ./data` once. If you get a permission error running `docker`, use `sudo docker compose up -d` or add yourself to the `docker` group.
+
+### Linux (Ubuntu, Debian, LXC, VM)
+
 ```bash
-git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
+git clone https://codeberg.org/DelCtrlAlt33/hydra-torrent.git
 cd hydra-torrent
 sudo bash install.sh
 ```
-Installs dependencies, creates a system user, registers a systemd service, and starts Hydra. Prints the URL when done.
 
-**Running inside a Proxmox LXC?** See [PROXMOX.md](PROXMOX.md) - a few things (Docker nesting, NFS mount points) are Proxmox-specific and won't show up on a normal Linux box.
+It installs everything, starts Hydra as a service, and prints the address when it finishes. Running inside a Proxmox LXC? See [PROXMOX.md](PROXMOX.md).
 
-### Manual (any OS with Python 3.10+)
+### Any other OS (Python 3.10 to 3.13)
+
 ```bash
-git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
+git clone https://codeberg.org/DelCtrlAlt33/hydra-torrent.git
 cd hydra-torrent
 pip install -r requirements.txt
 python hydra_daemon.py
 ```
-Open `http://127.0.0.1:8765/ui` in your browser.
 
-## Updating
+### Then open it
 
-**Windows:** the app checks GitHub on launch and shows an update badge (top-right in the browser/web UI, top-left of the title bar in the desktop app) when a newer version is out. Click it, download the new `HydraTorrent.exe`, and run it - but fully quit the running instance first (right-click the tray icon and choose Exit, not just the window's close button, which only hides it to the tray). Otherwise the still-running old version just refocuses itself and the update never applies.
+Go to **https://localhost:8765/ui** (or the address `install.sh` printed, e.g. `https://192.168.1.50:8765/ui`).
 
-**Docker:**
-```bash
-cd hydra-torrent
-git pull
-docker compose up -d --build
-```
-`./data` stays mounted as a volume, so config/certs/transfers survive the rebuild untouched.
+Your browser will show a certificate warning the first time. That is expected: Hydra makes its own certificate. Choose **Advanced**, then **Proceed**. Everything else is set up in the **Settings** tab, and nothing is required.
 
-**Linux:**
-```bash
-cd hydra-torrent
-git pull
-sudo systemctl restart hydra-torrent
-```
-No need to re-run `install.sh` - that's only for first-time setup. If a release ever adds a new dependency, run `pip install -r requirements.txt` first; if `geoip-country.mmdb` is somehow missing, `python3 fetch_geoip.py` fetches it (harmless no-op if it's already there).
-
-**Manual:**
-```bash
-cd hydra-torrent
-git pull
-pip install -r requirements.txt
-python hydra_daemon.py
-```
-
----
-
-**Everything works out of the box as a torrent client.** A config file is created automatically. Add Plex, Jackett, VPN whenever you want - all optional.
-
----
-
-![Hydra Torrent - Downloads](screenshots/Downloads.png)
+> **Keep it on your own network.** Hydra has no login screen, like most torrent clients' web UIs on a trusted LAN. Anyone who can reach port 8765 can control it. Don't expose that port to the internet (no router port-forward, no public Docker `-p`). To reach it from outside your home, use a VPN such as WireGuard or Tailscale, or put it behind a reverse proxy that adds authentication.
 
 ## Why Hydra?
 
-**Your VPN drops. qBittorrent keeps downloading on your real IP.** Hydra doesn't. It auto-detects your VPN (any provider - WireGuard, OpenVPN, NordVPN, Mullvad, PIA, whatever), binds to it, and if the VPN goes down - every torrent pauses instantly. When it reconnects, they resume. Zero config, zero leaks.
+**If your VPN drops, Hydra stops.** It auto-detects your VPN (any provider: WireGuard, OpenVPN, NordVPN, Mullvad, PIA, whatever), binds to it, and if the VPN goes down every torrent pauses instantly. When it reconnects, they resume. Nothing to set up: the kill switch turns itself on the first time Hydra sees your VPN (you can switch it off in Settings, Require VPN to download). Without a VPN Hydra still works, and the header shows a red warning.
 
 ![VPN Kill Switch](screenshots/VPN.gif)
 
-**A download finishes. Now you have to move it, rename it, figure out if it's a movie or TV show, put it in the right library folder, and trigger a scan.** Hydra does all of that automatically. It detects movies vs TV vs anime, files it into the right folder, and tells Plex and/or Jellyfin to scan. Download finishes, it's in your library. Done.
+**A download finishes. Now you have to move it, rename it, figure out if it's a movie or TV show, put it in the right library folder, and trigger a scan.** Hydra does all of that automatically. It detects movies vs TV vs anime, files it into the right folder, and tells Plex and/or Jellyfin to scan.
 
-**You want new episodes of a show grabbed automatically.** Set up a rule with the show name, season, and quality - Hydra checks for new releases and downloads them as they drop. No Sonarr, no Radarr, no Prowlarr, no Docker compose with 5 containers.
+**You want new episodes of a show grabbed automatically.** Set up a rule with the show name, season, and quality, and Hydra downloads new releases as they drop, from the same app, with nothing else to run.
 
 ![Auto-DL Rules](screenshots/Auto-DL.png)
 
-**Search and download in seconds.** Search your own Jackett instance, click a result, and it starts downloading - real search, real swarm, real download, watched live.
+**Search and download in seconds.** Search your own Jackett instance, click a result, and it starts downloading.
 
 ![Search to download](screenshots/Search.gif)
 
-**It's one Python script and one config file.** That's the whole stack.
-
 ## Features
 
-- Browser UI from any device on your network (phone, laptop, whatever)
-- Search torrents directly from the UI (via your own Jackett instance)
-- VPN kill switch - optional toggle to block all downloads without VPN
-- Pick which files to download from a torrent - skip the extras
+- Browser UI from any device on your network
+- Search torrents from the UI (via your own Jackett instance)
+- VPN kill switch: turns on by itself when a VPN is first detected, and pauses every download if the VPN drops
+- Live peer map showing which countries your peers are in (country level, not city)
+- Pick which files to download from a torrent
 - Seed ratio limits with auto-remove
 - RSS rules that grab new episodes as they drop
-- Auto-sort to Plex and/or Jellyfin with library scan on completion
-- HTTPS with API key auth and rate limiting
+- Auto-sort to Plex and/or Jellyfin with a library scan on completion
+- HTTPS (self-signed certificate) and rate limiting; no login, so keep it on your LAN or VPN
 - Windows system tray app with toast notifications
 
+![Hydra Torrent - Downloads](screenshots/Downloads.png)
+
+## Optional setup
+
+None of this is needed to download torrents. Add what you want, when you want it.
+
+| I want to... | Guide |
+|--------------|-------|
+| Protect my IP with a VPN and the kill switch | [docs/vpn.md](docs/vpn.md) |
+| Auto-file downloads into Plex or Jellyfin | [docs/plex-jellyfin.md](docs/plex-jellyfin.md) |
+| Search torrents and set up auto-download rules | [docs/search-jackett.md](docs/search-jackett.md) |
+| Keep my library on a NAS (SMB and NFS) | [docs/nas-storage.md](docs/nas-storage.md) |
+| Run Hydra and Jackett together behind a VPN in Docker | [docs/recommended-setup.md](docs/recommended-setup.md) |
+| Update to a new version | [docs/updating.md](docs/updating.md) |
+| Fix a problem | [docs/troubleshooting.md](docs/troubleshooting.md) |
+
 ![Settings](screenshots/Settings1.png)
-![Settings](screenshots/Settings2.png)
 
-### Useful commands (Linux)
+## Install with an AI assistant
 
-```bash
-sudo systemctl status hydra-torrent     # check if it's running
-sudo systemctl restart hydra-torrent    # restart
-sudo journalctl -u hydra-torrent -f     # view logs
+An AI coding assistant with shell access (Claude Code, Cursor, and similar) can install Hydra for you. Give it this prompt:
+
+```text
+Install Hydra Torrent from https://codeberg.org/DelCtrlAlt33/hydra-torrent on this machine.
+Read README.md and AGENTS.md first and follow AGENTS.md. Pick the right install method for
+this OS. When it is running, tell me the URL, then run the verification checklist in
+AGENTS.md and report each check as pass, fail, or "could not test", with evidence.
+Ask me for any tokens, keys, or paths you don't have. Do not guess them.
 ```
 
-### Troubleshooting
-
-**`pip install libtorrent` fails?** Make sure you're on Python 3.10-3.13. Older versions don't have prebuilt packages. If you're on Linux and pip doesn't work, try `sudo apt install python3-libtorrent` instead.
-
-**Can't connect?** Hydra runs on port 8765. Make sure nothing else is using that port. Check your firewall if accessing from another device on your network.
-
-## VPN Kill Switch
-
-Enable "Require VPN to download" in Settings and your real IP will never touch a peer or tracker. Hydra binds all torrent traffic directly to your VPN interface - your public IP is never used to download, upload, or connect to anything. If the VPN drops, there's nothing to fall back to. The connection is physically locked to an interface that no longer exists, so nothing can leak. Every download pauses instantly and resumes automatically when the VPN reconnects. This is the same mechanism qBittorrent, Deluge, and Transmission use - it's the industry standard approach, but Hydra does it automatically.
-
-## VPN Setup (optional)
-
-Install your VPN on the same machine Hydra runs on. That's it - Hydra finds it automatically.
-
-It works with WireGuard, OpenVPN, NordVPN, Mullvad, ProtonVPN, ExpressVPN, PIA, Tailscale, Cisco AnyConnect, or anything that creates a `tun`/`tap`/`vpn` network adapter. All torrent traffic binds to the VPN interface. If the VPN drops, every torrent pauses instantly. When it reconnects, they resume.
-
-No configuration needed in Hydra. Just get your VPN running and Hydra handles the rest.
-
-Most VPN providers give you either a WireGuard or OpenVPN config file. Set it up on the machine where Hydra runs and Hydra handles the rest.
-
-### PIA (Private Internet Access)
-
-PIA's WireGuard tokens expire every 24 hours, so you need their official script to auto-reconnect:
-
-```bash
-apt install wireguard
-git clone https://github.com/pia-foss/manual-connections.git
-cd manual-connections
-sudo PIA_USER=p1234567 PIA_PASS=your_password \
-     VPN_PROTOCOL=wireguard AUTOCONNECT=true \
-     PIA_PF=false PIA_DNS=true DISABLE_IPV6=yes \
-     DIP_TOKEN=no ./run_setup.sh
-```
-
-To keep it running permanently, set up [pia-autoconnect-wireguard](https://github.com/j00w33/pia-autoconnect-wireguard) - it refreshes the token daily via a systemd service + cron job.
-
-### Mullvad / ProtonVPN / NordVPN / Surfshark
-
-These providers give you a static WireGuard config file that doesn't expire. Download it from your provider's website and:
-
-```bash
-apt install wireguard
-# Save your provider's config as /etc/wireguard/wg0.conf
-wg-quick up wg0
-systemctl enable wg-quick@wg0   # auto-start on boot
-```
-
-### OpenVPN (works with any provider)
-
-```bash
-apt install openvpn
-# Download your .ovpn file from your VPN provider
-cp your-config.ovpn /etc/openvpn/client.conf
-systemctl start openvpn@client
-systemctl enable openvpn@client   # auto-start on boot
-```
-
-Hydra detects the VPN within seconds - check the badge in the top right of the UI.
-
-## Search & Auto-Download (optional)
-
-Hydra searches torrents through [Jackett](https://github.com/Jackett/Jackett) - a free app that connects to hundreds of torrent sites and gives Hydra one place to search them all. If you want search or auto-download rules to work, you need Jackett running somewhere on your network.
-
-1. Install Jackett ([instructions](https://github.com/Jackett/Jackett#installation)) - it runs on Windows, Linux, or Docker
-2. Add some indexers (torrent sites) in Jackett's web UI
-3. Copy your Jackett API key from the top of Jackett's dashboard
-4. In Hydra's Settings tab, paste the Jackett URL (e.g. `http://localhost:9117`) and API key
-
-That's it - the Search tab and Auto-DL rules will work. If you don't use Jackett, everything else still works fine - you just add torrents manually via magnet links or .torrent files.
-
-## Plex & Jellyfin (optional)
-
-If you use Plex or Jellyfin, Hydra can automatically move completed downloads into your library and trigger a scan.
-
-1. In Hydra's Settings tab, set your **Plex URL** (e.g. `http://localhost:32400`) and **Plex Token** - to find the token, open any media in Plex web, click "Get Info", click "View XML", and look for `X-Plex-Token=` in the URL ([Plex's guide](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)). For Jellyfin, set the **Jellyfin URL** and an **API key** (Dashboard → API Keys).
-2. Set your **Movies path** and **TV path** - these have to be the exact same folders your Plex/Jellyfin library already points to, not just folders with similar names. Click **Detect from Plex** / **Detect from Jellyfin** to pull them automatically instead of typing them by hand.
-
-When a download finishes, Hydra looks at the filename and figures out what it is:
-
-- Has `S01E05`, `Season 2`, `1x05`, or episode numbers → **TV show** → moves to `TV path/Show Name/Season 01/`
-- Has a year like `(2024)` → **Movie** → moves to `Movies path/Movie Name (2024)/`
-- Anime with fansub tags like `[SubGroup]` → detected as TV automatically
-
-A library scan triggers after every move, so new content shows up within seconds.
-
-Anything auto-move can't file into a library - a non-video file (ISO, album, software archive), or a video with no Movies/TV path set - falls back to the **Other downloads path** field in the Downloads settings section instead of getting stranded. Set it if you want completed downloads moved out of the download folder; leave it blank and they just stay there.
-
-If you don't use Plex or Jellyfin at all, skip this whole section - set only the **Other downloads path** field and it works as a normal "move everything here when done" folder, no Movies/TV paths required.
-
-### Docker path mapping (read this if Plex/Jellyfin runs in Docker)
-
-This is the single most common setup mistake, so it gets its own section. The short version: **auto-move only works if Hydra and your media server agree on what a folder is called.** If Plex is in Docker, Plex reports its library path as seen *inside its own container*, which is often not the real path on disk - Detect will fill it in anyway and then flag it with a warning if it doesn't check out, rather than silently pointing somewhere wrong.
-
-Which setup you're in determines the fix:
-
-- **Plex/Jellyfin and Hydra both installed directly on the same machine (no Docker at all).** Nothing to do - the paths already match. This is the common case for Windows users running the desktop app.
-
-- **Plex/Jellyfin on a NAS or separate machine, Hydra elsewhere (e.g. the Windows desktop app).** Use whatever network path both can actually reach - a mapped drive letter or a UNC path like `\\nas\media\movies`. It just has to be the same share both sides are pointed at.
-
-- **Plex/Jellyfin runs in Docker, Hydra runs natively on the same host** (installed via `install.sh`, or the desktop app on the same box) - this is the case Detect's warning is built for. Docker remaps a host folder to a different path inside the container (e.g. `/mnt/plex/movies` on the host becomes `/data/movies` inside Plex's container). Hydra needs the **host** path, not what Plex reports. Find it with:
-  ```bash
-  docker inspect <plex-container-name> --format '{{json .Mounts}}'
-  ```
-  The `"Source"` field is the real host path - use that in Hydra's Movies/TV fields instead of whatever Detect filled in.
-
-- **Hydra itself also runs in Docker, alongside Plex/Jellyfin.** Mount the same host folder to the *same* internal container path in both services' `docker-compose.yml`. If Plex has `- /mnt/plex:/data`, give Hydra the identical line - `- /mnt/plex:/data` - not a different internal path. With matching mounts, Detect works with zero manual fixing, container or not. This is the same "consistent path mapping" principle [TRaSH-Guides](https://trash-guides.info/) recommends for Sonarr/Radarr/qBittorrent, applied to Hydra.
-
-Rule of thumb either way: if Detect shows a green checkmark, you're done. If it shows the Docker warning, you're in one of the mixed setups above - follow the matching fix, not a guess.
-
-## Storage / NAS Setup (optional)
-
-Only matters if your media library lives on a NAS (Synology, TrueNAS, Unraid, plain Samba, whatever) that more than one machine or protocol connects to - e.g. Windows over SMB, and a Linux box or Docker host over NFS.
-
-**The rule:** if the same folder is reachable over multiple protocols, they need to resolve to the *same user identity* on the NAS side. If SMB writes as one user and NFS writes as a different one (a very common default - NFS often defaults to an anonymous `nobody` user unless you set it explicitly), files created by one protocol can become invisible or undeletable from the other. Everything still *works* at first, then folders quietly fill up with things nobody can clean up.
-
-Where to fix it depends on your NAS software, but the concept is the same everywhere: whatever user your Windows/SMB connection uses, make sure NFS exports for the same folder map to that identical user.
-- **TrueNAS SCALE:** NFS share → Edit → **Mapall User / Mapall Group**, set to match your SMB user.
-- **Synology:** Control Panel → Shared Folder → NFS Permissions → the "Squash" setting controls this.
-- **Plain Samba + `/etc/exports`:** use `anonuid=`/`anongid=` matching your Samba user's UID/GID, with `all_squash`.
-
-If everything reaching your NAS uses the *same* protocol (e.g. only Docker containers over NFS, nothing over SMB), this doesn't apply to you at all - skip it.
-
-## Recommended Setup
-
-The complete picture, for anyone who wants everything - Hydra, search, and VPN protection - running together, VPN-protected end to end with no gaps.
-
-**The goal:** not just "downloads go through a VPN" (that part's automatic - see [VPN Kill Switch](#vpn-kill-switch)), but that Jackett's *searches* are protected too. Jackett makes real outbound requests to indexer sites for every search - if Jackett itself isn't behind the VPN, those requests (and the domains they reveal) go out over your normal connection even while your downloads are fully protected. Easy to miss, since everything still works either way.
-
-The reliable way to guarantee this - not just for Jackett, but for anything added later - is a Docker network mode where a container has *no other path to the internet at all*, rather than configuring each app individually to remember to use the VPN:
-
-```yaml
-services:
-  gluetun:
-    image: qmcgaw/gluetun:latest
-    cap_add:
-      - NET_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    environment:
-      - VPN_SERVICE_PROVIDER=mullvad   # or protonvpn, nordvpn, surfshark, private internet access, etc.
-      - VPN_TYPE=wireguard
-      - WIREGUARD_PRIVATE_KEY=your_key_here
-      - WIREGUARD_ADDRESSES=10.x.x.x/32
-    ports:
-      - "9117:9117"   # Jackett's web UI, exposed through gluetun
-    restart: unless-stopped
-
-  jackett:
-    image: lscr.io/linuxserver/jackett:latest
-    network_mode: "service:gluetun"   # no network of its own - everything routes through gluetun
-    depends_on:
-      - gluetun
-    environment:
-      - PUID=1000
-      - PGID=1000
-    volumes:
-      - ./jackett-config:/config
-    restart: unless-stopped
-
-  hydra:
-    build: .
-    volumes:
-      - ./data:/data
-      - /path/to/movies:/movies
-      - /path/to/tv:/tv
-    ports:
-      - "8765:8765"
-    restart: unless-stopped
-```
-
-In Hydra's Settings, point the Jackett URL at `http://<docker-host-ip>:9117` (Jackett's UI is exposed through gluetun's port mapping, since it has no ports of its own to publish).
-
-Full list of [providers gluetun supports natively](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers) - most just need an API key or WireGuard config from your provider's dashboard, no extra steps.
-
-**PIA (Private Internet Access) is the one common exception** - gluetun doesn't support it natively in WireGuard mode, only OpenVPN. If OpenVPN mode doesn't authenticate cleanly with your PIA credentials (the account login you use for PIA's app/website is *not* the same credential as VPN protocol auth, and PIA's dashboard doesn't expose the protocol-specific one directly), the reliable fallback is generating a WireGuard config yourself with PIA's own official tool:
-
-```bash
-git clone https://github.com/pia-foss/manual-connections.git
-cd manual-connections
-sudo PIA_USER=p1234567 PIA_PASS=your_password ./get_token.sh
-# note the PIA_TOKEN it prints, then pick a region:
-PIA_TOKEN=<token from above> PREFERRED_REGION=<region id> ./get_region.sh
-# use the printed WireGuard IP/hostname for that region:
-PIA_TOKEN=<token> WG_SERVER_IP=<ip> WG_HOSTNAME=<hostname> PIA_CONNECT=false ./connect_to_wireguard_with_token.sh
-```
-`PIA_CONNECT=false` is important - it writes a config file instead of bringing up a live interface on your host, which is what you actually want when the destination is gluetun's `WIREGUARD_PRIVATE_KEY`/`WIREGUARD_ADDRESSES`/`WIREGUARD_PUBLIC_KEY`/`VPN_ENDPOINT_IP`/`VPN_ENDPOINT_PORT` env vars (`VPN_SERVICE_PROVIDER=custom` for this mode), not a second tunnel running directly on the machine.
-
-**Running this inside a Proxmox LXC?** See [PROXMOX.md](PROXMOX.md) for the extra steps (`/dev/net/tun` passthrough, AppArmor, egress firewall ports) needed to get gluetun/Docker networking working inside an LXC specifically.
+An assistant can't know your Plex token, Jackett key, VPN credentials or your real media folder paths. Have those ready. [AGENTS.md](AGENTS.md) tells it how to verify the install properly.
 
 ## Status
 
-Works. Runs on Docker, bare metal Linux, or Windows. Battle-tested on my homelab, shipping it for yours. Issues and PRs welcome - found something broken? Settings → Help & Feedback → **Report a Bug** opens a GitHub issue with your version, platform, and connection health already filled in, so you don't have to dig any of that up yourself.
+Works. Runs on Docker, bare-metal Linux, and Windows. Battle-tested on my homelab, shipping it for yours. Issues and pull requests are welcome on [Codeberg](https://codeberg.org/DelCtrlAlt33/hydra-torrent/issues).
 
 ## License
 
 MIT
 
-IP-to-country data for peer/VPN country flags is from [DB-IP](https://db-ip.com), licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Fetched automatically on install/build (`fetch_geoip.py`) - nothing to configure.
+IP-to-country data for peer/VPN country flags is from [DB-IP](https://db-ip.com), licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Fetched automatically on install/build (`fetch_geoip.py`), so there is nothing to configure.
+
+Country flag images in the peer list are from [flag-icons](https://github.com/lipis/flag-icons) (MIT, licence in `static/flags/LICENSE-flag-icons.txt`), bundled with Hydra and served locally.

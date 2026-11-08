@@ -198,12 +198,24 @@ def _startup_enabled() -> bool:
 
 
 def _enable_startup() -> None:
-    """Write startup registry entry using pythonw.exe (no console on login)."""
-    python_exe = sys.executable
-    pythonw = os.path.join(os.path.dirname(python_exe), 'pythonw.exe')
-    if not os.path.exists(pythonw):
-        pythonw = python_exe
-    value = f'"{pythonw}" "{os.path.abspath(__file__)}"'
+    """Write startup registry entry (no console window on login)."""
+    if getattr(sys, 'frozen', False):
+        # Packaged build: the command is just the exe. __file__ here points
+        # into PyInstaller's temp extraction folder (_MEIxxxxxx), which is gone
+        # after exit, so it must never be written as an argument. And point at
+        # the INSTALLED desktop exe, not whichever copy happens to be running
+        # (e.g. one launched from Downloads, which may be deleted later).
+        exe = sys.executable
+        installed = os.path.join(_INSTALL_DIR, 'HydraTorrent.exe')
+        if os.path.basename(exe).lower().startswith('hydratorrent') and os.path.isfile(installed):
+            exe = installed
+        value = f'"{exe}"'
+    else:
+        python_exe = sys.executable
+        pythonw = os.path.join(os.path.dirname(python_exe), 'pythonw.exe')
+        if not os.path.exists(pythonw):
+            pythonw = python_exe
+        value = f'"{pythonw}" "{os.path.abspath(__file__)}"'
     try:
         with winreg.OpenKey(
             winreg.HKEY_CURRENT_USER, _STARTUP_REG_KEY, 0, winreg.KEY_SET_VALUE
@@ -385,7 +397,16 @@ class HydraTray:
         else:
             webbrowser.open(f"{self._daemon_url}/ui")
 
-    def _action_pause_all(self, icon, item) -> None:
+    def _bulk_action(self, action: str, only_paused: bool) -> None:
+        """POST /transfers/<name>/<action> for every transfer that is (or, for
+        pause, is not) currently paused.
+
+        Each transfer is handled on its own. This used to be one try/except
+        around the whole loop, so a single timeout or error on one transfer
+        silently abandoned every transfer after it: with ten torrents and a
+        failure on the third, "Pause All" paused two and stopped.
+        """
+        label = action.capitalize()
         try:
             r = requests.get(
                 f"{self._daemon_url}/transfers",
@@ -395,39 +416,34 @@ class HydraTray:
             )
             if r.status_code != 200:
                 return
-            for t in r.json():
-                name = t.get('name', '')
-                if name and not t.get('paused', False):
-                    requests.post(
-                        f"{self._daemon_url}/transfers/{url_quote(name, safe='')}/pause",
-                        headers={"X-API-Key": self._api_key},
-                        timeout=3,
-                        verify=False,
-                    )
+            transfers = r.json()
         except Exception as e:
-            print(f"[tray] Pause all error: {e}", file=sys.stderr)
+            print(f"[tray] {label} all error: {e}", file=sys.stderr)
+            return
+
+        failed = 0
+        for t in transfers:
+            name = t.get('name', '')
+            if not name or bool(t.get('paused', False)) != only_paused:
+                continue
+            try:
+                requests.post(
+                    f"{self._daemon_url}/transfers/{url_quote(name, safe='')}/{action}",
+                    headers={"X-API-Key": self._api_key},
+                    timeout=3,
+                    verify=False,
+                )
+            except Exception as e:
+                failed += 1
+                print(f"[tray] {label} failed for '{name}': {e}", file=sys.stderr)
+        if failed:
+            print(f"[tray] {label} all: {failed} transfer(s) could not be updated", file=sys.stderr)
+
+    def _action_pause_all(self, icon, item) -> None:
+        self._bulk_action('pause', only_paused=False)
 
     def _action_resume_all(self, icon, item) -> None:
-        try:
-            r = requests.get(
-                f"{self._daemon_url}/transfers",
-                headers={"X-API-Key": self._api_key},
-                timeout=3,
-                verify=False,
-            )
-            if r.status_code != 200:
-                return
-            for t in r.json():
-                name = t.get('name', '')
-                if name and t.get('paused', False):
-                    requests.post(
-                        f"{self._daemon_url}/transfers/{url_quote(name, safe='')}/resume",
-                        headers={"X-API-Key": self._api_key},
-                        timeout=3,
-                        verify=False,
-                    )
-        except Exception as e:
-            print(f"[tray] Resume all error: {e}", file=sys.stderr)
+        self._bulk_action('resume', only_paused=True)
 
     def _action_toggle_startup(self, icon, item) -> None:
         if _startup_enabled():
@@ -442,6 +458,16 @@ class HydraTray:
         if self._icon:
             self._icon.stop()
         if self._desktop_mode:
+            # os._exit skips the daemon's normal shutdown, which is where
+            # fast-resume data and transfer state get saved. Without this,
+            # every tray Exit meant a full re-hash of every in-progress torrent
+            # on the next start. shutdown() is bounded (resume-data wait is
+            # capped at a few seconds), so it can't hang the exit.
+            try:
+                import hydra_daemon
+                hydra_daemon.engine.shutdown()
+            except Exception as e:
+                print(f"[tray] Could not save state before exit: {e}", file=sys.stderr)
             # Kill everything - daemon thread, pywebview, the lot
             os._exit(0)
 
@@ -496,8 +522,16 @@ class HydraTray:
             self._icon.run()
             return
 
-        # 2. Refresh startup registry entry
-        _enable_startup()
+        # 2. Register for startup, once. Doing this on every launch silently
+        # undid "Disable startup" from the menu. If it is already registered
+        # there is nothing to do; otherwise enable it the first time only, and
+        # remember that we did so a later opt-out sticks.
+        if not cfg.get('tray_startup_initialized'):
+            _enable_startup()          # first run; also repairs a stale command
+            cfg['tray_startup_initialized'] = True
+            _save_config(cfg)
+        elif _startup_enabled():
+            _enable_startup()          # still on: keep it pointing at the installed exe
 
         # 3. Do first status check immediately so icon starts with correct colour
         self._refresh_status()

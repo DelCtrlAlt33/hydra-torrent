@@ -2,12 +2,13 @@ import os
 import ssl
 import datetime
 
-from config import CERTS_DIR, FULLCHAIN_PATH, PRIVKEY_PATH, CHAIN_PATH, logger
+from config import CERTS_DIR, FULLCHAIN_PATH, PRIVKEY_PATH, CHAIN_PATH, logger, restrict_to_owner
 
 
 def ensure_certificates():
     """Auto-generate a self-signed RSA 2048 certificate if none exists."""
     if os.path.exists(FULLCHAIN_PATH) and os.path.exists(PRIVKEY_PATH):
+        restrict_to_owner(PRIVKEY_PATH)  # tighten keys made by older versions
         return  # certs already present
 
     os.makedirs(CERTS_DIR, exist_ok=True)
@@ -44,8 +45,10 @@ def ensure_certificates():
         .sign(key, hashes.SHA256())
     )
 
-    # Write private key
-    with open(PRIVKEY_PATH, "wb") as f:
+    # Write private key. Created 0600 from the start (not chmod'ed afterwards)
+    # so there is no window where another local user can read it.
+    _flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    with os.fdopen(os.open(PRIVKEY_PATH, _flags, 0o600), "wb") as f:
         f.write(key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.TraditionalOpenSSL,

@@ -13,6 +13,8 @@ downloads/
 downloads_incomplete/
 shared_files/
 flags/
+# ...except the bundled country flags the peer list serves (flag-icons, MIT)
+!static/flags/
 geoip-country.mmdb
 GeoLite2-Country.mmdb
 

@@ -1,0 +1,9 @@
+# Keep scripts and container files LF on every OS. A Windows clone with
+# core.autocrlf=true otherwise gets CRLF here, and "bash install.sh" or a
+# Docker build on Linux fails with "\r: command not found".
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.service       text eol=lf
+docker-compose*.yml text eol=lf
+# Bundled third-party flag images: never rewrite their line endings.
+static/flags/*.svg -text

@@ -314,6 +314,20 @@ class MediaOrganizer:
             logger.error(error_msg)
             return False, None, error_msg
 
+    @staticmethod
+    def _other_is_where_it_already_is(source_path):
+        """True if moving to DOWNLOAD_DIR_OTHER would not actually relocate the
+        file: that folder is the configured download folder, or the file is
+        already directly inside it. Compared after resolving links and, on
+        Windows, ignoring case. Never raises: when in doubt, allow the move."""
+        try:
+            other = os.path.normcase(os.path.realpath(DOWNLOAD_DIR_OTHER))
+            if other == os.path.normcase(os.path.realpath(DOWNLOAD_DIR_INCOMPLETE)):
+                return True
+            return other == os.path.normcase(os.path.realpath(os.path.dirname(source_path)))
+        except Exception:
+            return False
+
     def _move_to_other_or_skip(self, filename, source_path, skip_reason):
         """
         General downloads fallback: used for non-video files, and for video
@@ -323,6 +337,16 @@ class MediaOrganizer:
         """
         if not DOWNLOAD_DIR_OTHER:
             logger.info(f"Skipping {filename}: {skip_reason}")
+            return False, None, skip_reason
+
+        if self._other_is_where_it_already_is(source_path):
+            # "Other downloads" pointing at the download folder itself (or the
+            # file already sitting directly in it) used to "move" every finished
+            # file up out of its own torrent folder into the top of the same
+            # folder: pointless, and it pulls files out from under a torrent
+            # that is still seeding them. Treat it exactly like "not set".
+            logger.info(f"Leaving {filename} where it is: {skip_reason}, and the "
+                        f"'other downloads' folder is the download folder itself")
             return False, None, skip_reason
 
         os.makedirs(DOWNLOAD_DIR_OTHER, exist_ok=True)

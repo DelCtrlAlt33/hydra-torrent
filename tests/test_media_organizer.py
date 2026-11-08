@@ -429,6 +429,93 @@ def test_move_to_plex_non_video_file_moves_to_configured_other_dir(organizer, tm
     assert not src.exists()  # moved, not copied
 
 
+def test_other_dir_equal_to_the_download_folder_does_not_pull_files_out_of_their_folder(organizer, tmp_path, monkeypatch):
+    # Seen on a real install: "other downloads" was set to the SAME folder as
+    # the download folder, and the Plex folders were unreachable. Every finished
+    # video was then "moved" from <download>/<torrent>/file.mkv up to
+    # <download>/file.mkv - a pointless relocation that also pulls the file out
+    # from under a torrent still seeding it. It must be left exactly where it is.
+    download_dir = tmp_path / "dl"
+    torrent_dir = download_dir / "Movie.Name.2024.1080p"
+    torrent_dir.mkdir(parents=True)
+    src = torrent_dir / "Movie.Name.2024.1080p.mkv"
+    src.write_bytes(b"fake video data")
+    monkeypatch.setattr("media_organizer.DOWNLOAD_DIR_INCOMPLETE", str(download_dir))
+    monkeypatch.setattr("media_organizer.DOWNLOAD_DIR_OTHER", str(download_dir))
+    monkeypatch.setattr("media_organizer.MEDIA_DIR_MOVIES", "/data/movies-that-this-pc-cannot-open")
+
+    ok, dest, error = organizer.move_to_plex("Movie.Name.2024.1080p.mkv", source_path=str(src))
+
+    assert ok is False
+    assert dest is None
+    assert src.exists()                                       # still in its own folder
+    assert not (download_dir / "Movie.Name.2024.1080p.mkv").exists()   # not flattened
+
+
+def test_other_dir_equal_to_the_download_folder_leaves_non_video_files_alone_too(organizer, tmp_path, monkeypatch):
+    download_dir = tmp_path / "dl"
+    torrent_dir = download_dir / "ubuntu"
+    torrent_dir.mkdir(parents=True)
+    src = torrent_dir / "ubuntu.iso"
+    src.write_bytes(b"fake iso")
+    monkeypatch.setattr("media_organizer.DOWNLOAD_DIR_INCOMPLETE", str(download_dir))
+    monkeypatch.setattr("media_organizer.DOWNLOAD_DIR_OTHER", str(download_dir))
+
+    ok, dest, error = organizer.move_to_plex("ubuntu.iso", source_path=str(src))
+
+    assert ok is False and src.exists()
+
+
+def test_file_already_directly_inside_the_other_dir_is_left_alone(organizer, tmp_path, monkeypatch):
+    # Different from the download folder, but the file is already in it.
+    other_dir = tmp_path / "finished"
+    other_dir.mkdir()
+    src = other_dir / "ubuntu.iso"
+    src.write_bytes(b"fake iso")
+    monkeypatch.setattr("media_organizer.DOWNLOAD_DIR_INCOMPLETE", str(tmp_path / "dl"))
+    monkeypatch.setattr("media_organizer.DOWNLOAD_DIR_OTHER", str(other_dir))
+
+    ok, dest, error = organizer.move_to_plex("ubuntu.iso", source_path=str(src))
+
+    assert ok is False and src.exists()
+
+
+def test_a_separate_other_dir_still_receives_files(organizer, tmp_path, monkeypatch):
+    # The fix must not break the real feature: a *different* finished folder.
+    download_dir = tmp_path / "dl"
+    torrent_dir = download_dir / "ubuntu"
+    torrent_dir.mkdir(parents=True)
+    src = torrent_dir / "ubuntu.iso"
+    src.write_bytes(b"fake iso")
+    other_dir = tmp_path / "finished"
+    monkeypatch.setattr("media_organizer.DOWNLOAD_DIR_INCOMPLETE", str(download_dir))
+    monkeypatch.setattr("media_organizer.DOWNLOAD_DIR_OTHER", str(other_dir))
+
+    ok, dest, error = organizer.move_to_plex("ubuntu.iso", source_path=str(src))
+
+    assert ok is True
+    assert dest == str(other_dir / "ubuntu.iso")
+    assert not src.exists()
+
+
+def test_other_dir_that_is_the_parent_of_the_download_folder_still_works(organizer, tmp_path, monkeypatch):
+    # "Finished" folder one level above the download folder is a legitimate
+    # setup (it is NOT the download folder), so it must keep moving files.
+    download_dir = tmp_path / "Downloads" / "HydraTorrent"
+    torrent_dir = download_dir / "ubuntu"
+    torrent_dir.mkdir(parents=True)
+    src = torrent_dir / "ubuntu.iso"
+    src.write_bytes(b"fake iso")
+    other_dir = tmp_path / "Downloads"
+    monkeypatch.setattr("media_organizer.DOWNLOAD_DIR_INCOMPLETE", str(download_dir))
+    monkeypatch.setattr("media_organizer.DOWNLOAD_DIR_OTHER", str(other_dir))
+
+    ok, dest, error = organizer.move_to_plex("ubuntu.iso", source_path=str(src))
+
+    assert ok is True
+    assert dest == str(other_dir / "ubuntu.iso")
+
+
 def test_move_to_plex_avoids_overwriting_existing_file_at_destination(organizer, tmp_path):
     # If a file with the same name already exists at the computed
     # destination, Hydra must not silently clobber it.

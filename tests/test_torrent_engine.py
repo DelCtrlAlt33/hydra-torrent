@@ -112,6 +112,41 @@ def test_save_and_restore_resume_data_skips_full_recheck(tmp_path, engine):
         f"restored torrent never reached seeding - stuck at {restored.status().state}"
 
 
+def test_torrent_added_without_magnet_is_restored_after_restart(tmp_path, engine):
+    """Torrents added from a .torrent file or URL (Jackett results, file
+    upload) are stored with an empty magnet. _resume_persisted used to skip
+    any entry without a magnet, so after a restart these sat in the list
+    frozen at their last progress with no libtorrent handle: they never
+    resumed, and 'remove + delete files' could not reach their data. They
+    must come back from the saved metadata instead.
+    """
+    data_dir, ti, _ = _make_local_torrent(tmp_path)
+    name = "NoMagnetTorrent"
+
+    params = lt.add_torrent_params()
+    params.ti = ti
+    params.save_path = data_dir
+    handle = engine.ses.add_torrent(params)
+    engine.store.add(name, "", ti.total_size(), handle)
+    engine.store.update(name, status="Downloading", magnet="")
+
+    assert _wait_for_state(handle, (lt.torrent_status.states.seeding, lt.torrent_status.states.finished)), \
+        "setup failed: torrent never finished its initial check"
+
+    engine._save_resume_data()
+    engine.ses.remove_torrent(handle)
+    time.sleep(0.3)
+    engine.store.update(name, handle=None)
+
+    engine._resume_persisted()
+    time.sleep(0.3)
+
+    restored = engine.store.get_handle(name)
+    assert restored is not None, "a torrent with no magnet link was not re-attached after restart"
+    assert _wait_for_state(restored, (lt.torrent_status.states.seeding, lt.torrent_status.states.finished), timeout=5.0), \
+        f"restored torrent never reached seeding - stuck at {restored.status().state}"
+
+
 def test_resume_data_falls_back_gracefully_when_corrupt(tmp_path, engine):
     """A corrupt/incompatible resume blob (e.g. a libtorrent version bump
     changing the format) must fall back to the plain magnet re-add, not
@@ -1046,7 +1081,7 @@ def test_default_save_path_falls_back_when_plex_configured_but_unreachable(tmp_p
     local_fallback = tmp_path / "local_fallback"
     local_fallback.mkdir()
     monkeypatch.setattr(hd, "load_config", lambda: _cfg(
-        plex_url="http://192.168.20.99:32400",  # the wrong IP that was typed
+        plex_url="http://192.168.1.99:32400",  # the wrong IP that was typed
         plex_token="sometoken",
         media_dir_movies=str(library_root),
         download_dir_incomplete=str(local_fallback),
@@ -1069,7 +1104,7 @@ def test_default_save_path_uses_plex_adjacent_when_plex_configured_and_reachable
     incomplete.mkdir()
 
     monkeypatch.setattr(hd, "load_config", lambda: _cfg(
-        plex_url="http://192.168.20.33:32400",
+        plex_url="http://192.168.1.33:32400",
         plex_token="sometoken",
         media_dir_movies=str(library_root),
         download_dir_incomplete=str(tmp_path / "local_fallback"),
@@ -1093,7 +1128,7 @@ def test_default_save_path_uses_jellyfin_when_plex_not_configured(tmp_path, monk
     incomplete.mkdir()
 
     monkeypatch.setattr(hd, "load_config", lambda: _cfg(
-        jellyfin_url="http://192.168.20.50:8096",
+        jellyfin_url="http://192.168.1.50:8096",
         jellyfin_api_key="somekey",
         media_dir_movies=str(library_root),
         download_dir_incomplete=str(tmp_path / "local_fallback"),
@@ -1128,3 +1163,293 @@ def test_default_save_path_uses_fresh_config_not_stale_module_constants(tmp_path
     monkeypatch.setattr(hd, "load_config", lambda: _cfg(media_dir_movies=str(fresh_root)))
 
     assert hd._default_save_path() == str(fresh_incomplete)
+
+
+# ---------------------------------------------------------------------------
+# VPN drop / reconnect handling (_on_vpn_change). The arming default is
+# covered in test_kill_switch_default.py; this covers what actually happens
+# to the session and the transfers, which previously had only been checked by
+# hand against a real VPN drop.
+# ---------------------------------------------------------------------------
+
+class _FakeSession:
+    def __init__(self):
+        self.settings = []
+
+    def apply_settings(self, s):
+        self.settings.append(dict(s))
+
+
+class _FakeHandle:
+    def __init__(self):
+        self.paused = False
+
+    def pause(self):
+        self.paused = True
+
+    def resume(self):
+        self.paused = False
+
+
+@pytest.fixture
+def vpn_engine(monkeypatch):
+    cfg = {}
+    monkeypatch.setattr(hd, "load_config", lambda: dict(cfg))
+    monkeypatch.setattr(hd, "save_config", lambda k, v: cfg.__setitem__(k, v))
+    monkeypatch.setattr(hd, "_fetch_public_ip", lambda **kw: None)
+    store = hd.DaemonStore()
+    eng = hd.TorrentEngine(store)
+    eng.ses = _FakeSession()
+    eng.vpn_ip = "10.0.0.5"
+    handles = {}
+    for name in ("active", "user_paused"):
+        handles[name] = _FakeHandle()
+        store.add(name, "magnet:?xt=urn:btih:x", 1, handles[name])
+    store.update("user_paused", intended_pause=True, paused=True)
+    handles["user_paused"].paused = True
+    return eng, cfg, handles
+
+
+def test_vpn_drop_with_kill_switch_binds_to_loopback_and_pauses(vpn_engine):
+    eng, cfg, handles = vpn_engine
+    cfg["vpn_required"] = True
+
+    eng._on_vpn_change(False, None, None)
+
+    last = eng.ses.settings[-1]
+    assert last["listen_interfaces"] == f"127.0.0.1:{hd.PEER_PORT}"
+    assert last["outgoing_interfaces"] == "127.0.0.1"
+    assert handles["active"].paused is True
+    assert eng.store.get("active")["vpn_paused"] is True
+    # a transfer the user paused themselves is left alone, not tagged vpn_paused
+    assert eng.store.get("user_paused")["vpn_paused"] is False
+    assert eng.vpn_ip is None
+
+
+def test_vpn_drop_with_kill_switch_off_falls_back_and_keeps_going(vpn_engine):
+    # Documented behaviour (docs/vpn.md): with the switch off, a drop rebinds
+    # to the normal connection. This pins it so it can't change silently.
+    eng, cfg, handles = vpn_engine
+    cfg["vpn_required"] = False
+
+    eng._on_vpn_change(False, None, None)
+
+    last = eng.ses.settings[-1]
+    assert last["listen_interfaces"] == f"0.0.0.0:{hd.PEER_PORT}"
+    assert last["outgoing_interfaces"] == ""
+    assert handles["active"].paused is False
+    assert eng.store.get("active")["vpn_paused"] is False
+
+
+def test_vpn_reconnect_rebinds_to_new_ip_and_resumes_only_vpn_paused(vpn_engine):
+    eng, cfg, handles = vpn_engine
+    cfg["vpn_required"] = True
+    eng._on_vpn_change(False, None, None)
+
+    eng._on_vpn_change(True, "wg0", "10.0.0.9")
+
+    last = eng.ses.settings[-1]
+    assert last["listen_interfaces"] == f"10.0.0.9:{hd.PEER_PORT}"
+    assert last["outgoing_interfaces"] == "10.0.0.9"
+    assert handles["active"].paused is False
+    assert eng.store.get("active")["vpn_paused"] is False
+    # still paused by the user, must not be resumed by a reconnect
+    assert handles["user_paused"].paused is True
+    assert eng.vpn_ip == "10.0.0.9"
+
+
+# ---------------------------------------------------------------------------
+# A VPN-paused transfer must stay paused. Seen live during a real VPN drop:
+# about 5s in, libtorrent's auto-manager un-paused it (paused=False while
+# vpn_paused=True). The loopback bind kept it from sending anything, but the
+# monitor now puts the pause back, and still resumes a normally paused one.
+# ---------------------------------------------------------------------------
+
+class _PauseTrackingStatus(_FakeRecheckingStatus):
+    def __init__(self, paused):
+        self.paused = paused
+
+
+class _PauseTrackingHandle:
+    def __init__(self, paused):
+        self.paused = paused
+        self.calls = []
+
+    def status(self):
+        return _PauseTrackingStatus(self.paused)
+
+    def pause(self):
+        self.calls.append("pause")
+        self.paused = True
+
+    def resume(self):
+        self.calls.append("resume")
+        self.paused = False
+
+
+def _run_seeding_monitor(engine, name, handle):
+    engine.store.add(name, "magnet:?xt=urn:btih:" + "3" * 40, 1000, handle)
+    return engine.store
+
+
+def test_vpn_paused_transfer_that_libtorrent_unpaused_is_paused_again(engine):
+    handle = _PauseTrackingHandle(paused=False)
+    store = _run_seeding_monitor(engine, "VpnPausedButRunning", handle)
+    store.update("VpnPausedButRunning", status="Seeding", vpn_paused=True, paused=True)
+
+    threading.Thread(target=engine._monitor_seeding, args=("VpnPausedButRunning", handle), daemon=True).start()
+    time.sleep(0.4)
+
+    assert "pause" in handle.calls
+    assert "resume" not in handle.calls
+
+
+def test_vpn_paused_transfer_that_is_paused_is_left_alone(engine):
+    handle = _PauseTrackingHandle(paused=True)
+    store = _run_seeding_monitor(engine, "VpnPausedAndPaused", handle)
+    store.update("VpnPausedAndPaused", status="Seeding", vpn_paused=True, paused=True)
+
+    threading.Thread(target=engine._monitor_seeding, args=("VpnPausedAndPaused", handle), daemon=True).start()
+    time.sleep(0.4)
+
+    assert handle.calls == []
+
+
+def test_paused_transfer_that_is_not_vpn_paused_is_still_resumed(engine):
+    handle = _PauseTrackingHandle(paused=True)
+    store = _run_seeding_monitor(engine, "PausedByAccident", handle)
+    store.update("PausedByAccident", status="Seeding", vpn_paused=False)
+
+    threading.Thread(target=engine._monitor_seeding, args=("PausedByAccident", handle), daemon=True).start()
+    time.sleep(0.4)
+
+    assert "resume" in handle.calls
+    assert "pause" not in handle.calls
+
+
+# ---------------------------------------------------------------------------
+# Peer client labels. libtorrent leaves `client` empty both for peers whose
+# handshake hasn't finished (peer id still all zeros: not a real connection
+# yet) and for handshaken peers that sent no version string. Hydra used to
+# call every one of them "Unknown".
+# ---------------------------------------------------------------------------
+
+class _FakePeer:
+    def __init__(self, client=b"", pid=b"\x00" * 20):
+        self.client = client
+        self.pid = lt.sha1_hash(pid)
+        self.ip = ("203.0.113.7", 51413)
+        self.connection_type = lt.peer_info.standard_bittorrent
+        self.down_speed = 0
+        self.up_speed = 0
+        self.total_download = 0
+        self.total_upload = 0
+        self.progress = 0.0
+
+
+def test_peer_with_version_string_keeps_it():
+    assert hd._peer_client_label(_FakePeer(client=b"qBittorrent/5.2.4")) == ("qBittorrent/5.2.4", False)
+
+
+def test_peer_still_handshaking_is_marked_connecting():
+    assert hd._peer_client_label(_FakePeer(client=b"", pid=b"\x00" * 20)) == ("Unknown", True)
+
+
+def test_handshaken_peer_without_version_string_is_identified_from_its_peer_id():
+    label, connecting = hd._peer_client_label(_FakePeer(client=b"", pid=b"-TR3000-abcdefghijkl"))
+    assert label == "Transmission 3.0.0"
+    assert connecting is False
+
+
+def test_handshaken_peer_with_undecodable_peer_id_stays_unknown_but_not_connecting():
+    label, connecting = hd._peer_client_label(_FakePeer(client=b"", pid=b"randomrandomrandomrn"))
+    assert label == "Unknown"
+    assert connecting is False
+
+
+def test_get_peer_info_reports_connecting_flag(engine):
+    class _H:
+        def get_peer_info(self):
+            return [_FakePeer(client=b"qBittorrent/5.2.4"), _FakePeer()]
+
+    engine.store.add("t", "magnet:?xt=urn:btih:x", 1, _H())
+    peers = {p["client"] + str(p["connecting"]): p for p in engine.get_peer_info("t")}
+    assert peers["qBittorrent/5.2.4False"]["connecting"] is False
+    assert peers["UnknownTrue"]["connecting"] is True
+
+
+# ---------------------------------------------------------------------------
+# /flags/xx.svg: country flags served by Hydra itself, so the browser never
+# asks a third-party image host for them. (No `with`, so the app's startup,
+# which launches the engine, is not run.)
+# ---------------------------------------------------------------------------
+
+def _client():
+    from fastapi.testclient import TestClient
+    return TestClient(hd.app)
+
+
+def test_flag_endpoint_serves_a_bundled_svg_with_a_locked_down_response():
+    r = _client().get("/flags/us.svg")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("image/svg+xml")
+    assert "sandbox" in r.headers["content-security-policy"]
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.text.lstrip().startswith(("<?xml", "<svg"))
+
+
+@pytest.mark.parametrize("bad", ["usa", "u", "US", "u1", "zz", "%2e%2e", "u%2fs", "..%5c.."])
+def test_flag_endpoint_rejects_anything_but_a_real_two_letter_lowercase_code(bad):
+    assert _client().get(f"/flags/{bad}.svg").status_code == 404
+
+
+def test_flag_endpoint_cannot_be_used_to_read_other_files():
+    c = _client()
+    for attempt in ("/flags/../index.html", "/flags/%2e%2e/index.html", "/flags/..%2findex.html"):
+        assert c.get(attempt).status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# DaemonStore persistence is throttled for routine progress updates.
+# ---------------------------------------------------------------------------
+
+def test_store_save_is_throttled_but_state_changes_save_immediately(tmp_path, monkeypatch):
+    store = hd.DaemonStore(path=str(tmp_path / "transfers.json"))
+    saves = []
+    monkeypatch.setattr(store, "save", lambda p: saves.append(p))
+
+    store.add("a", "magnet:?xt=urn:btih:x", 1, None)
+    assert len(saves) == 1                       # structural change: immediate
+
+    for i in range(50):
+        store.update("a", speed_down=float(i), progress=float(i))
+    assert len(saves) == 1                       # routine progress: throttled
+
+    store.update("a", status="Paused")
+    assert len(saves) == 2                       # persisted field changed: immediate
+
+    store.update("a", status="Paused")
+    assert len(saves) == 2                       # same value again: nothing new
+
+    store.remove("a")
+    assert len(saves) == 3
+
+
+# ---------------------------------------------------------------------------
+# A magnet that never gets metadata must raise, not pretend it was added.
+# ---------------------------------------------------------------------------
+
+def test_add_magnet_metadata_timeout_raises_and_drops_the_torrent(engine, monkeypatch):
+    clock = [1000.0]
+    monkeypatch.setattr(hd.time, "time", lambda: clock[0])
+    monkeypatch.setattr(hd.time, "sleep", lambda s: clock.__setitem__(0, clock[0] + 400))
+
+    # valid-looking magnet for an info-hash nobody has: metadata never arrives
+    magnet = "magnet:?xt=urn:btih:" + "ab" * 20 + "&dn=nobody-has-this"
+    with pytest.raises(TimeoutError):
+        engine.add_magnet(magnet)
+
+    entry = engine.store.get("nobody-has-this")
+    assert entry is not None
+    assert entry["status"] == "Metadata timeout"
+    assert entry["handle"] is None               # dropped from the session, not left unmonitored

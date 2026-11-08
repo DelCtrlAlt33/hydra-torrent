@@ -60,12 +60,12 @@ def test_unresolvable_hostname_is_rejected():
 # uniformly to /transfers/preview too, whose URL is never actually
 # arbitrary - it always comes from the user's own configured Jackett
 # server. Any indexer that returns a .torrent proxy link instead of a
-# magnet URI (confirmed live: TorrentGalaxy) was silently unusable for
+# magnet URI (confirmed live: a public tracker) was silently unusable for
 # every self-hosted Jackett on a private LAN, which is nearly all of them.
 # ---------------------------------------------------------------------------
 
 def test_trusted_host_from_url_extracts_host_and_port():
-    assert trusted_host_from_url("http://192.168.20.40:9117/dl/x") == "192.168.20.40:9117"
+    assert trusted_host_from_url("http://192.168.1.40:9117/dl/x") == "192.168.1.40:9117"
 
 
 def test_trusted_host_from_url_defaults_port_for_http():

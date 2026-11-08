@@ -1,12 +1,13 @@
-requests
-defusedxml
-aiofiles
-libtorrent>=2.0.11
-maxminddb
-cryptography
-fastapi
-python-multipart
-uvicorn[standard]
-pydantic>=2.0
-websockets
-psutil
+# Exact versions, same as requirements.txt (see the note there). The Docker image
+# is Python 3.12, so no 3.10 fallbacks are needed here.
+requests==2.34.2
+defusedxml==0.7.1
+libtorrent==2.1.1
+maxminddb==3.2.0
+cryptography==50.0.2
+fastapi==0.146.0
+python-multipart==0.0.32
+uvicorn[standard]==0.54.0
+pydantic==2.14.1
+websockets==17.2
+psutil==7.2.2

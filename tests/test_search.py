@@ -2,11 +2,6 @@
 Tests for search.py's pure/mockable functions: parse_size_to_bytes (pure)
 and search_jackett (pure XML parsing once the HTTP call is mocked out).
 
-search_online_public() (formerly here, scraping specific named public
-indexers' HTML directly) was removed 2026-08-20 - it was the one place Hydra had
-hardcoded, built-in knowledge of specific named indexers instead of
-routing through a user-configured Jackett instance, which is a real
-difference in legal posture, not just a code-quality one. See CHANGELOG.md.
 """
 from unittest.mock import Mock, patch
 
@@ -95,6 +90,19 @@ def test_search_jackett_parses_magnet_from_enclosure():
     assert tv_result["magnet"].startswith("magnet:?xt=urn:btih:abc123")
     assert tv_result["seeders"] == 42
     assert tv_result["source"] == "ExampleIndexer"
+
+
+def test_search_jackett_unescapes_double_escaped_titles():
+    # Some indexers send "&amp;amp;" inside the XML; the parser decodes it once,
+    # so without an extra unescape the UI shows a literal "&amp;".
+    xml = SAMPLE_TORZNAB_XML.replace(
+        "<title>Show.Name.S01E05.1080p.WEB-DL</title>",
+        "<title>Tom &amp;amp; Jerry S01E05</title>",
+    )
+    with patch("search.requests.get", return_value=_mock_response(xml)):
+        results = search_jackett("http://localhost:9117", "tom", "fakekey")
+
+    assert results[0]["filename"] == "Tom & Jerry S01E05"
 
 
 def test_search_jackett_falls_back_to_torrent_url_when_no_magnet():

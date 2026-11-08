@@ -48,7 +48,7 @@ from network import (
     MY_PUBLIC_IP, register_single_file, start_peer_server,
 )
 from search import (
-    search_online_public, search_jackett, search_index_server,
+    search_online, search_jackett, search_index_server,
 )
 from download import download_from_peer
 from transfer_manager import TransferManager, PiecesBar
@@ -2286,9 +2286,9 @@ This is free software. No tracking, no ads, no premium tier, no bullshit. Fork i
                         except Exception as e:
                             logger.error(f"Jackett search failed: {e}")
                             self.root.after(0, lambda: self.status.insert(tk.END, f"Jackett unavailable, falling back to public sources...\n", "error"))
-                    # Fall back to public scrapers if Jackett returned nothing
+                    # Fall back if Jackett returned nothing
                     if not online_results:
-                        online_results = search_online_public(kw)
+                        online_results = search_online(kw)
                 all_matches = local_results + online_results
                 self.root.after(0, lambda: self._populate_search_results(all_matches))
             except Exception as e:

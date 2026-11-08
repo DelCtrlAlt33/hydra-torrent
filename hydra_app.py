@@ -106,8 +106,16 @@ if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
             urllib.request.urlopen(_req, timeout=3)
     except Exception:
         # Fallback: works for a plain-minimized window, harmless no-op
-        # for a cloaked one.
-        hwnd = ctypes.windll.user32.FindWindowW(None, "Hydra Torrent")
+        # for a cloaked one. Only a window owned by another running copy of
+        # Hydra: a title alone also matches other programs (a File Explorer tab
+        # on a folder called "Hydra Torrent" has a window with that exact
+        # title), and restoring and focusing that would be wrong.
+        try:
+            from window_lookup import find_window
+            hwnd = find_window("Hydra Torrent",
+                               exe_prefix="hydratorrent" if getattr(sys, 'frozen', False) else "python")
+        except Exception:
+            hwnd = 0
         if hwnd:
             ctypes.windll.user32.ShowWindow(hwnd, 9)   # SW_RESTORE
             ctypes.windll.user32.SetForegroundWindow(hwnd)
@@ -222,25 +230,26 @@ def _self_install() -> None:
 
     # Add firewall rules (best-effort, requires admin - silently skip if not admin)
     try:
-        subprocess.run(
-            ['netsh', 'advfirewall', 'firewall', 'delete', 'rule', 'name=Hydra Torrent'],
-            capture_output=True, timeout=5,
-        )
+        # libtorrent listens on config.PEER_PORT (6001) for both peer TCP and DHT
+        # UDP. Older builds opened 6002 and 6881, which nothing listens on, so
+        # inbound peers were blocked. Remove those stale rules, then add the
+        # real port. Literal here because importing config this early has
+        # side effects (see the single-instance note above); kept in step with
+        # config.PEER_PORT by tests/test_firewall_port.py.
+        peer_port = '6001'
+        for stale in ('Hydra Torrent', 'Hydra Torrent DHT'):
+            subprocess.run(
+                ['netsh', 'advfirewall', 'firewall', 'delete', 'rule', f'name={stale}'],
+                capture_output=True, timeout=5,
+            )
         for proto in ('TCP', 'UDP'):
             subprocess.run(
                 ['netsh', 'advfirewall', 'firewall', 'add', 'rule',
                  'name=Hydra Torrent', 'dir=in', 'action=allow',
-                 f'protocol={proto}', 'localport=6002', 'profile=any',
+                 f'protocol={proto}', f'localport={peer_port}', 'profile=any',
                  'description=Hydra Torrent BitTorrent client'],
                 capture_output=True, timeout=5,
             )
-        subprocess.run(
-            ['netsh', 'advfirewall', 'firewall', 'add', 'rule',
-             'name=Hydra Torrent DHT', 'dir=in', 'action=allow',
-             'protocol=UDP', 'localport=6881', 'profile=any',
-             'description=Hydra Torrent DHT'],
-            capture_output=True, timeout=5,
-        )
     except Exception:
         pass  # not admin - firewall rules skipped, user will get the Windows prompt instead
 
@@ -279,13 +288,17 @@ def _start_daemon(host: str, port: int, use_ssl: bool) -> None:
 
     ssl_args = {}
     if use_ssl:
-        cert_dir = os.path.join(_SCRIPT_DIR, 'certs')
-        certfile = os.path.join(cert_dir, 'hydra.crt')
-        keyfile = os.path.join(cert_dir, 'hydra.key')
-        if os.path.isfile(certfile) and os.path.isfile(keyfile):
-            ssl_args = {'ssl_certfile': certfile, 'ssl_keyfile': keyfile}
-        else:
-            print("[app] SSL certs not found, falling back to HTTP", file=sys.stderr)
+        # Same certificate files the standalone daemon uses (certs.py writes
+        # fullchain.pem/privkey.pem under BASE_DIR/certs). This used to look
+        # for hydra.crt/hydra.key, which nothing creates, so daemon_use_ssl
+        # silently fell back to plain HTTP.
+        try:
+            from certs import ensure_certificates
+            from config import FULLCHAIN_PATH, PRIVKEY_PATH
+            ensure_certificates()
+            ssl_args = {'ssl_certfile': str(FULLCHAIN_PATH), 'ssl_keyfile': str(PRIVKEY_PATH)}
+        except Exception as e:
+            print(f"[app] SSL certs unavailable ({e}), falling back to HTTP", file=sys.stderr)
             use_ssl = False
 
     uvicorn.run(

@@ -2,10 +2,14 @@
 
 import ctypes
 import ctypes.wintypes
+import os
 import threading
 import time
 
 import webview
+
+from window_lookup import find_window
+from window_placement import fix_placement, resize_rect
 
 # ── Win32 constants ──────────────────────────────────────────────────────────
 
@@ -36,19 +40,105 @@ GetWindowRect = ctypes.windll.user32.GetWindowRect
 WNDPROC = ctypes.CFUNCTYPE(ctypes.c_int64, ctypes.wintypes.HWND, ctypes.c_uint,
                            ctypes.c_uint64, ctypes.c_int64)
 
+# ── Window state via Win32 ───────────────────────────────────────────────────
+# pywebview's own minimize()/maximize()/move() misbehaved on a 125%-scaled
+# display: the window ended up "maximized" at (-26214, 26214) or parked at
+# x=26214, i.e. +/-32768 divided by the display scale, invisible but still
+# "visible" to Windows, with the min/max buttons seemingly dead. Windows' own
+# ShowWindow/SetWindowPos behave correctly there (verified on the affected
+# laptop), so min/max/resize go through them directly, and a small watchdog
+# rescues a window that still ends up off every screen.
+
+SW_MAXIMIZE = 3
+SW_MINIMIZE = 6
+SW_RESTORE = 9
+SWP_NOZORDER = 0x0004
+SWP_NOACTIVATE = 0x0010
+SWP_SHOWWINDOW = 0x0040
+SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN = 76, 77, 78, 79
+SPI_GETWORKAREA = 48
+WINDOW_TITLE = 'Hydra Torrent'
+
+
+def _find_hwnd(title=WINDOW_TITLE):
+    """This process's own top-level window with the given title, or 0.
+
+    Never title alone: another program can have a window with the same title
+    (a File Explorer tab on a folder called "Hydra Torrent" does), and every
+    minimize/maximize/resize then acted on that one. See window_lookup.py.
+    """
+    return find_window(title, pid=os.getpid())
+
+
+def _window_rect(hwnd):
+    r = ctypes.wintypes.RECT()
+    ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(r))
+    return (r.left, r.top, r.right, r.bottom)
+
+
+def _work_area():
+    r = ctypes.wintypes.RECT()
+    ctypes.windll.user32.SystemParametersInfoW(SPI_GETWORKAREA, 0, ctypes.byref(r), 0)
+    return (r.left, r.top, r.right, r.bottom)
+
+
+def _virtual_screen():
+    gm = ctypes.windll.user32.GetSystemMetrics
+    left, top = gm(SM_XVIRTUALSCREEN), gm(SM_YVIRTUALSCREEN)
+    return (left, top, left + gm(SM_CXVIRTUALSCREEN), top + gm(SM_CYVIRTUALSCREEN))
+
+
+def ensure_on_screen():
+    """If the window is visible to Windows but effectively on no screen (or
+    bigger than the usable screen), put it back. Returns True if it moved it.
+    Skips minimized and hidden windows."""
+    user32 = ctypes.windll.user32
+    hwnd = _find_hwnd()
+    if not hwnd or not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
+        return False
+    maximized = bool(user32.IsZoomed(hwnd))
+    fix = fix_placement(_window_rect(hwnd), _virtual_screen(), _work_area(), maximized=maximized)
+    if fix is None:
+        return False
+    if maximized:
+        # A maximized window parked off-screen: leave that state first, then
+        # place the restored window.
+        user32.ShowWindow(hwnd, SW_RESTORE)
+        fix = fix_placement(_window_rect(hwnd), _virtual_screen(), _work_area())
+        if fix is None:
+            return True
+    x, y, w, h = fix
+    user32.SetWindowPos(hwnd, 0, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW)
+    return True
+
+
+def _watch_window_placement():
+    while True:
+        time.sleep(1.5)
+        try:
+            ensure_on_screen()
+        except Exception:
+            pass
+
+
 # ── Resize overlay JS (injected into page) ───────────────────────────────────
 
 _RESIZE_JS = """
 (function() {
     if (document.getElementById('resize-edges')) return;
     var B = 8;
+    // The minimize/maximize/close buttons sit in the top-right of the title
+    // bar. These invisible resize strips used to run across the whole top edge
+    // and right edge, so a click near the top of a button started a resize drag
+    // instead of pressing the button. Keep every strip clear of the controls.
+    var T = 33;    // title bar height (TITLEBAR_HEIGHT)
+    var C = 146;   // controls width plus margin (TITLEBAR_CONTROLS_WIDTH + 8)
     var edges = [
         {id:'r-left',   css:'left:0;top:0;width:'+B+'px;height:100%;cursor:ew-resize',              dir:'left'},
-        {id:'r-right',  css:'right:0;top:0;width:'+B+'px;height:100%;cursor:ew-resize',             dir:'right'},
-        {id:'r-top',    css:'left:0;top:0;width:100%;height:'+B+'px;cursor:ns-resize',              dir:'top'},
+        {id:'r-right',  css:'right:0;top:'+T+'px;width:'+B+'px;height:calc(100% - '+T+'px);cursor:ew-resize', dir:'right'},
+        {id:'r-top',    css:'left:0;top:0;width:calc(100% - '+C+'px);height:'+B+'px;cursor:ns-resize', dir:'top'},
         {id:'r-bottom', css:'left:0;bottom:0;width:100%;height:'+B+'px;cursor:ns-resize',           dir:'bottom'},
         {id:'r-tl',     css:'left:0;top:0;width:'+B*2+'px;height:'+B*2+'px;cursor:nwse-resize',     dir:'topleft'},
-        {id:'r-tr',     css:'right:0;top:0;width:'+B*2+'px;height:'+B*2+'px;cursor:nesw-resize',    dir:'topright'},
         {id:'r-bl',     css:'left:0;bottom:0;width:'+B*2+'px;height:'+B*2+'px;cursor:nesw-resize',  dir:'bottomleft'},
         {id:'r-br',     css:'right:0;bottom:0;width:'+B*2+'px;height:'+B*2+'px;cursor:nwse-resize', dir:'bottomright'},
     ];
@@ -90,15 +180,31 @@ class WebViewAPI:
         self._window = window
 
     def minimize(self):
-        if self._window:
+        hwnd = _find_hwnd()
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, SW_MINIMIZE)
+        elif self._window:
             self._window.minimize()
 
     def maximize(self):
-        if self._window:
+        hwnd = _find_hwnd()
+        if hwnd:
+            user32 = ctypes.windll.user32
+            user32.ShowWindow(hwnd, SW_RESTORE if user32.IsZoomed(hwnd) else SW_MAXIMIZE)
+        elif self._window:
             if self._window.maximized:
                 self._window.restore()
             else:
                 self._window.maximize()
+
+    def is_maximized(self):
+        """For the title bar: lets the page show the "restore" icon instead of
+        "maximize" while the window is maximized (however it got maximized:
+        the button, a title-bar double-click, Win+Up)."""
+        hwnd = _find_hwnd()
+        if hwnd:
+            return bool(ctypes.windll.user32.IsZoomed(hwnd))
+        return bool(self._window and self._window.maximized)
 
     def close(self):
         if self._window:
@@ -117,6 +223,11 @@ class WebViewAPI:
             return
         try:
             self._window.resize(int(width), int(height))
+        except Exception:
+            pass
+        # The content can be taller than a small/scaled screen: fit it.
+        try:
+            ensure_on_screen()
         except Exception:
             pass
 
@@ -141,26 +252,17 @@ class ResizeAPI(WebViewAPI):
 
     def do_resize(self, dx, dy, direction):
         """Called from JS mousemove handler on edge overlay divs."""
-        if not self._window:
+        # Windows' own rectangle and SetWindowPos, not pywebview's x/y/move,
+        # which misreport positions on scaled displays (see ensure_on_screen).
+        hwnd = _find_hwnd()
+        if not hwnd:
             return
-        x, y = self._window.x, self._window.y
-        w, h = self._window.width, self._window.height
-
-        if 'right' in direction:
-            w += dx
-        if 'bottom' in direction:
-            h += dy
-        if 'left' in direction:
-            w -= dx
-            x += dx
-        if 'top' in direction:
-            h -= dy
-            y += dy
-
-        w = max(w, 800)
-        h = max(h, 500)
-        self._window.resize(w, h)
-        self._window.move(x, y)
+        user32 = ctypes.windll.user32
+        if user32.IsZoomed(hwnd) or user32.IsIconic(hwnd):
+            return
+        x, y, w, h = resize_rect(_window_rect(hwnd), dx, dy, direction)
+        user32.SetWindowPos(hwnd, 0, int(x), int(y), int(w), int(h),
+                            SWP_NOZORDER | SWP_NOACTIVATE)
 
 
 # ── Frameless window helper ──────────────────────────────────────────────────
@@ -207,7 +309,12 @@ def apply_frameless(window, title='Hydra Torrent'):
 
     def _apply():
         time.sleep(2)  # wait for HWND to exist
-        hwnd = ctypes.windll.user32.FindWindowW(None, title)
+        hwnd = 0
+        for _ in range(20):            # up to ~10 more seconds on a slow start
+            hwnd = _find_hwnd(title)
+            if hwnd:
+                break
+            time.sleep(0.5)
         if not hwnd:
             return
         # Add thick frame (resize), remove caption (title bar)
@@ -242,3 +349,4 @@ def apply_frameless(window, title='Hydra Torrent'):
 
     window.events.loaded += _on_loaded
     threading.Thread(target=_apply, daemon=True).start()
+    threading.Thread(target=_watch_window_placement, daemon=True).start()

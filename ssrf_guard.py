@@ -52,7 +52,7 @@ def ensure_safe_fetch_url(url: str, trusted_hosts: Optional[Set[str]] = None) ->
     actually receives one: it only ever gets a URL Jackett itself handed
     back, for the server the user configured. Blocking it there wasn't
     extra safety, it just silently broke every indexer that doesn't return
-    magnets - confirmed live against TorrentGalaxy. The genuinely
+    magnets - confirmed live against a public tracker. The genuinely
     untrusted case (POST /transfers/url with a raw pasted string) still
     gets no exemption unless its URL happens to match the same trusted
     host, which is the correct, narrower fix rather than trusting either

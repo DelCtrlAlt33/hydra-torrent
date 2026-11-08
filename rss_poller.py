@@ -14,12 +14,14 @@ import uuid
 import json
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 from config import BASE_DIR, load_config, logger
 from search import search_jackett
 
 RSS_POLL_INTERVAL = 1800  # 30 minutes
+MAX_ADDS_PER_CHECK = 10   # most torrents one rule may add in a single check
 
 
 class RssPoller:
@@ -35,6 +37,7 @@ class RssPoller:
     def __init__(self, add_magnet_fn, rules_path: Optional[str] = None) -> None:
         self._add_magnet = add_magnet_fn
         self._rules: dict = {}
+        self._checking: set = set()      # rule ids with a check in flight
         self._lock = threading.Lock()
         self._wakeup = threading.Event()
         self._stop = threading.Event()
@@ -68,6 +71,20 @@ class RssPoller:
                 logger.error(f"RSS rule check failed [{rule['name']}]: {e}")
 
     def _check_rule(self, rule: dict) -> None:
+        # One check per rule at a time. Adds can take minutes, and a "check
+        # now" or the periodic poll landing meanwhile would re-add the same
+        # releases, because they are only recorded once their add succeeds.
+        with self._lock:
+            if rule['id'] in self._checking:
+                return
+            self._checking.add(rule['id'])
+        try:
+            self._do_check_rule(rule)
+        finally:
+            with self._lock:
+                self._checking.discard(rule['id'])
+
+    def _do_check_rule(self, rule: dict) -> None:
         cfg = load_config()
         server = cfg.get('indexing_server', '')
         api_key = cfg.get('jackett_api_key', '')
@@ -132,21 +149,58 @@ class RssPoller:
                 seen_slots.add(slot)
             deduped.append(r)
 
-        added = 0
-        for r in deduped:
-            name = r.get('filename') or r.get('name', '')
-            magnet = r.get('magnet')
-            try:
-                self._add_magnet(magnet)
-                rule['matched_titles'].append(name)
-                rule['matched_count'] += 1
-                added += 1
-                logger.info(f"RSS auto-added: '{name}' (rule: {rule['name']})")
-            except Exception as e:
-                logger.warning(f"RSS add_magnet failed for '{name}': {e}")
+        # A broad rule ("Any" quality, a common word) can match hundreds of
+        # releases; adding them all at once floods the session and the disk.
+        # Take only the healthiest few (candidates are already sorted by
+        # seeders). The rest are not recorded as matched, so later polls pick
+        # them up in turn.
+        if len(deduped) > MAX_ADDS_PER_CHECK:
+            logger.warning(
+                f"RSS rule '{rule['name']}' matched {len(deduped)} releases; adding the "
+                f"{MAX_ADDS_PER_CHECK} with the most seeders now, the rest on later checks. "
+                f"A narrower rule (season, quality) avoids this."
+            )
+            deduped = deduped[:MAX_ADDS_PER_CHECK]
 
+        # The check itself (search + matching) is done, so record it now. It
+        # used to be recorded only after every add finished, and add_magnet can
+        # block for minutes waiting on metadata, so a rule showed "never
+        # checked" for up to 10 minutes. pending_adds tells the UI how many of
+        # the matches are still being added.
         rule['last_checked'] = time.time()
+        rule['pending_adds'] = len(deduped)
         self._save()
+
+        # Add the releases concurrently instead of one slow magnet holding up
+        # the rest (and every other rule). A title is only recorded as matched
+        # when its add actually succeeded; a failure or metadata timeout leaves
+        # it unrecorded so the next poll retries it, instead of the rule
+        # believing it was downloaded. Results are recorded as each add
+        # finishes, so progress shows up as it happens.
+        added = 0
+        try:
+            if deduped:
+                with ThreadPoolExecutor(max_workers=4, thread_name_prefix="rss-add") as pool:
+                    futures = {
+                        pool.submit(self._add_magnet, r.get('magnet')): (r.get('filename') or r.get('name', ''))
+                        for r in deduped
+                    }
+                    for future in as_completed(futures):
+                        name = futures[future]
+                        try:
+                            future.result()
+                        except Exception as e:
+                            logger.warning(f"RSS add_magnet failed for '{name}': {e}")
+                        else:
+                            rule['matched_titles'].append(name)
+                            rule['matched_count'] += 1
+                            added += 1
+                            logger.info(f"RSS auto-added: '{name}' (rule: {rule['name']})")
+                        rule['pending_adds'] = max(0, rule['pending_adds'] - 1)
+                        self._save()
+        finally:
+            rule['pending_adds'] = 0
+            self._save()
         if added:
             logger.info(f"RSS rule '{rule['name']}': added {added} new torrent(s)")
 
@@ -227,6 +281,7 @@ class RssPoller:
             "last_checked": 0.0,
             "matched_count": 0,
             "matched_titles": [],
+            "pending_adds": 0,
         }
         with self._lock:
             self._rules[rule['id']] = rule
@@ -276,6 +331,7 @@ class RssPoller:
             try:
                 with open(self._path, encoding='utf-8') as f:
                     for r in json.load(f):
+                        r['pending_adds'] = 0   # nothing is in flight after a restart
                         self._rules[r['id']] = r
                 logger.info(f"Loaded {len(self._rules)} RSS rule(s) from {self._path}")
             except Exception as e:

@@ -45,7 +45,9 @@ jobs:
           # separate engine-tests job below instead of here, for exactly
           # that reason - see its own comment.
           pip install -r requirements-test.txt
-          pip install requests psutil pydantic defusedxml cryptography
+          # Same exact versions as requirements.txt (tests/test_requirements_pinned.py
+          # fails if these drift apart).
+          pip install requests==2.34.2 psutil==7.2.2 pydantic==2.14.1 defusedxml==0.7.1 cryptography==50.0.2
 
       - name: Run tests
         # --ignore: test_torrent_engine.py imports libtorrent, which isn't

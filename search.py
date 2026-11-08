@@ -1,3 +1,4 @@
+import html
 import json
 import socket
 import requests
@@ -47,7 +48,9 @@ def search_jackett(server_url, keyword, api_key):
 
     root = ET.fromstring(resp.content)
     for item in root.findall('.//item'):
-        title = item.find('title').text or 'Unknown'
+        # Some indexers double-escape titles ("&amp;amp;"), which the XML parser
+        # decodes once and leaves a literal "&amp;" in the name.
+        title = html.unescape(item.find('title').text or 'Unknown')
         magnet = None
         # Check enclosure URLs
         for enc in item.findall('enclosure'):

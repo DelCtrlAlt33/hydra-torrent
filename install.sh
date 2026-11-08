@@ -136,7 +136,9 @@ echo -e "${GREEN}ok${NC}"
 echo -n "Starting Hydra Torrent... "
 systemctl daemon-reload
 systemctl enable hydra-torrent --quiet
-systemctl start hydra-torrent
+# restart, not start: on an update the service is already running, and "start"
+# would leave the old code in memory.
+systemctl restart hydra-torrent
 echo -e "${GREEN}ok${NC}"
 
 # Wait a sec for it to boot

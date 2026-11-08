@@ -36,7 +36,6 @@ def _addr(ip="10.0.0.5"):
     "NordLynx",
     "Mullvad",
     "ProtonVPN",
-    "Tailscale",
     "Cisco AnyConnect",
     "ExpressVPN Tap Adapter",   # contains both 'tap' and 'expressvpn' - still a real VPN
     "tun0",
@@ -57,6 +56,8 @@ def test_detects_known_vpn_provider_interfaces(iface_name):
     "Wi-Fi",
     "Loopback Pseudo-Interface 1",
     "Bluetooth Network Connection",
+    "Tailscale",   # mesh network with no internet route unless an exit node is set
+    "tailscale0",
 ])
 def test_no_false_positive_on_ordinary_interfaces(iface_name):
     with patch("vpn_guard.psutil.net_if_stats", return_value={iface_name: _stats()}), \
@@ -79,6 +80,30 @@ def test_excludes_virtual_adapters_that_look_like_vpns(iface_name):
 
     assert iface is None
     assert ip is None
+
+
+def test_user_configured_ignore_list_skips_a_lan_only_tunnel():
+    # A WireGuard link to the home LAN matches the 'wg' pattern but has no
+    # internet route; the user can tell Hydra to ignore it.
+    ifaces = {"wg-home": [_addr("10.0.0.7")], "Mullvad": [_addr("10.64.0.2")]}
+    with patch("vpn_guard.psutil.net_if_stats", return_value={k: _stats() for k in ifaces}), \
+         patch("vpn_guard.psutil.net_if_addrs", return_value=ifaces), \
+         patch("vpn_guard._wg_handshake_ok", return_value=True), \
+         patch("vpn_guard._configured_ignores", return_value=["wg-home"]):
+        iface, ip = vpn_guard.detect_vpn_interface()
+
+    assert iface == "Mullvad"
+    assert ip == "10.64.0.2"
+
+
+def test_ignore_list_accepts_list_or_comma_string(monkeypatch):
+    import config
+    monkeypatch.setattr(config, "load_config", lambda: {"vpn_ignore_interfaces": " Home , LAN-VPN ,"})
+    assert vpn_guard._configured_ignores() == ["home", "lan-vpn"]
+    monkeypatch.setattr(config, "load_config", lambda: {"vpn_ignore_interfaces": ["Home"]})
+    assert vpn_guard._configured_ignores() == ["home"]
+    monkeypatch.setattr(config, "load_config", lambda: {"vpn_ignore_interfaces": 5})
+    assert vpn_guard._configured_ignores() == []
 
 
 def test_skips_matching_interface_that_is_administratively_down():

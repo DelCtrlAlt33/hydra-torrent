@@ -26,12 +26,12 @@ BASE_DIR = get_base_dir()
 
 # ----------------------------------------------------------------------
 # Version - single source of truth. Matches the tag of the last published
-# GitHub release (checked via `gh release view` / the Releases API), NOT
+# Codeberg release (checked via the Releases API), NOT
 # whatever a stray print statement elsewhere might claim. Bump this as
 # part of cutting each release, alongside the git tag.
 # ----------------------------------------------------------------------
-VERSION = "1.4.27"
-GITHUB_REPO = "DelCtrlAlt33/hydra-torrent"
+VERSION = "1.4.31"
+REPO_SLUG = "DelCtrlAlt33/hydra-torrent"   # owner/name on Codeberg (see updater.py)
 
 # ----------------------------------------------------------------------
 # Paths
@@ -164,11 +164,24 @@ def load_config():
     return {}
 
 
+def restrict_to_owner(path):
+    """chmod 0600 a file that holds secrets (API key, Plex/Jackett tokens, TLS
+    private key) so other local users can't read it. Best effort: a no-op on
+    Windows, and never raises (e.g. the file belongs to another user)."""
+    if os.name != 'posix':
+        return
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
 def save_config(key, value):
     config = load_config()
     config[key] = value
     with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
         json.dump(config, f)
+    restrict_to_owner(CONFIG_FILE)
 
 
 # Plex/Jellyfin media directories - configurable via hydra_config.json,

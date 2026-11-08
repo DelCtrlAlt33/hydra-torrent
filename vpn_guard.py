@@ -26,8 +26,11 @@ _VPN_PATTERNS = [
     'proton', 'pvpn',
     # ExpressVPN
     'expressvpn', 'xvpn',
-    # Tailscale
-    'tailscale',
+    # Tailscale is deliberately NOT here. It is a mesh network: without an
+    # exit node it has no route to the internet, so binding torrents to its
+    # 100.x address left them with zero peers (and the kill switch armed
+    # itself on it). Interface name alone cannot tell an exit-node setup from
+    # a plain mesh one, so the safe failure is to not treat it as a VPN.
     # Cisco AnyConnect
     'anyconnect',
     # Generic catch-all
@@ -38,6 +41,24 @@ _VPN_PATTERNS = [
 _VPN_EXCLUDE = [
     'vmware', 'virtualbox', 'vbox', 'hyper-v', 'loopback', 'bluetooth',
 ]
+
+
+def _configured_ignores():
+    """Interface-name fragments the user wants ignored, from hydra_config.json
+    ("vpn_ignore_interfaces": a list, or a comma-separated string). For a
+    LAN-only tunnel (e.g. a WireGuard link to your home network) whose name
+    matches a VPN pattern but which does not route to the internet.
+    Never raises: a config problem must not break VPN detection."""
+    try:
+        from config import load_config
+        raw = load_config().get('vpn_ignore_interfaces', [])
+    except Exception:
+        return []
+    if isinstance(raw, str):
+        raw = raw.split(',')
+    if not isinstance(raw, (list, tuple)):
+        return []
+    return [s.strip().lower() for s in raw if isinstance(s, str) and s.strip()]
 
 
 _WG_HANDSHAKE_MAX_AGE = 180  # seconds - tunnel considered dead beyond this
@@ -101,8 +122,9 @@ def detect_vpn_interface():
     """
     Find any active VPN interface.
     Works with PIA, NordVPN, ExpressVPN, Mullvad, ProtonVPN, OpenVPN,
-    WireGuard, Tailscale, Cisco AnyConnect, and any adapter whose name
-    contains a known VPN keyword.
+    WireGuard, Cisco AnyConnect, and any adapter whose name contains a
+    known VPN keyword. Adapters listed in hydra_config.json's
+    "vpn_ignore_interfaces" are skipped.
 
     For WireGuard interfaces, also verifies that at least one peer has
     completed a handshake within the last 3 minutes - a stale wg interface
@@ -113,6 +135,7 @@ def detect_vpn_interface():
     try:
         stats = psutil.net_if_stats()
         addrs = psutil.net_if_addrs()
+        excludes = _VPN_EXCLUDE + _configured_ignores()
 
         for iface_name, addr_list in addrs.items():
             iface_lower = iface_name.lower()
@@ -121,8 +144,9 @@ def detect_vpn_interface():
             if not any(pat in iface_lower for pat in _VPN_PATTERNS):
                 continue
 
-            # Must NOT be a known non-VPN virtual adapter
-            if any(ex in iface_lower for ex in _VPN_EXCLUDE):
+            # Must NOT be a known non-VPN virtual adapter, or one the user
+            # told us to ignore
+            if any(ex in iface_lower for ex in excludes):
                 continue
 
             # Interface must be up

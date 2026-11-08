@@ -50,7 +50,7 @@ from fastapi import (
     BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, Security,
     UploadFile, WebSocket, WebSocketDisconnect,
 )
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse, RedirectResponse
 from fastapi.security.api_key import APIKeyHeader
 from starlette.status import HTTP_403_FORBIDDEN
 
@@ -59,7 +59,7 @@ from config import (
     CONFIG_FILE,
     DOWNLOAD_DIR_INCOMPLETE,
     FULLCHAIN_PATH,
-    GITHUB_REPO,
+    REPO_SLUG,
     LOG_PATH,
     MEDIA_DIR_MOVIES,
     MEDIA_DIR_TV,
@@ -67,6 +67,7 @@ from config import (
     PRIVKEY_PATH,
     VERSION,
     load_config,
+    restrict_to_owner,
     save_config,
     logger,
 )
@@ -112,6 +113,39 @@ _PEER_CONN_TYPE_LABELS = {
     lt.peer_info.web_seed: 'Web Seed',
     lt.peer_info.http_seed: 'HTTP Seed',
 }
+
+
+def _peer_client_label(p) -> tuple:
+    """(label, connecting) for one libtorrent peer_info.
+
+    libtorrent leaves `client` empty for two very different reasons, and
+    Hydra used to call both "Unknown":
+      * the handshake has not finished yet. The peer id is still all zeros and
+        nothing has been exchanged, so nothing is known about the peer. These
+        are not really connections yet (connecting=True).
+      * the handshake is done but the peer sent no version string. Its peer id
+        usually still carries a client fingerprint (e.g. -qB5240-), which
+        libtorrent can decode; anything it can't decode stays "Unknown".
+    """
+    raw = p.client
+    if isinstance(raw, bytes):
+        raw = raw.decode('utf-8', errors='replace')
+    if raw:
+        return raw, False
+    pid = getattr(p, 'pid', None)
+    try:
+        pid_bytes = pid.to_bytes()
+    except Exception:
+        pid_bytes = None
+    if pid_bytes is not None and not any(pid_bytes):
+        return 'Unknown', True
+    try:
+        name = lt.identify_client(pid)
+    except Exception:
+        name = None
+    if name and not name.startswith('Unknown'):
+        return name, False
+    return 'Unknown', False
 
 
 def _resource_path(name: str) -> str:
@@ -171,6 +205,8 @@ def _get_or_create_api_key() -> str:
 
 
 API_KEY: str = _get_or_create_api_key()
+# Installs from before this was enforced have a world-readable config file.
+restrict_to_owner(CONFIG_FILE)
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
 
 
@@ -212,11 +248,23 @@ class DaemonStore:
     API snapshots are built.
     """
 
+    # transfers.json is rewritten at most this often for routine progress
+    # updates (every monitor thread updates every 2s, so saving on each one
+    # meant constant disk writes and a log line per save). Structural changes
+    # and changes to persisted state (status, pause flags, move results) are
+    # still saved immediately.
+    _SAVE_INTERVAL = 2.0
+    _SAVE_NOW_KEYS = frozenset({
+        'status', 'paused', 'intended_pause', 'vpn_paused', 'hidden',
+        'moved_to_plex', 'plex_path', 'moved_files', 'error', 'size',
+    })
+
     def __init__(self, path: str = None) -> None:
         self._data: dict = {}
         self._lock = threading.Lock()
         self.path = path
         self.ws_queue: queue.SimpleQueue = queue.SimpleQueue()
+        self._last_save = 0.0
 
     # ── Mutations ────────────────────────────────────────────────────────────
 
@@ -251,18 +299,24 @@ class DaemonStore:
                 'prev_time': time.time(),
                 'file_priorities_set': False,
             }
-        self._push_snapshot()
+        self._push_snapshot(force_save=True)
 
     def update(self, name: str, **kwargs) -> None:
+        save_now = False
         with self._lock:
-            if name in self._data:
-                self._data[name].update(kwargs)
-        self._push_snapshot()
+            entry = self._data.get(name)
+            if entry is not None:
+                save_now = any(
+                    k in self._SAVE_NOW_KEYS and entry.get(k) != v
+                    for k, v in kwargs.items()
+                )
+                entry.update(kwargs)
+        self._push_snapshot(force_save=save_now)
 
     def remove(self, name: str) -> None:
         with self._lock:
             self._data.pop(name, None)
-        self._push_snapshot()
+        self._push_snapshot(force_save=True)
 
     def rename(self, old_name: str, new_name: str) -> None:
         with self._lock:
@@ -270,7 +324,7 @@ class DaemonStore:
             if entry:
                 entry['name'] = new_name
                 self._data[new_name] = entry
-        self._push_snapshot()
+        self._push_snapshot(force_save=True)
 
     # ── Reads ─────────────────────────────────────────────────────────────────
 
@@ -350,14 +404,17 @@ class DaemonStore:
     def _clean(self, entry: dict) -> dict:
         return {k: v for k, v in entry.items() if k not in _INTERNAL_FIELDS}
 
-    def _push_snapshot(self) -> None:
+    def _push_snapshot(self, force_save: bool = False) -> None:
         try:
             self.ws_queue.put_nowait(self.snapshot())
             if self.path:
-                try:
-                    self.save(self.path)
-                except Exception:
-                    pass
+                now = time.monotonic()
+                if force_save or now - self._last_save >= self._SAVE_INTERVAL:
+                    self._last_save = now
+                    try:
+                        self.save(self.path)
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -443,6 +500,8 @@ class TorrentEngine:
         """Detect VPN → create session → load persisted state → start monitor."""
         connected, iface, ip = self.vpn_guard.get_status()
         self.vpn_ip = ip if connected else None
+        if connected:
+            self._auto_arm_kill_switch()
 
         vpn_required = load_config().get('vpn_required', False)
         if connected:
@@ -467,6 +526,28 @@ class TorrentEngine:
         self._resume_persisted()
         self.vpn_guard.start(self._on_vpn_change)
         logger.info(f"TorrentEngine ready on {listen_ip}:{PEER_PORT}")
+
+    def _auto_arm_kill_switch(self) -> None:
+        """Turn the kill switch on, once, the first time a VPN is seen.
+
+        The kill switch defaults to off so a user with no VPN is not left with
+        every torrent paused. But a user who does have a VPN expects a drop to
+        stop their downloads without hunting for a toggle: with it off, a drop
+        rebinds Hydra to the real network and carries on (verified against a
+        real VPN drop). The marker key makes this a one-time default, so turning
+        it off afterwards in Settings sticks.
+        """
+        try:
+            cfg = load_config()
+            if cfg.get('vpn_kill_switch_auto_armed'):
+                return
+            save_config('vpn_kill_switch_auto_armed', True)
+            if not cfg.get('vpn_required', False):
+                save_config('vpn_required', True)
+                logger.info("VPN detected for the first time - kill switch turned on "
+                            "automatically (Settings > VPN to change)")
+        except Exception as e:
+            logger.warning(f"Could not auto-enable the kill switch: {e}")
 
     def _refresh_public_ip_sync(self) -> None:
         """Blocking fetch of public IP - run in a thread after VPN reconnects."""
@@ -494,7 +575,11 @@ class TorrentEngine:
         cfg = load_config()
         self.ses = lt.session({
             'listen_interfaces': f'{listen_ip}:{PEER_PORT}',
-            'outgoing_interfaces': listen_ip,
+            # '0.0.0.0' is a wildcard address, not an interface: handing it to
+            # libtorrent as an outgoing interface made every outbound connection
+            # fail (0 peers, nothing downloads) on an install with no VPN. Empty
+            # string = "no restriction", same as the VPN-drop rebind below.
+            'outgoing_interfaces': '' if listen_ip == '0.0.0.0' else listen_ip,
             'enable_dht': True,
             'enable_lsd': False,       # No LAN broadcast
             'enable_upnp': False,      # Disabled - useless behind VPN, leaks real IP to router
@@ -580,10 +665,7 @@ class TorrentEngine:
             ip = p.ip[0] if p.ip else ''
             port = p.ip[1] if p.ip else 0
             country, code = self._country_for_ip(ip)
-            raw_client = p.client
-            if isinstance(raw_client, bytes):
-                raw_client = raw_client.decode('utf-8', errors='replace')
-            client = raw_client or 'Unknown'
+            client, connecting = _peer_client_label(p)
             conn_type = _PEER_CONN_TYPE_LABELS.get(p.connection_type, 'BT')
             result.append({
                 'ip': ip,
@@ -598,6 +680,7 @@ class TorrentEngine:
                 'total_uploaded': int(p.total_upload),
                 'progress': round(p.progress * 100, 1),
                 'is_hydra': 'hydra' in client.lower(),
+                'connecting': connecting,
             })
         result.sort(key=lambda x: -(x['down_speed'] + x['up_speed']))
         return result
@@ -636,6 +719,7 @@ class TorrentEngine:
             _public_ip = None
         else:
             logger.info(f"VPN reconnected ({ip}) - kill switch deactivated, rebinding session")
+            self._auto_arm_kill_switch()
             self.vpn_ip = ip
             _public_ip = None
             threading.Thread(target=self._refresh_public_ip_sync, daemon=True).start()
@@ -713,10 +797,20 @@ class TorrentEngine:
         start_wait = time.time()
         while not handle.has_metadata():
             if time.time() - start_wait > 600:  # 10 minute timeout instead of 2 minutes
-                # Mark as timeout instead of deleting
-                self.store.update(placeholder, status='Metadata timeout', error='No peers responded after 10 minutes')
+                # Keep the row in the UI marked as timed out, but drop the
+                # torrent from the session: no monitor thread exists for it, so
+                # leaving it would let it finish metadata later with nothing
+                # tracking, completing or organizing it.
+                try:
+                    self.ses.remove_torrent(handle)
+                except Exception:
+                    pass
+                self.store.update(placeholder, status='Metadata timeout', handle=None,
+                                  error='No peers responded after 10 minutes')
                 logger.warning(f"'{placeholder}' metadata timeout after 10 minutes")
-                return placeholder  # Return anyway so UI shows it
+                # Raise (as the docstring always promised) so callers such as
+                # the RSS poller know this was NOT added and can retry.
+                raise TimeoutError(f"No metadata for '{placeholder}' after 10 minutes")
             time.sleep(0.5)
 
         ti = handle.get_torrent_info()
@@ -1044,6 +1138,13 @@ class TorrentEngine:
             else:
                 if s.paused and not t.get('vpn_paused', False):
                     handle.resume()
+                elif t.get('vpn_paused', False) and not s.paused:
+                    # libtorrent's auto-manager can quietly un-pause an
+                    # auto-managed torrent (seen live, about 5s into a VPN
+                    # drop: paused=False while vpn_paused=True). Nothing could
+                    # leave the machine anyway, because the session is bound
+                    # to loopback, but a transfer that says "paused" should be.
+                    handle.pause()
 
             # Stats
             current_time = time.time()
@@ -1407,6 +1508,8 @@ class TorrentEngine:
             else:
                 if s.paused and not t.get('vpn_paused', False):
                     handle.resume()
+                elif t.get('vpn_paused', False) and not s.paused:
+                    handle.pause()      # see _monitor_download: auto-manager un-pause
                 self.store.update(name,
                     # This thread only ever runs for a torrent already
                     # known complete - the real completion handoff from
@@ -1632,7 +1735,12 @@ class TorrentEngine:
         names = self.store.all_names()
         for name in names:
             t = self.store.get(name)
-            if not t or not t.get('magnet') or t.get('status') == 'Failed':
+            # Torrents added from a .torrent file or URL (Jackett results, file
+            # upload) have no magnet link stored, so they used to be skipped
+            # here and never re-attached after a restart: they sat in the list
+            # frozen at their last progress, and "remove + delete files" could
+            # not touch their data. They restore from saved metadata below.
+            if not t or t.get('status') == 'Failed':
                 continue
 
             save_path = t.get('plex_path') or DOWNLOAD_DIR_INCOMPLETE
@@ -1653,7 +1761,8 @@ class TorrentEngine:
                     # magnet-only add, so pull them back in from the magnet
                     # URI itself - without this the torrent has verified
                     # pieces but no way to reach peers for the rest.
-                    params.trackers = lt.parse_magnet_uri(t['magnet']).trackers
+                    params.trackers = (lt.parse_magnet_uri(t['magnet']).trackers
+                                       if t.get('magnet') else list(_TRACKERS))
                     handle = self.ses.add_torrent(params)
                 except Exception as e:
                     # A corrupt/incompatible resume blob (e.g. a libtorrent
@@ -1663,13 +1772,26 @@ class TorrentEngine:
                     logger.warning(f"Resume data unusable for '{name}', falling back to magnet re-add: {e}")
 
             try:
-                if handle is None:
+                if handle is None and t.get('magnet'):
                     magnet_params = {
                         'url': t['magnet'],
                         'save_path': save_path,
                         'storage_mode': lt.storage_mode_t(2),
                     }
                     handle = lt.add_magnet_uri(self.ses, t['magnet'], magnet_params)
+                elif handle is None and entry and 'metadata' in entry:
+                    # No magnet (added from a .torrent): re-add from the saved
+                    # metadata at the real save path. No resume blob here, so
+                    # libtorrent re-hashes, which is the correct thing for a
+                    # torrent that was moved to a library anyway.
+                    params = lt.add_torrent_params()
+                    params.ti = lt.torrent_info(entry['metadata'])
+                    params.save_path = save_path
+                    params.storage_mode = lt.storage_mode_t(2)
+                    params.trackers = list(_TRACKERS)
+                    handle = self.ses.add_torrent(params)
+                elif handle is None:
+                    raise RuntimeError("no magnet link and no saved metadata to restore it from")
                 # A torrent's saved vpn_paused/paused fields reflect
                 # whatever was true when the daemon last shut down - if
                 # that was a real kill-switch pause and VPN happens to
@@ -1935,7 +2057,9 @@ def get_status() -> DaemonStatus:
     vpn_connected, vpn_iface, vpn_ip = engine.vpn_guard.get_status()
     ses_status = engine.get_session_status()
     home_country_code = None
-    if vpn_connected and _public_ip:
+    if _public_ip:
+        # Country only (never the IP itself when unprotected), so the peer map
+        # has a home point even for users running without a VPN.
         home_country_code = engine._country_for_ip(_public_ip)[1] or None
     return DaemonStatus(
         running=engine.ses is not None,
@@ -1986,9 +2110,9 @@ def get_health() -> HealthStatus:
 def get_update_check() -> UpdateStatus:
     """
     Phase 1 update check - tells the UI whether a newer release exists on
-    GitHub. Does not download or install anything (see updater.py).
+    Codeberg. Does not download or install anything (see updater.py).
     """
-    result = check_for_update(VERSION, GITHUB_REPO)
+    result = check_for_update(VERSION, REPO_SLUG)
     return UpdateStatus(**result)
 
 
@@ -2553,6 +2677,41 @@ def serve_static(filename: str) -> FileResponse:
     return FileResponse(file_path)
 
 
+@app.get("/flags/{code}.svg", include_in_schema=False)
+def serve_flag(code: str) -> FileResponse:
+    """Country flag for the peer list, from the copy bundled in static/flags
+    (flag-icons, MIT). Served by Hydra itself so a peer list never makes the
+    browser contact a third-party image host outside the VPN-bound session.
+
+    Like /static, no API key: an <img> tag can't send one, and these are fixed
+    public images. Only a two-letter lower-case code is accepted, the path is
+    re-checked to stay inside static/flags, and the response is locked down
+    (an SVG can in principle carry script, so it may not run any if opened
+    directly).
+    """
+    if not (len(code) == 2 and code.isascii() and code.isalpha() and code.islower()):
+        raise HTTPException(status_code=404, detail="Not found")
+    flags_dir = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'flags'))
+    file_path = os.path.realpath(os.path.join(flags_dir, code + '.svg'))
+    if not file_path.startswith(flags_dir + os.sep) or not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        file_path,
+        media_type='image/svg+xml',
+        headers={
+            'Cache-Control': 'public, max-age=86400',
+            'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+            'X-Content-Type-Options': 'nosniff',
+        },
+    )
+
+
+@app.get("/", include_in_schema=False)
+def root_redirect() -> RedirectResponse:
+    """Bare https://host:8765/ used to 404; send people to the UI instead."""
+    return RedirectResponse(url="/ui")
+
+
 @app.get("/ui", response_class=HTMLResponse, include_in_schema=False)
 def web_ui() -> HTMLResponse:
     """Serve the single-page Web UI with the API key embedded."""
@@ -2677,6 +2836,7 @@ def update_config(req: ConfigUpdate) -> dict:
     try:
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(cfg, f, indent=2)
+        restrict_to_owner(CONFIG_FILE)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to write config: {e}")
     logger.info(f"Config updated via API: {list(updates.keys())}")
@@ -2709,13 +2869,8 @@ def do_search(req: SearchRequest) -> List[SearchResult]:
     mode: "jackett" (Jackett API, an indexer the user configured themselves)
           or "local" (a Hydra index server the user configured themselves).
 
-    There used to be a third mode, "online", that scraped specific named
-    public indexers directly - removed 2026-08-20 (see CHANGELOG.md).
-    Sonarr/Radarr/Jackett have operated safely for years specifically
-    because they contain no built-in knowledge of any particular indexer;
-    every source is something the user configures themselves, at arm's
-    length. Hydra matching that architecture isn't just the safer legal
-    posture, it's the actually-correct one for a general-purpose tool.
+    Every source is something the user configures themselves; Hydra has no
+    built-in knowledge of any particular indexer.
     """
     if req.mode not in ("jackett", "local"):
         raise HTTPException(status_code=400, detail=f"Unknown search mode '{req.mode}' - use 'jackett' or 'local'")

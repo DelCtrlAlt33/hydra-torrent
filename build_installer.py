@@ -53,6 +53,8 @@ pyinstaller_cmd = [
     "--add-data=hydra_daemon.py;.",
     "--add-data=hydra_tray.py;.",
     "--add-data=webview_api.py;.",
+    "--add-data=window_placement.py;.",
+    "--add-data=window_lookup.py;.",
     "--add-data=config.py;.",
     "--add-data=certs.py;.",
     "--add-data=search.py;.",
@@ -60,7 +62,6 @@ pyinstaller_cmd = [
     "--add-data=media_organizer.py;.",
     "--add-data=rss_poller.py;.",
     "--add-data=daemon_models.py;.",
-    "--add-data=network.py;.",
     "--add-data=health.py;.",
     "--add-data=updater.py;.",
     "--add-data=ssrf_guard.py;.",
@@ -84,8 +85,6 @@ pyinstaller_cmd = [
     "--hidden-import=libtorrent",
     "--hidden-import=maxminddb",
     "--hidden-import=psutil",
-    "--hidden-import=aiofiles",
-    "--hidden-import=miniupnpc",
     "--hidden-import=cryptography",
     # Entry point
     "hydra_app.py"

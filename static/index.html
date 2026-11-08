@@ -1072,6 +1072,17 @@
     .path-status.ok { color: var(--accent); }
     .path-status.warn { color: #ffa500; }
 
+    /* One short line under a field. Anything longer belongs in the docs. */
+    .field-hint { font-size: 11px; color: var(--muted); margin-top: 5px; line-height: 1.4; }
+    .acc-field > label .opt { color: var(--muted); font-weight: normal; }
+
+    /* Plex/Jellyfin folders: out of sight until they apply. */
+    .lib-folders { display: none; flex-direction: column; gap: 14px; }
+    .lib-folders.show { display: flex; }
+    .lib-folders .path-status:empty { min-height: 0; margin: 0; }   /* no reserved gap until there is a message */
+    .lib-link { font-size: 12px; color: var(--accent); text-decoration: none; }
+    .lib-link:hover { text-decoration: underline; }
+
     .secret-row { flex: 1; display: flex; gap: 8px; min-width: 0; }
     .secret-row input { flex: 1; min-width: 0; }
 
@@ -1624,14 +1635,14 @@
 <div class="titlebar pywebview-drag-region">
   <img class="titlebar-icon" src="/static/logo.png" alt="Hydra">
   <span class="titlebar-title">Hydra Torrent <span id="app-version" style="opacity:0.4;font-size:11px;font-weight:400;"></span></span>
-  <a class="titlebar-update-badge" id="titlebar-update-badge" href="#" target="_blank" rel="noopener" title="A newer version is available on GitHub"></a>
+  <a class="titlebar-update-badge" id="titlebar-update-badge" href="#" target="_blank" rel="noopener" title="A newer version is available on Codeberg"></a>
   <div class="titlebar-rates" id="titlebar-rates"></div>
   <div class="titlebar-spacer"></div>
   <div class="titlebar-controls">
     <button class="titlebar-btn minimize" onclick="window.pywebview && pywebview.api ? pywebview.api.minimize() : null" title="Minimize">
       <svg viewBox="0 0 10 10"><line x1="0" y1="5" x2="10" y2="5"/></svg>
     </button>
-    <button class="titlebar-btn maximize" onclick="window.pywebview && pywebview.api ? pywebview.api.maximize() : null" title="Maximize">
+    <button class="titlebar-btn maximize" onclick="window.pywebview && pywebview.api ? (pywebview.api.maximize(), setTimeout(syncMaximizeIcon, 200)) : null" title="Maximize">
       <svg viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none"/></svg>
     </button>
     <button class="titlebar-btn close" onclick="window.pywebview && pywebview.api ? pywebview.api.close() : null" title="Close">
@@ -1646,7 +1657,7 @@
 <header>
   <div class="logo"><span class="brand">H Y D R A</span> &nbsp;<span class="sub">T O R R E N T</span></div>
   <span class="header-version" id="header-app-version"></span>
-  <a class="update-badge" id="update-badge" href="#" target="_blank" rel="noopener" title="A newer version is available on GitHub"></a>
+  <a class="update-badge" id="update-badge" href="#" target="_blank" rel="noopener" title="A newer version is available on Codeberg"></a>
   <div class="spacer"></div>
   <div class="header-rates" id="header-rates"></div>
 </header>
@@ -1860,12 +1871,12 @@
         <div class="acc-body-inner">
           <div class="acc-field">
             <label>Plex URL</label>
-            <input type="text" id="cfg-plex-url" placeholder="http://192.168.1.x:32400">
+            <input type="text" id="cfg-plex-url" placeholder="http://192.168.1.x:32400" onchange="saveSettings(true)">
           </div>
           <div class="acc-field">
             <label>Plex Token</label>
             <div class="secret-row">
-              <input type="password" id="cfg-plex-token" placeholder="your-plex-token">
+              <input type="password" id="cfg-plex-token" placeholder="your-plex-token" onchange="saveSettings(true)">
               <button class="btn btn-sm btn-pause" onclick="toggleSecret('cfg-plex-token', this)">Show</button>
             </div>
           </div>
@@ -1889,12 +1900,12 @@
         <div class="acc-body-inner">
           <div class="acc-field">
             <label>Jellyfin URL</label>
-            <input type="text" id="cfg-jellyfin-url" placeholder="http://192.168.1.x:8096">
+            <input type="text" id="cfg-jellyfin-url" placeholder="http://192.168.1.x:8096" onchange="saveSettings(true)">
           </div>
           <div class="acc-field">
             <label>API Key</label>
             <div class="secret-row">
-              <input type="password" id="cfg-jellyfin-key" placeholder="jellyfin-api-key">
+              <input type="password" id="cfg-jellyfin-key" placeholder="jellyfin-api-key" onchange="saveSettings(true)">
               <button class="btn btn-sm btn-pause" onclick="toggleSecret('cfg-jellyfin-key', this)">Show</button>
             </div>
           </div>
@@ -1969,12 +1980,12 @@
         <div class="acc-body-inner">
           <div class="acc-field">
             <label>Indexer URL</label>
-            <input type="text" id="cfg-indexer-url" placeholder="http://192.168.1.x:9117">
+            <input type="text" id="cfg-indexer-url" placeholder="http://192.168.1.x:9117" onchange="saveSettings(true)">
           </div>
           <div class="acc-field">
             <label>Jackett API Key</label>
             <div class="secret-row">
-              <input type="password" id="cfg-jackett-key" placeholder="jackett-api-key">
+              <input type="password" id="cfg-jackett-key" placeholder="jackett-api-key" onchange="saveSettings(true)">
               <button class="btn btn-sm btn-pause" onclick="toggleSecret('cfg-jackett-key', this)">Show</button>
             </div>
           </div>
@@ -2002,56 +2013,51 @@
         <span class="acc-summary" id="acc-summary-downloads"></span>
       </div>
       <div class="acc-body">
-        <div class="acc-body-inner">
-          <div class="acc-field span2">
-            <label>Download folder</label>
+        <div class="acc-body-inner single">
+          <div class="acc-field">
+            <label>Save downloads to</label>
             <div class="secret-row">
-              <input type="text" id="cfg-download-dir" placeholder="Downloads\HydraTorrent">
+              <input type="text" id="cfg-download-dir" placeholder="Downloads\HydraTorrent" onchange="saveSettings(true)">
               <button class="btn btn-sm btn-pause" onclick="browseDownloadDir()">Browse</button>
             </div>
+            <div class="field-hint" id="download-dir-hint"></div>
           </div>
-          <div class="acc-subtext">
-            Where torrents land while downloading, kept outside Hydra's install folder so a
-            reinstall never risks your downloads. Change takes effect next time Hydra starts.
+          <!-- Plex/Jellyfin is optional, so its folders stay out of sight until
+               they apply: shown once Plex/Jellyfin is set up, once either folder
+               has a value, or when this link is clicked (see updateLibraryFolders). -->
+          <div class="acc-field" id="library-link-row">
+            <a href="#" class="lib-link" onclick="updateLibraryFolders(true); return false;">Use Plex or Jellyfin? Set up library folders &rsaquo;</a>
           </div>
-          <div style="grid-column:1/-1; display:flex; gap:10px;">
-            <button class="btn btn-sm btn-pause" onclick="detectLibraries('plex')" id="detect-plex-btn">Detect from Plex</button>
-            <button class="btn btn-sm btn-pause" onclick="detectLibraries('jellyfin')" id="detect-jellyfin-btn">Detect from Jellyfin</button>
-          </div>
-          <div class="acc-field">
-            <label>Movies path</label>
-            <input type="text" id="cfg-movies-path" placeholder="/mnt/plex/movies" oninput="_checkLibraryPath('movies')">
-            <div class="path-status" id="movies-path-status"></div>
-          </div>
-          <div class="acc-field">
-            <label>TV path</label>
-            <input type="text" id="cfg-tv-path" placeholder="/mnt/plex/tv" oninput="_checkLibraryPath('tv')">
-            <div class="path-status" id="tv-path-status"></div>
-          </div>
-          <div class="acc-subtext">
-            Downloads move here automatically once complete (if auto-move below is on), and
-            Plex/Jellyfin gets notified to scan. Use Detect above if already set up below.
-          </div>
-          <div class="acc-field span2" style="padding-top:12px; border-top:1px solid var(--border);">
-            <label>Other downloads path</label>
-            <div class="secret-row">
-              <input type="text" id="cfg-download-dir-other" placeholder="Optional - e.g. D:\Downloads\Other">
-              <button class="btn btn-sm btn-pause" onclick="browseOtherDir()">Browse</button>
+          <div class="lib-folders" id="library-folders">
+            <div class="field-hint">Finished movies and shows are moved into these folders. Put "Save downloads to" on the same drive and the move is instant.</div>
+            <div class="acc-field">
+              <label>Movies folder</label>
+              <div class="secret-row">
+                <input type="text" id="cfg-movies-path" placeholder="Not set" oninput="_checkLibraryPath('movies')" onchange="saveSettings(true)">
+                <button class="btn btn-sm btn-pause" onclick="browseLibraryDir('movies')">Browse</button>
+              </div>
+              <div class="path-status" id="movies-path-status"></div>
+            </div>
+            <div class="acc-field">
+              <label>TV folder</label>
+              <div class="secret-row">
+                <input type="text" id="cfg-tv-path" placeholder="Not set" oninput="_checkLibraryPath('tv')" onchange="saveSettings(true)">
+                <button class="btn btn-sm btn-pause" onclick="browseLibraryDir('tv')">Browse</button>
+              </div>
+              <div class="path-status" id="tv-path-status"></div>
+            </div>
+            <div class="acc-toggle-row">
+              <label class="switch"><input type="checkbox" id="cfg-auto-move" onchange="saveSettings(true)"><span class="track"></span></label>
+              <div>Move finished movies and shows into those folders<div class="hint">Everything else stays where it downloaded.</div></div>
             </div>
           </div>
-          <div class="acc-subtext">
-            Where downloads land once complete if they're not going into Plex/Jellyfin - a
-            non-video file (ISO, music, archive), or a video with no Movies/TV path set above.
-            No Plex/Jellyfin at all? Just set this one and it works as a normal download folder.
-            Leave blank to leave them in the download folder above.
-          </div>
-          <div class="acc-field span2" style="padding-top:12px; border-top:1px solid var(--border);">
+          <!-- Kept (hidden) so a folder set by an older version is not lost when
+               settings are saved. Anything that is not a movie or show for Plex
+               simply stays where it downloaded. -->
+          <input type="hidden" id="cfg-download-dir-other">
+          <div class="acc-field">
             <label>Seed ratio</label>
             <input type="text" id="cfg-seed-ratio" placeholder="0 = seed forever  (e.g. 2.0)" style="max-width:220px;">
-          </div>
-          <div class="acc-toggle-row">
-            <label class="switch"><input type="checkbox" id="cfg-auto-move" onchange="saveSettings(true)"><span class="track"></span></label>
-            <div>Auto-move &amp; notify Plex/Jellyfin when complete</div>
           </div>
         </div>
       </div>
@@ -2109,7 +2115,7 @@
         <div class="acc-body-inner single">
           <div class="acc-subtext">
             Found something broken? Report it with your version, platform, and connection health
-            already filled in. Nothing is sent anywhere until you actually submit it on GitHub -
+            already filled in. Nothing is sent anywhere until you actually submit it on Codeberg -
             this just opens a pre-filled issue in a new tab.
           </div>
           <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -3290,11 +3296,17 @@ async function refreshPulseMap() {
         .then(peers => peers.map(p => ({ ...p, _status: t.status })))
         .catch(() => [])
     ));
-    const allPeers = results.flat();
+    // Peers still mid-handshake aren't connections yet (nothing is known about
+    // them, not even their client), so they are left off the map and out of the
+    // "connected" count.
+    const everyPeer = results.flat();
+    const allPeers = everyPeer.filter(p => !p.connecting);
+    const connectingCount = everyPeer.length - allPeers.length;
     HydraMap.setPeers(allPeers);
     PulseTicker.onPeersUpdate(allPeers);
     document.getElementById('status-strip-peers').textContent = allPeers.length;
-    label.textContent = `${allPeers.length} peers across ${active.length} transfer${active.length === 1 ? '' : 's'}`;
+    label.textContent = `${allPeers.length} peers across ${active.length} transfer${active.length === 1 ? '' : 's'}`
+      + (connectingCount ? ` · ${connectingCount} connecting` : '');
   } catch (e) {
     // leave last-known map state on transient failure
   }
@@ -3327,6 +3339,8 @@ async function pollStatus() {
       const html = `EXPOSED<span class="vpn-ip"> (No VPN)</span>`;
       if (tabsVpnTxt) tabsVpnTxt.innerHTML = html;
       if (statusStripVpn) statusStripVpn.textContent = 'EXPOSED';
+      // No VPN still has a real location; without a home point the map draws nothing.
+      HydraMap.setHome(vpn.country_code);
     }
 
     // Settings tab's VPN section: same real data, just also surfaced
@@ -3962,6 +3976,62 @@ function toast(msg, type = 'info') {
 // ═══════════════════════════════════════════════════════════════════════════
 // Settings
 // ═══════════════════════════════════════════════════════════════════════════
+// ── Title bar: the maximize button becomes "restore" while maximized ─────────
+const _MAX_ICON = '<svg viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none"/></svg>';
+const _RESTORE_ICON = '<svg viewBox="0 0 10 10"><rect x="0.5" y="2.5" width="7" height="7" fill="none"/>'
+                    + '<path d="M2.5 2.5V0.5H9.5V7.5H7.5" fill="none"/></svg>';
+let _lastMaxState = null;
+async function syncMaximizeIcon() {
+  const api = window.pywebview && window.pywebview.api;
+  if (!api || !api.is_maximized) return;     // plain browser tab: nothing to sync
+  let maximized;
+  try { maximized = await api.is_maximized(); } catch (e) { return; }
+  if (maximized === _lastMaxState) return;
+  _lastMaxState = maximized;
+  const btn = document.querySelector('.titlebar-btn.maximize');
+  if (!btn) return;
+  btn.innerHTML = maximized ? _RESTORE_ICON : _MAX_ICON;
+  btn.title = maximized ? 'Restore' : 'Maximize';
+}
+
+// ── Downloads: Plex/Jellyfin folders only when they apply ───────────────────
+// A plain torrent client needs one folder. Movies/TV (and the explanation of why
+// "Save downloads to" matters for Plex) only appear once Plex/Jellyfin is set up,
+// once either folder has a value, or when the user clicks the link. Once shown it
+// stays shown for the session, so rows never flicker in and out.
+const _HINT_PLAIN = 'Everything downloads here and stays here. A change applies after Hydra restarts.';
+const _HINT_PLEX = 'Files stay here while downloading, so Plex never sees half-finished ones. A change applies after Hydra restarts.';
+let _libraryShown = false;
+function updateLibraryFolders(forceShow) {
+  const val = id => (document.getElementById(id)?.value || '').trim();
+  if (forceShow || val('cfg-plex-url') || val('cfg-jellyfin-url') || val('cfg-movies-path') || val('cfg-tv-path')) {
+    _libraryShown = true;
+  }
+  document.getElementById('library-folders')?.classList.toggle('show', _libraryShown);
+  const link = document.getElementById('library-link-row');
+  if (link) link.style.display = _libraryShown ? 'none' : '';
+  const hint = document.getElementById('download-dir-hint');
+  if (hint) hint.textContent = _libraryShown ? _HINT_PLEX : _HINT_PLAIN;
+}
+
+// When the Movies folder is known and "Save downloads to" is empty, suggest a
+// sibling "incomplete" folder: same drive/share means the move on completion is
+// an instant rename instead of a slow copy. Only fills an EMPTY box.
+function _suggestDownloadFolder() {
+  const dlInput = document.getElementById('cfg-download-dir');
+  const moviesPath = document.getElementById('cfg-movies-path')?.value.trim();
+  if (!dlInput || dlInput.value.trim() || !moviesPath) return false;
+  const sep = moviesPath.includes('\\') ? '\\' : '/';
+  const cut = moviesPath.replace(/[\\/]+$/, '').lastIndexOf(sep);
+  if (cut <= 0) return false;     // no parent folder to put it beside
+  dlInput.value = moviesPath.replace(/[\\/]+$/, '').slice(0, cut) + sep + 'incomplete';
+  return true;
+}
+
+// True once the saved settings have been copied into the boxes. Until then the
+// boxes are empty, and saving them would look like "the user cleared everything".
+let _settingsLoaded = false;
+
 async function loadSettings() {
   try {
     const r = await fetch(BASE + '/config', { headers: HEADERS });
@@ -3981,6 +4051,14 @@ async function loadSettings() {
     document.getElementById('cfg-seed-ratio').value     = cfg.seed_ratio > 0 ? cfg.seed_ratio : '';
     document.getElementById('cfg-api-key').value        = cfg.daemon_api_key   || '';
     document.getElementById('cfg-vpn-required').checked = cfg.vpn_required === true;
+    _settingsLoaded = true;
+    updateLibraryFolders();
+    // Check the saved Movies/TV folders right away, not only while typing: a
+    // folder this computer can't open (for example Plex's own /data/movies) is
+    // exactly the case the warning exists for, and it used to stay silent until
+    // someone edited the box.
+    _checkLibraryPath('movies');
+    _checkLibraryPath('tv');
     updateAccordionSummaries();
   } catch (e) {
     toast('Settings load failed: ' + e.message, 'err');
@@ -4039,6 +4117,10 @@ function setSummary(key, text, state) {
 async function testConnection(service) {
   const resultEl = document.getElementById('test-result-' + service);
   if (resultEl) { resultEl.className = 'acc-result'; resultEl.textContent = 'Checking...'; }
+  // /health only knows what is SAVED. Save what is typed in the boxes first,
+  // otherwise "Test Connection" reports "Not configured" for a URL/token the
+  // user just entered and has not saved yet.
+  await saveSettings(true);
   await loadHealth();
   const badge = document.getElementById('health-' + service);
   if (!badge || !resultEl) return;
@@ -4061,6 +4143,7 @@ async function loadHealth() {
     renderHealthBadge('health-jackett', integrationHealthState(data.jackett));
     renderHealthBadge('health-plex', integrationHealthState(data.plex));
     renderHealthBadge('health-jellyfin', integrationHealthState(data.jellyfin));
+    _maybeAutoFill(data);
   } catch (e) {
     const failed = { cls: 'exposed', text: 'Check failed' };
     renderHealthBadge('health-vpn', failed);
@@ -4113,9 +4196,9 @@ function renderHealthBadge(id, state) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Bug reporting: opens a pre-filled GitHub issue with version/platform/
+// Bug reporting: opens a pre-filled Codeberg issue with version/platform/
 // health already in the body, and a separate clipboard copy for the log
-// (GitHub issue URLs have a practical length cap, nowhere near enough for
+// (Issue-form URLs have a practical length cap, nowhere near enough for
 // a real log excerpt) - reads already-rendered health badges instead of a
 // fresh fetch, same approach summarizeHealth() already uses.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -4144,7 +4227,7 @@ async function reportBug() {
     + `**Diagnostics (auto-filled):**\n${diagnostics}\n\n`
     + `Got a diagnostic log? Settings → Help & Feedback → Copy Diagnostic Log, then paste it below:\n\n\`\`\`\n\n\`\`\`\n`;
 
-  const url = 'https://github.com/DelCtrlAlt33/hydra-torrent/issues/new'
+  const url = 'https://codeberg.org/DelCtrlAlt33/hydra-torrent/issues/new'
     + '?title=' + encodeURIComponent('Bug: ')
     + '&body=' + encodeURIComponent(body);
   window.open(url, '_blank', 'noopener');
@@ -4159,7 +4242,7 @@ async function copyDiagnosticLog() {
     const text = (data.lines || []).join('\n');
     await navigator.clipboard.writeText(text);
     if (resultEl) { resultEl.textContent = `Copied ${(data.lines || []).length} log lines to clipboard`; resultEl.className = 'acc-result ok'; }
-    toast('Diagnostic log copied - paste it into your GitHub issue', 'ok');
+    toast('Diagnostic log copied - paste it into your Codeberg issue', 'ok');
   } catch (e) {
     if (resultEl) { resultEl.textContent = 'Could not copy log: ' + e.message; resultEl.className = 'acc-result err'; }
     toast('Could not copy log: ' + e.message, 'err');
@@ -4187,9 +4270,18 @@ async function saveSettings(silent = false) {
     const ratioVal = parseFloat(ratioRaw);
     body.seed_ratio = (!isNaN(ratioVal) && ratioVal >= 0) ? ratioVal : 0;
   }
-  // Don't overwrite existing values with blank strings
+  // Don't overwrite existing values with blank strings - EXCEPT the connection
+  // and library fields, where blank means "the user cleared it". Skipping those
+  // too meant a cleared Plex/Jackett box was never saved, the old values
+  // stayed, and the health check kept saying "Connected". Only once the real
+  // settings have been loaded into the boxes: before that an empty box just
+  // means "not loaded yet", and saving it would wipe the saved value.
+  const CLEARABLE = ['plex_url', 'plex_token', 'jellyfin_url', 'jellyfin_api_key',
+                     'indexing_server', 'jackett_api_key', 'media_dir_movies', 'media_dir_tv'];
   for (const k in body) {
-    if (typeof body[k] === 'string' && body[k] === '') delete body[k];
+    if (typeof body[k] === 'string' && body[k] === '' && !(_settingsLoaded && CLEARABLE.includes(k))) {
+      delete body[k];
+    }
   }
   try {
     const r = await fetch(BASE + '/config', {
@@ -4200,6 +4292,7 @@ async function saveSettings(silent = false) {
     if (r.ok) {
       const d = await r.json();
       if (!silent) toast('Saved: ' + (d.saved.length ? d.saved.join(', ') : 'no changes'), 'ok');
+      updateLibraryFolders();   // connecting Plex/Jellyfin reveals the library folders
       updateAccordionSummaries();
       // Connection Health used to only re-check when the Settings tab
       // first opened or on manual Refresh - saving a changed Plex/
@@ -4230,69 +4323,72 @@ async function browseDownloadDir() {
   }
 }
 
-async function browseOtherDir() {
+async function browseLibraryDir(which) {
   if (!window.pywebview?.api?.browse_folder) {
     toast('Folder browsing is only available in the desktop app, type the path instead', 'info');
     return;
   }
-  const current = document.getElementById('cfg-download-dir-other')?.value || '';
+  const inputId = which === 'movies' ? 'cfg-movies-path' : 'cfg-tv-path';
+  const current = document.getElementById(inputId)?.value || '';
   const picked = await window.pywebview.api.browse_folder(current);
   if (picked) {
-    document.getElementById('cfg-download-dir-other').value = picked;
+    document.getElementById(inputId).value = picked;
+    _checkLibraryPath(which, picked);
     saveSettings(true);
   }
 }
 
-// Pulls the real library names + paths straight from Plex/Jellyfin's own
-// API (using whatever URL/token is already saved below) instead of making
-// someone hand-type a folder path they may not know off the top of their
-// head. Matches by library type (movie vs show/tvshows) - if a server has
-// more than one library of the same type, picks the first one found.
-async function detectLibraries(source) {
-  const btn = document.getElementById(`detect-${source}-btn`);
-  const label = source === 'plex' ? 'Plex' : 'Jellyfin';
-  const origText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Detecting…';
+// Quietly fill in the Movies and TV folders once Plex/Jellyfin is connected.
+// There used to be "Detect" buttons for this; people could not tell what they
+// did. Now it just happens, with two safety rules so it can never cause
+// confusion: it only ever fills an EMPTY box, and only with a folder this
+// computer can actually open. If Plex reports a path this PC can't see (for
+// example one inside Docker), nothing is filled in and nothing is shown - the
+// user just picks the folder themselves with Browse.
+const _autoFillTried = {};
+async function autoFillLibraries(source) {
+  if (!_settingsLoaded || _autoFillTried[source]) return;
+  const movies = document.getElementById('cfg-movies-path');
+  const tv = document.getElementById('cfg-tv-path');
+  if (!movies || !tv || (movies.value.trim() && tv.value.trim())) return;
+  _autoFillTried[source] = true;
   try {
     const r = await fetch(`${BASE}/${source}/libraries`, { headers: HEADERS });
-    const d = await r.json();
-    if (!r.ok) {
-      toast(d.detail || `Couldn't reach ${label}`, 'err');
-      return;
+    if (!r.ok) return;
+    const libs = (await r.json()).libraries || [];
+    const picks = [
+      ['movies', movies, libs.find(l => ['movie', 'movies'].includes((l.type || '').toLowerCase()))],
+      ['tv', tv, libs.find(l => ['show', 'tvshows', 'shows'].includes((l.type || '').toLowerCase()))],
+    ];
+    let filled = false;
+    for (const [which, input, lib] of picks) {
+      if (!lib || !lib.path || input.value.trim()) continue;
+      const c = await fetch(`${BASE}/check-path?path=${encodeURIComponent(lib.path)}`, { headers: HEADERS });
+      if (!(await c.json()).exists) continue;
+      input.value = lib.path;
+      _checkLibraryPath(which, lib.path);
+      filled = true;
     }
-    const libs = d.libraries || [];
-    const movieLib = libs.find(l => ['movie', 'movies'].includes((l.type || '').toLowerCase()));
-    const tvLib = libs.find(l => ['show', 'tvshows', 'shows'].includes((l.type || '').toLowerCase()));
-
-    const found = [];
-    if (movieLib) {
-      document.getElementById('cfg-movies-path').value = movieLib.path;
-      found.push(`${movieLib.name} → Movies path`);
-      await _checkLibraryPath('movies', movieLib.path);
-    }
-    if (tvLib) {
-      document.getElementById('cfg-tv-path').value = tvLib.path;
-      found.push(`${tvLib.name} → TV path`);
-      await _checkLibraryPath('tv', tvLib.path);
-    }
-
-    if (!movieLib && !tvLib) {
-      toast(`No Movies or TV library found on ${label}`, 'info');
-    } else {
-      toast(`Found: ${found.join(', ')}`, 'ok');
+    if (filled) {
       _suggestDownloadFolder();
+      updateLibraryFolders();
+      saveSettings(true);
+      toast(`Filled in your library folders from ${source === 'plex' ? 'Plex' : 'Jellyfin'}`, 'ok');
     }
   } catch (e) {
-    toast(`Couldn't reach ${label}: ${e.message}`, 'err');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = origText;
+    /* silent on purpose */
+  }
+}
+
+function _maybeAutoFill(health) {
+  for (const [source, state] of [['plex', health.plex], ['jellyfin', health.jellyfin]]) {
+    if (state && state.reachable) autoFillLibraries(source);
+    else _autoFillTried[source] = false;   // disconnected: try again when it comes back
   }
 }
 
 // Debounced live check (typing) vs. immediate check (right after
-// detectLibraries fills a field) - same underlying /check-path call
+// autoFillLibraries fills a field) - same underlying /check-path call
 // either way. A path a media server reports isn't guaranteed to exist
 // from Hydra's own point of view (see /check-path's docstring), so this
 // is real verification, not just cosmetic.
@@ -4312,7 +4408,7 @@ function _checkLibraryPath(which, overridePath) {
         statusEl.textContent = '✓ Found';
         statusEl.className = 'path-status ok';
       } else {
-        statusEl.textContent = "⚠ Can't find this folder here - if Plex/Jellyfin runs in Docker, this may be its path inside the container, not the real one on this machine";
+        statusEl.textContent = "⚠ This computer can't open that folder. Use Browse to pick it.";
         statusEl.className = 'path-status warn';
       }
     } catch (e) {
@@ -4323,25 +4419,6 @@ function _checkLibraryPath(which, overridePath) {
   if (overridePath !== undefined) return run();
   clearTimeout(_pathCheckTimers[which]);
   _pathCheckTimers[which] = setTimeout(run, 500);
-}
-
-// Once Movies path is known, suggest a sibling "incomplete" folder as the
-// download folder - same mount means the completion move is an instant
-// rename instead of a slow cross-filesystem copy (see the subtext above
-// the Movies/TV fields). Only fills it in if it's currently empty, never
-// overwrites a value someone already set.
-function _suggestDownloadFolder() {
-  const dlInput = document.getElementById('cfg-download-dir');
-  const moviesPath = document.getElementById('cfg-movies-path')?.value.trim();
-  if (!dlInput || dlInput.value.trim() || !moviesPath) return;
-  const sep = moviesPath.includes('\\') ? '\\' : '/';
-  const cut = moviesPath.lastIndexOf(sep);
-  if (cut <= 0) return;  // no separator at all, or path is just "/movies" with nothing above it
-  const parent = moviesPath.slice(0, cut);
-  dlInput.value = parent + sep + 'incomplete';
-  dlInput.style.transition = 'background-color 1.5s';
-  dlInput.style.backgroundColor = 'rgba(0,255,65,0.12)';
-  setTimeout(() => { dlInput.style.backgroundColor = ''; }, 1500);
 }
 
 function toggleSecret(id, btn) {
@@ -4416,7 +4493,7 @@ function renderRssRules(rules) {
         <span class="tx-dot"></span>
         <span class="autodl-name" title="${escHtml(r.name)}">${escHtml(r.name)}</span>
         <span class="autodl-tag">${escHtml(r.quality)}${seasonTag}${startTag} &middot; ${modeLbl}</span>
-        <span class="autodl-stat">${r.matched_count} added</span>
+        <span class="autodl-stat" style="width:auto;min-width:96px">${r.matched_count} added${r.pending_adds ? ` &middot; ${r.pending_adds} adding` : ''}</span>
         <span class="autodl-stat">${escHtml(checked)}</span>
         <span class="tx-actions" onclick="event.stopPropagation()">
           <button class="tx-icon-btn" title="Check now" onclick="checkNowRule('${r.id}')">&#8635;</button>
@@ -4591,7 +4668,13 @@ async function _pollCheckNowResult(id, beforeCount, beforeChecked, attempt) {
       const rule = await r.json();
       if (rule.last_checked !== beforeChecked) {
         const added = rule.matched_count - beforeCount;
-        toast(added > 0 ? `Found ${added} new match${added === 1 ? '' : 'es'}` : 'No new matches', added > 0 ? 'ok' : 'info');
+        if (rule.pending_adds > 0) {
+          // The check is done but the matches are still being added (this can
+          // take minutes if a magnet has no peers); the rule row shows progress.
+          toast(`Checked, adding ${rule.pending_adds} match${rule.pending_adds === 1 ? '' : 'es'}…`, 'info');
+        } else {
+          toast(added > 0 ? `Found ${added} new match${added === 1 ? '' : 'es'}` : 'No new matches', added > 0 ? 'ok' : 'info');
+        }
         loadRssRules();
         return;
       }
@@ -4753,18 +4836,26 @@ function _peersHtml(peers) {
   }
 
   const hydraCount = peers.filter(p => p.is_hydra).length;
-  const header = `<div class="peer-panel-header">HYDRA://SWARM &middot; ${peers.length} peers${hydraCount ? ` &middot; ${hydraCount} fellow Hydra` : ''}</div>`;
+  const connectingCount = peers.filter(p => p.connecting).length;
+  const establishedCount = peers.length - connectingCount;
+  const header = `<div class="peer-panel-header">HYDRA://SWARM &middot; ${establishedCount} peers${connectingCount ? ` &middot; ${connectingCount} connecting` : ''}${hydraCount ? ` &middot; ${hydraCount} fellow Hydra` : ''}</div>`;
 
-  const rows = peers.map(p => {
+  // Established peers first; ones still handshaking go to the bottom.
+  const ordered = [...peers].sort((a, b) => (a.connecting ? 1 : 0) - (b.connecting ? 1 : 0));
+  const rows = ordered.map(p => {
     const code = (p.country_code || '').toLowerCase();
-    const flagHtml = code
-      ? `<img class="peer-flag-img" src="https://flagcdn.com/24x18/${code}.png" width="24" height="18"
+    // Flags are served by Hydra itself (/flags/xx.svg, bundled flag-icons), so
+    // the browser never contacts a third-party image host outside the VPN-bound
+    // session. If one fails to load, it falls back to the two-letter badge.
+    const flagHtml = /^[a-z]{2}$/.test(code)
+      ? `<img class="peer-flag-img" src="/flags/${code}.svg" width="24" height="18"
            alt="${escHtml(p.country_code)}" title="${escHtml(p.country)}"
            onerror="_onFlagError(this, ${escHtml(JSON.stringify(p.country_code))})">`
       : `<span class="peer-flag">??</span>`;
     const hydraTag = p.is_hydra ? '<span class="peer-hydra-tag">★ HYDRA</span>' : '';
-    const clientStr = p.client && p.client !== 'Unknown' ? p.client : '-';
-    return `<tr>
+    const clientStr = p.connecting ? 'connecting…'
+      : (p.client && p.client !== 'Unknown' ? p.client : 'unknown');
+    return `<tr${p.connecting ? ' style="opacity:0.55"' : ''}>
       <td>${flagHtml}</td>
       <td>${escHtml(p.ip)}</td>
       <td class="num">${p.port}</td>
@@ -4852,6 +4943,21 @@ document.addEventListener('DOMContentLoaded', () => {
   loadRssRules();
   setInterval(loadRssRules, 30000);
 
+  // Keep the maximize/restore icon in step with the real window state (cheap
+  // call; does nothing outside the desktop app).
+  syncMaximizeIcon();
+  setInterval(syncMaximizeIcon, 500);
+
+  // Keep Connection Health honest while the Settings tab is open: re-check
+  // every 20s so a service that goes down (or comes back) shows up without
+  // pressing Refresh. Each check is a real request, so skip it when the
+  // tab isn't the one being looked at.
+  setInterval(() => {
+    if (document.hidden) return;
+    if (document.querySelector('.tab.active')?.dataset.tab !== 'settings') return;
+    loadHealth();
+  }, 20000);
+
   // Keep any open swarm panels live without hammering the endpoint on every
   // WebSocket transfer update (which can fire up to 10x/sec).
   setInterval(() => {
@@ -4870,7 +4976,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 // Update check: Phase 1 only, tell the user, link to the release, never
 // download or install anything. Checked once per app open, not polled;
-// this hits GitHub's API, not a local endpoint. Silent when there's
+// this hits Codeberg's API, not a local endpoint. Silent when there's
 // nothing to report, same as the health panel's "not configured" state.
 // ═══════════════════════════════════════════════════════════════════════════
 // Matches #pane-transfers' own max-width (1400px) plus margin for the
@@ -4936,7 +5042,7 @@ async function checkForUpdate() {
       titlebarBadge.classList.add('visible');
     }
   } catch (e) {
-    // Offline / GitHub unreachable: say nothing, don't nag.
+    // Offline / Codeberg unreachable: say nothing, don't nag.
   }
 }
 </script>

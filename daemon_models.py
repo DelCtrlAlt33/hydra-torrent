@@ -217,6 +217,7 @@ class PeerInfo(BaseModel):
     total_uploaded: int      # bytes, this session
     progress: float          # 0-100, how much of the torrent this peer has
     is_hydra: bool            # true if this peer is also running Hydra
+    connecting: bool = False  # handshake not finished yet: nothing is known about this peer
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +237,7 @@ class RssRule(BaseModel):
     last_checked: float = 0.0
     matched_count: int = 0
     matched_titles: List[str] = []
+    pending_adds: int = 0             # matches found by the last check that are still being added
 
 
 class AddRssRuleRequest(BaseModel):

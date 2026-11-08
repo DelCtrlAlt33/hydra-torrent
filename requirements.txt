@@ -1,15 +1,27 @@
-requests
-defusedxml
-miniupnpc
-aiofiles
-libtorrent>=2.0.11
-maxminddb
-Pillow
-cryptography
-fastapi
-python-multipart
-uvicorn[standard]
-pydantic>=2.0
-websockets
-psutil
-pystray
+# Exact versions, all verified together (full test suite + a working Windows build).
+# Unpinned, a fresh install or rebuild pulls whatever is newest that day, and a
+# new release of any of these can quietly break the app. Dependabot (see
+# .github/dependabot.yml) opens a weekly PR to bump them, so updates are
+# deliberate and tested instead of accidental.
+requests==2.34.2
+defusedxml==0.7.1
+libtorrent==2.1.1
+maxminddb==3.2.0
+cryptography==50.0.2
+fastapi==0.146.0
+python-multipart==0.0.32
+uvicorn[standard]==0.54.0
+pydantic==2.14.1
+psutil==7.2.2
+
+# websockets dropped Python 3.10 in its newest release, so 3.10 gets the newest
+# one that still supports it.
+websockets==17.2; python_version >= "3.11"
+websockets==16.1.1; python_version < "3.11"
+
+# Windows tray icon only (hydra_tray.py also needs winreg). Not installed on
+# Linux/Docker: nothing there imports them, and Pillow has no prebuilt Linux
+# wheel for its newest releases, so installing it would try to compile it.
+pystray==0.19.5; sys_platform == "win32"
+Pillow==13.0.0; sys_platform == "win32" and python_version >= "3.11"
+Pillow==12.3.0; sys_platform == "win32" and python_version < "3.11"

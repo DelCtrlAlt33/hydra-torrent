@@ -23,7 +23,7 @@ _TEST_BASE = tempfile.mkdtemp(prefix="hydra_test_")
 os.environ["HYDRA_BASE"] = _TEST_BASE
 
 # config.py falls back to a hardcoded real network share
-# (\\192.168.20.4\Plex\...) when no hydra_config.json is present. Without
+# (\\192.168.1.4\Plex\...) when no hydra_config.json is present. Without
 # this, every media_organizer test that builds a destination path would
 # try to os.makedirs() onto that real NAS share and fail (or worse,
 # succeed against production infrastructure). Seed a config that keeps
