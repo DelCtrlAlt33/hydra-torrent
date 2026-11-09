@@ -168,3 +168,41 @@ def test_one_slow_or_failing_release_does_not_block_the_others(poller_factory):
     poller._check_rule(rule)
     assert rule["matched_titles"] == ["Show.S02.1080p.B"]
     assert rule["matched_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 2026-11-10 audit: releases offered only as a .torrent link were skipped, so
+# a rule against an indexer that never returns magnets could not match.
+# ---------------------------------------------------------------------------
+
+def test_release_with_only_a_torrent_link_is_added_through_the_url_adder(tmp_path, monkeypatch):
+    monkeypatch.setattr(rss_poller, "load_config",
+                        lambda: {"indexing_server": "http://jackett.invalid", "jackett_api_key": "k"})
+    monkeypatch.setattr(rss_poller, "search_jackett", lambda *a, **k: [
+        {"filename": "Show.S01.1080p.WEB", "magnet": None,
+         "torrent_url": "http://jackett.invalid/dl/1.torrent", "seeders": 5},
+    ])
+    magnets, urls = [], []
+    poller = rss_poller.RssPoller(magnets.append, rules_path=str(tmp_path / "rules.json"),
+                                  add_url_fn=urls.append)
+    rule = poller.add_rule("Show", "1080p")
+
+    poller._check_rule(rule)
+
+    assert urls == ["http://jackett.invalid/dl/1.torrent"]
+    assert magnets == []
+    assert rule["matched_titles"] == ["Show.S01.1080p.WEB"]
+
+
+def test_torrent_link_only_release_is_skipped_without_a_url_adder(poller_factory):
+    added = []
+    poller = poller_factory(added.append, [
+        {"filename": "Show.S01.1080p.WEB", "magnet": None,
+         "torrent_url": "http://jackett.invalid/dl/1.torrent", "seeders": 5},
+    ])
+    rule = poller.add_rule("Show", "1080p")
+
+    poller._check_rule(rule)
+
+    assert added == []
+    assert rule["matched_titles"] == []

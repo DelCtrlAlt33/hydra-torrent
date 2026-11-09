@@ -33,6 +33,16 @@ Restart Hydra afterwards. **Tailscale** is not treated as a VPN, because without
 
 Most VPN providers give you either a WireGuard or OpenVPN config file. Set it up on the machine where Hydra runs and Hydra handles the rest.
 
+### WireGuard on Linux: one permission Hydra needs
+
+Hydra checks the age of the last WireGuard handshake so it can tell a tunnel that is "up" but dead from one that works. Reading that needs root, so `install.sh` adds a rule that lets the `hydra` user run exactly one command through sudo:
+
+```
+hydra ALL=(root) NOPASSWD: /usr/bin/wg show * latest-handshakes, /bin/wg show * latest-handshakes
+```
+
+It lives in `/etc/sudoers.d/hydra-wg`. If you installed before this rule existed, re-run `sudo bash install.sh`. Without it Hydra still treats a WireGuard interface that is up as connected, it just cannot notice a silently dead tunnel.
+
 ### PIA (Private Internet Access)
 
 PIA's WireGuard tokens expire every 24 hours, so you need their official script to auto-reconnect:

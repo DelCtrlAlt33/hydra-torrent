@@ -236,3 +236,69 @@ def test_prefers_first_ipv4_address_and_ignores_ipv6():
         iface, ip = vpn_guard.detect_vpn_interface()
 
     assert ip == "10.8.0.9"
+
+
+# ---------------------------------------------------------------------------
+# 2026-11-10 audit: a fresh Linux install could never see a WireGuard VPN, and
+# a VPN that came back on a new address was not noticed.
+# ---------------------------------------------------------------------------
+
+def test_wg_handshake_sudo_refusing_is_unknown_not_dead(monkeypatch):
+    # No sudoers rule for the service user (every install that did not get one
+    # by hand): 'wg show' is denied, then sudo itself refuses. That is "cannot
+    # check", and used to be reported as "tunnel is dead".
+    monkeypatch.setattr(vpn_guard.os, "name", "posix")
+    monkeypatch.setattr(vpn_guard, "_warned_cannot_verify", set())
+    denied = _cmd_result(returncode=1, stderr="Unable to access interface: Operation not permitted")
+    refused = _cmd_result(returncode=1, stderr="sudo: a password is required\n")
+    with patch("vpn_guard.subprocess.run", side_effect=[denied, refused]) as mock_run:
+        assert vpn_guard._wg_handshake_ok("wg0") is True
+    assert mock_run.call_args_list[1].args[0][:2] == ["sudo", "-n"], "sudo must never be able to prompt"
+
+
+def test_wg_handshake_still_false_when_wg_itself_fails_under_sudo(monkeypatch):
+    # sudo worked, wg did not (e.g. not a WireGuard interface): unchanged.
+    monkeypatch.setattr(vpn_guard.os, "name", "posix")
+    denied = _cmd_result(returncode=1, stderr="Unable to access interface: Operation not permitted")
+    wg_failed = _cmd_result(returncode=1, stderr="Unable to access interface: No such device")
+    with patch("vpn_guard.subprocess.run", side_effect=[denied, wg_failed]):
+        assert vpn_guard._wg_handshake_ok("wg0") is False
+
+
+def _run_guard_through(statuses):
+    """Feed VPNGuard a sequence of get_status() results (the first is consumed
+    by start()) and return the callbacks it fired."""
+    guard = vpn_guard.VPNGuard(check_interval=0.01)
+    remaining = list(statuses)
+    fired = []
+
+    def fake_status():
+        status = remaining.pop(0)
+        if not remaining:
+            guard._stop.set()
+        return status
+
+    guard.get_status = fake_status
+    with patch("vpn_guard._win_notify_thread"):
+        guard.start(lambda connected, iface, ip: fired.append((connected, iface, ip)))
+        guard._thread.join(timeout=5)
+    return fired
+
+
+def test_guard_reports_a_new_vpn_address_while_still_connected():
+    fired = _run_guard_through([
+        (True, "wg0", "10.0.0.5"),
+        (True, "wg0", "10.0.0.5"),     # nothing changed: no callback
+        (True, "wg0", "10.9.9.9"),     # reconnected between two polls
+    ])
+    assert fired == [(True, "wg0", "10.9.9.9")]
+
+
+def test_guard_still_reports_plain_drop_and_reconnect_once_each():
+    fired = _run_guard_through([
+        (True, "wg0", "10.0.0.5"),
+        (False, None, None),
+        (False, None, None),
+        (True, "wg0", "10.0.0.5"),
+    ])
+    assert fired == [(False, None, None), (True, "wg0", "10.0.0.5")]

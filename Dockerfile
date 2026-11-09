@@ -16,6 +16,6 @@ ENV HYDRA_BASE=/data
 
 RUN mkdir -p /data/certs /data/downloads
 
-EXPOSE 8765
+EXPOSE 8765 6001 6001/udp
 
 CMD ["python3", "hydra_daemon.py"]

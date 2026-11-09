@@ -107,6 +107,28 @@ fi
 # Set ownership
 chown -R hydra:hydra "$INSTALL_DIR"
 
+# Let the hydra user read WireGuard handshake times, and nothing else.
+# "wg show" needs root, and Hydra uses the handshake age to notice a tunnel
+# that is still "up" but has silently died. Without this rule Hydra cannot
+# check, and just trusts that an "up" WireGuard interface works. Harmless when
+# WireGuard is not installed (the rule simply never matches anything). Only
+# written if sudo is present, and removed again if it fails validation, so a
+# bad file can never lock anyone out of sudo.
+if command -v visudo &>/dev/null && [ -d /etc/sudoers.d ]; then
+  echo -n "Allowing Hydra to read WireGuard status... "
+  SUDOERS_FILE=/etc/sudoers.d/hydra-wg
+  cat > "$SUDOERS_FILE" <<'EOF'
+hydra ALL=(root) NOPASSWD: /usr/bin/wg show * latest-handshakes, /bin/wg show * latest-handshakes
+EOF
+  chmod 440 "$SUDOERS_FILE"
+  if visudo -cf "$SUDOERS_FILE" &>/dev/null; then
+    echo -e "${GREEN}ok${NC}"
+  else
+    rm -f "$SUDOERS_FILE"
+    echo -e "${YELLOW}skipped${NC}"
+  fi
+fi
+
 # Generate systemd service
 echo -n "Creating systemd service... "
 cat > /etc/systemd/system/hydra-torrent.service <<EOF

@@ -32,10 +32,16 @@ class RssPoller:
         Called when a matching torrent should be added.  In the daemon this
         wraps engine.add_magnet(); in peer.pyw it spawns a download_torrent()
         thread.
+    add_url_fn: optional callable(torrent_url: str) -> None
+        Same, for a release the indexer offers only as a .torrent download
+        link (no magnet). Without it such releases are skipped, which is what
+        always happened before: a rule against an indexer that never returns
+        magnets (most private trackers) could not match anything.
     """
 
-    def __init__(self, add_magnet_fn, rules_path: Optional[str] = None) -> None:
+    def __init__(self, add_magnet_fn, rules_path: Optional[str] = None, add_url_fn=None) -> None:
         self._add_magnet = add_magnet_fn
+        self._add_url = add_url_fn
         self._rules: dict = {}
         self._checking: set = set()      # rule ids with a check in flight
         self._lock = threading.Lock()
@@ -108,8 +114,8 @@ class RssPoller:
         candidates = []
         for r in results:
             name = r.get('filename') or r.get('name', '')
-            magnet = r.get('magnet')
-            if not magnet or not name:
+            addable = r.get('magnet') or (self._add_url and r.get('torrent_url'))
+            if not addable or not name:
                 continue
             if not self._matches_quality(name, rule['quality']):
                 continue
@@ -182,7 +188,7 @@ class RssPoller:
             if deduped:
                 with ThreadPoolExecutor(max_workers=4, thread_name_prefix="rss-add") as pool:
                     futures = {
-                        pool.submit(self._add_magnet, r.get('magnet')): (r.get('filename') or r.get('name', ''))
+                        pool.submit(self._add_result, r): (r.get('filename') or r.get('name', ''))
                         for r in deduped
                     }
                     for future in as_completed(futures):
@@ -203,6 +209,14 @@ class RssPoller:
             self._save()
         if added:
             logger.info(f"RSS rule '{rule['name']}': added {added} new torrent(s)")
+
+    def _add_result(self, result: dict) -> None:
+        """Add one search result: by magnet when it has one, otherwise by its
+        .torrent link. Raises if the add fails."""
+        if result.get('magnet'):
+            self._add_magnet(result['magnet'])
+        else:
+            self._add_url(result['torrent_url'])
 
     # ── Matching helpers ─────────────────────────────────────────────────────
 

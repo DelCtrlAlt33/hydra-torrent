@@ -46,8 +46,9 @@ def search_jackett(server_url, keyword, api_key):
     if resp.status_code != 200:
         raise Exception(f"Jackett returned HTTP {resp.status_code}")
 
-    root = ET.fromstring(resp.content)
-    for item in root.findall('.//item'):
+    def _parse_item(item):
+        """One torznab <item> as a result dict, or None if it has neither a
+        magnet nor a .torrent link. Raises on a malformed item."""
         # Some indexers double-escape titles ("&amp;amp;"), which the XML parser
         # decodes once and leaves a literal "&amp;" in the name.
         title = html.unescape(item.find('title').text or 'Unknown')
@@ -83,7 +84,7 @@ def search_jackett(server_url, keyword, api_key):
                 if link_el is not None and link_el.text and link_el.text.startswith('http'):
                     torrent_url = link_el.text
         if not magnet and not torrent_url:
-            continue
+            return None
 
         size = int(item.find('size').text or 0) if item.find('size') is not None else 0
 
@@ -131,7 +132,7 @@ def search_jackett(server_url, keyword, api_key):
                 indexer = attr.get('value')
                 break
 
-        results.append({
+        return {
             'filename': title,
             'size': size,
             'peers': [],
@@ -144,7 +145,25 @@ def search_jackett(server_url, keyword, api_key):
             'source': indexer or 'Jackett',
             'published': pub_date[:19] if pub_date != 'Unknown' else 'Unknown',
             'engine_url': comments,
-        })
+        }
+
+    # One item at a time: a single malformed entry (no pubDate, a non-numeric
+    # seeder count, a missing title) used to raise out of the whole function,
+    # so one bad release from one indexer turned every search into
+    # "Search failed".
+    skipped = 0
+    root = ET.fromstring(resp.content)
+    for item in root.findall('.//item'):
+        try:
+            parsed = _parse_item(item)
+        except Exception as e:
+            skipped += 1
+            logger.debug(f"Skipping a malformed Jackett result: {e}")
+            continue
+        if parsed is not None:
+            results.append(parsed)
+    if skipped:
+        logger.warning(f"Skipped {skipped} malformed Jackett result(s)")
 
     logger.info(f"Jackett returned {len(results)} results")
     return results

@@ -4,7 +4,11 @@ services:
     container_name: hydra-torrent
     restart: unless-stopped
     ports:
-      - 8765:8765
+      - 8765:8765            # web UI
+      # BitTorrent port. Without these two, other peers cannot connect in to
+      # you (downloads still work, but slower and with fewer peers).
+      - 6001:6001
+      - 6001:6001/udp
     volumes:
       - ./data:/data         # config, certs, downloads (created automatically)
       # Optional: auto-file finished downloads into your Plex/Jellyfin library.

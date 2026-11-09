@@ -387,9 +387,15 @@ def main():
     api_key = cfg.get('daemon_api_key', '')
 
     scheme = 'https' if use_ssl else 'http'
-    _daemon_url = f"{scheme}://{host}:{port}"
+    # daemon_host is what the daemon LISTENS on. "0.0.0.0" (all interfaces, the
+    # documented way to allow LAN access) is not an address anything can connect
+    # to on Windows, so the window and the readiness check below must use
+    # loopback instead, as the tray and the single-instance check already do.
+    # Using it as-is opened the app on an error page.
+    connect_host = '127.0.0.1' if host in ('0.0.0.0', '') else host
+    _daemon_url = f"{scheme}://{connect_host}:{port}"
 
-    print(f"[app] Hydra Torrent Desktop starting...")
+    print("[app] Hydra Torrent Desktop starting...")
     print(f"[app] Daemon: {_daemon_url}")
 
     # 2. Start daemon in background thread
@@ -403,7 +409,7 @@ def main():
 
     # 3. Wait for daemon to be ready
     print("[app] Waiting for daemon to start...")
-    if not _wait_for_daemon(_daemon_url, api_key, cfg, host, port):
+    if not _wait_for_daemon(_daemon_url, api_key, cfg, connect_host, port):
         print("[app] ERROR: daemon failed to start within 15s, or its TLS "
               "certificate didn't match what was pinned on an earlier run "
               "(see the WARNING above)", file=sys.stderr)

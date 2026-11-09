@@ -148,3 +148,43 @@ def test_search_jackett_sends_api_key_and_query_as_params():
     _, kwargs = mock_get.call_args
     assert kwargs["params"]["apikey"] == "secret-key-123"
     assert kwargs["params"]["q"] == "my query"
+
+
+# ---------------------------------------------------------------------------
+# 2026-11-10 audit: one malformed item failed the whole search.
+# ---------------------------------------------------------------------------
+
+def test_search_jackett_skips_a_malformed_item_and_keeps_the_rest():
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:torznab="{TORZNAB_NS}">
+<channel>
+  <item>
+    <title>Broken.Release.No.PubDate</title>
+    <comments>https://indexer.example/1</comments>
+    <size>100</size>
+    <enclosure url="magnet:?xt=urn:btih:aaa" length="100" type="application/x-bittorrent" />
+  </item>
+  <item>
+    <title>Broken.Release.Bad.Seeders</title>
+    <comments>https://indexer.example/2</comments>
+    <pubDate>Mon, 01 Jan 2026 12:00:00 +0000</pubDate>
+    <size>100</size>
+    <enclosure url="magnet:?xt=urn:btih:bbb" length="100" type="application/x-bittorrent" />
+    <torznab:attr name="seeders" value="lots" />
+  </item>
+  <item>
+    <title>Good.Release.1080p</title>
+    <comments>https://indexer.example/3</comments>
+    <pubDate>Mon, 01 Jan 2026 12:00:00 +0000</pubDate>
+    <size>100</size>
+    <enclosure url="magnet:?xt=urn:btih:ccc" length="100" type="application/x-bittorrent" />
+    <torznab:attr name="seeders" value="7" />
+  </item>
+</channel>
+</rss>"""
+    response = Mock(status_code=200, content=xml.encode("utf-8"))
+    with patch("search.requests.get", return_value=response):
+        results = search_jackett("http://jackett.local:9117", "release", "key")
+
+    assert [r["filename"] for r in results] == ["Good.Release.1080p"]
+    assert results[0]["seeders"] == 7

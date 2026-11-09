@@ -3779,7 +3779,11 @@ async function _openAddDialog(r) {
     });
     if (!pr.ok) {
       const d = await pr.json().catch(() => ({}));
-      _setModalFilesError('Could not fetch metadata: ' + (d.detail || pr.status));
+      // 409 = this torrent is already in Transfers. That is the whole
+      // message, not a metadata failure.
+      _setModalFilesError(pr.status === 409 && d.detail
+        ? d.detail
+        : 'Could not fetch metadata: ' + (d.detail || pr.status));
       return;
     }
     const pd = await pr.json();

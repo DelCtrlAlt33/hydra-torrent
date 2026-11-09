@@ -63,6 +63,20 @@ def _configured_ignores():
 
 _WG_HANDSHAKE_MAX_AGE = 180  # seconds - tunnel considered dead beyond this
 
+_warned_cannot_verify = set()   # interfaces already warned about, to log once
+
+
+def _warn_cannot_verify(iface_name):
+    if iface_name in _warned_cannot_verify:
+        return
+    _warned_cannot_verify.add(iface_name)
+    logger.warning(
+        f"Cannot read the WireGuard handshake time for {iface_name}: 'wg show' needs root and "
+        f"this user may not run it through sudo. Treating the tunnel as up. To let Hydra notice "
+        f"a tunnel that has silently died, re-run install.sh or see docs/vpn.md."
+    )
+
+
 
 def _wg_handshake_ok(iface_name):
     """
@@ -71,7 +85,13 @@ def _wg_handshake_ok(iface_name):
     _WG_HANDSHAKE_MAX_AGE seconds means the tunnel has silently died.
     Falls back to True on any error so non-wg interfaces aren't affected.
     Tries sudo if the direct call is denied (service may lack CAP_NET_ADMIN)
-    - Linux only. WireGuard-for-Windows restricts `wg show` to an elevated
+    - Linux only. If sudo itself refuses (no rule for this user: the usual
+    state of a fresh install, since nothing but install.sh creates one), that
+    is "can't verify" too, not "tunnel is dead": answering False there made a
+    perfectly good WireGuard VPN look permanently disconnected, so with the
+    kill switch on nothing ever downloaded. Nothing can leak either way,
+    because the session is bound to the tunnel's own address.
+    WireGuard-for-Windows restricts `wg show` to an elevated
     process instead, and Windows offers no reasonable non-interactive way
     to escalate (its own `sudo` is disabled by default, and even enabled
     it would block on a UAC prompt) - so on Windows, a denied query means
@@ -101,7 +121,12 @@ def _wg_handshake_ok(iface_name):
         if result.returncode != 0:
             if os.name == 'nt':
                 return True  # can't elevate non-interactively - trust the OS-level "up" check
-            result = _run(['sudo', 'wg', 'show', iface_name, 'latest-handshakes'])
+            # -n: never prompt. Without a matching sudoers rule this fails at
+            # once instead of waiting on a password nobody can type.
+            result = _run(['sudo', '-n', 'wg', 'show', iface_name, 'latest-handshakes'])
+            if result.returncode != 0 and (result.stderr or '').lstrip().startswith('sudo:'):
+                _warn_cannot_verify(iface_name)
+                return True
         if result.returncode != 0:
             return False
         now = time.time()
@@ -184,8 +209,6 @@ def get_public_ip(timeout=5, source_ip=None):
     """
     import requests
     from requests.adapters import HTTPAdapter
-    from urllib3.util.connection import allowed_gai_family
-    import urllib3
 
     class SourceIPAdapter(HTTPAdapter):
         def __init__(self, source_address, **kwargs):
@@ -247,7 +270,6 @@ def _win_notify_thread(wake_event, stop_event):
             ]
 
         WAIT_OBJECT_0    = 0x00000000
-        WAIT_TIMEOUT_VAL = 0x00000102
 
         while not stop_event.is_set():
             # Fresh auto-reset event for each notification cycle
@@ -307,6 +329,7 @@ class VPNGuard:
         self._stop          = threading.Event()
         self._wake          = threading.Event()   # set by Win32 notify thread
         self._last_connected = None
+        self._last_ip        = None
 
     def get_status(self):
         """Returns (is_connected: bool, iface_name: str | None, ip: str | None)"""
@@ -323,8 +346,9 @@ class VPNGuard:
         on_change_callback(is_connected, iface, ip) fires on every status change.
         """
         self._callback = on_change_callback
-        connected, _, _ = self.get_status()
+        connected, _, ip = self.get_status()
         self._last_connected = connected
+        self._last_ip = ip if connected else None
         self._stop.clear()
         self._wake.clear()
 
@@ -365,16 +389,24 @@ class VPNGuard:
 
             try:
                 connected, iface, ip = self.get_status()
-                if connected != self._last_connected:
+                # A change of address while still "connected" counts too. A VPN
+                # that reconnects faster than the poll (30s on Linux) comes
+                # back with a new tunnel address, and comparing only
+                # connected/disconnected missed it: the session stayed bound to
+                # an address that no longer existed, with zero peers, until
+                # Hydra was restarted.
+                ip_changed = connected and self._last_connected and ip != self._last_ip
+                if connected != self._last_connected or ip_changed:
                     self._last_connected = connected
+                    self._last_ip = ip if connected else None
                     if self._callback:
                         try:
                             self._callback(connected, iface, ip)
                         except Exception as e:
                             logger.error(f"VPNGuard callback error: {e}")
                     logger.info(
-                        f"VPN status changed: "
-                        f"{'connected (' + ip + ')' if connected else 'DISCONNECTED'}"
+                        f"VPN {'address changed' if ip_changed else 'status changed'}: "
+                        f"{'connected (' + str(ip) + ')' if connected else 'DISCONNECTED'}"
                     )
             except Exception as e:
                 logger.error(f"VPNGuard monitor error: {e}")

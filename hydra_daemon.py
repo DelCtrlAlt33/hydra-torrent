@@ -24,6 +24,7 @@ WebSocket (/ws):
 
 import io
 import os
+import re
 import sys
 import json
 import time
@@ -32,7 +33,6 @@ import platform
 import queue
 import shutil
 import secrets
-import logging
 import threading
 import warnings
 import asyncio
@@ -90,7 +90,6 @@ from daemon_models import (
     ConfigResponse,
     ConfigUpdate,
     DaemonStatus,
-    FilePriorityItem,
     HealthStatus,
     IntegrationHealth,
     PatchRssRuleRequest,
@@ -200,7 +199,7 @@ def _get_or_create_api_key() -> str:
     if not key:
         key = secrets.token_urlsafe(32)
         save_config('daemon_api_key', key)
-        logger.info(f"New daemon API key generated and saved to hydra_config.json")
+        logger.info("New daemon API key generated and saved to hydra_config.json")
     return key
 
 
@@ -256,7 +255,8 @@ class DaemonStore:
     _SAVE_INTERVAL = 2.0
     _SAVE_NOW_KEYS = frozenset({
         'status', 'paused', 'intended_pause', 'vpn_paused', 'hidden',
-        'moved_to_plex', 'plex_path', 'moved_files', 'error', 'size',
+        'moved_to_plex', 'plex_path', 'moved_files', 'moved_map', 'error', 'size',
+        'save_path',
     })
 
     def __init__(self, path: str = None) -> None:
@@ -290,6 +290,7 @@ class DaemonStore:
                 'moved_to_plex': False,
                 'plex_path': None,
                 'moved_files': [],
+                'moved_map': {},
                 'error': None,
                 'start_time': time.time(),
                 'intended_pause': False,
@@ -391,6 +392,7 @@ class DaemonStore:
                     v.setdefault('moved_to_plex', False)
                     v.setdefault('plex_path', None)
                     v.setdefault('moved_files', [])
+                    v.setdefault('moved_map', {})
                     v.setdefault('error', None)
                     v.setdefault('ratio', 0.0)
                     v.setdefault('total_uploaded', 0)
@@ -469,6 +471,95 @@ def _indexer_trusted_hosts() -> set:
     """
     host = _trusted_host_from_url(load_config().get('indexing_server', ''))
     return {host} if host else set()
+
+
+# ---------------------------------------------------------------------------
+# Duplicates, and where a finished torrent's files really are
+# ---------------------------------------------------------------------------
+
+class DuplicateTorrentError(RuntimeError):
+    """The torrent being previewed is already a real transfer."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Already in your transfers: {name}")
+        self.name = name
+
+
+def _same_torrent(a, b) -> bool:
+    """True if two libtorrent info_hash_t values name the same torrent.
+
+    Compared per hash version, not with get_best(): a hybrid torrent added
+    from its .torrent has both a v1 and a v2 hash, while a magnet link for the
+    very same torrent may carry only the v1 one.
+    """
+    try:
+        if a.has_v1() and b.has_v1() and str(a.v1) == str(b.v1):
+            return True
+        if a.has_v2() and b.has_v2() and str(a.v2) == str(b.v2):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _seed_only_flags(flags):
+    """Flags for re-adding a torrent Hydra already knows is finished.
+
+    upload_mode means libtorrent never requests a piece: whatever it finds on
+    disk it seeds, and whatever it does not find it leaves alone. A finished
+    torrent must never start downloading again just because a restart could not
+    find its files where it expected them (see _resume_persisted). auto_managed
+    has to go too, because libtorrent periodically takes an auto-managed
+    torrent back out of upload mode.
+    """
+    return (flags | lt.torrent_flags.upload_mode) & ~lt.torrent_flags.auto_managed
+
+
+def _moved_layout(ti, transfer: dict) -> dict:
+    """{file index: absolute path} for every file of this torrent that Hydra
+    moved out of the download folder (into a library, or the "other downloads"
+    folder).
+
+    New records carry an exact 'moved_map'. Older ones only have the list of
+    destinations ('moved_files'), or nothing but 'plex_path', so those are
+    matched back to the torrent's files by file name: a move keeps the name,
+    apart from a " (1)" style suffix when the destination already existed.
+    """
+    fs = ti.files()
+    count = fs.num_files()
+    layout: dict = {}
+    for key, dest in (transfer.get('moved_map') or {}).items():
+        try:
+            idx = int(key)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= idx < count and dest:
+            layout[idx] = dest
+    if layout:
+        return layout
+
+    remaining = list(transfer.get('moved_files') or [])
+    for idx in range(count):
+        base = os.path.basename(fs.file_path(idx))
+        match = next((d for d in remaining if os.path.basename(d) == base), None)
+        if match is None:
+            stem, ext = os.path.splitext(base)
+            suffixed = re.compile(re.escape(stem) + r' \(\d+\)' + re.escape(ext) + r'$')
+            match = next((d for d in remaining if suffixed.match(os.path.basename(d))), None)
+        if match is not None:
+            layout[idx] = match
+            remaining.remove(match)
+    if layout:
+        return layout
+
+    plex_path = transfer.get('plex_path')
+    if plex_path:
+        for idx in range(count):
+            base = os.path.basename(fs.file_path(idx))
+            candidate = os.path.join(plex_path, base)
+            if is_video_file(base) and os.path.isfile(candidate):
+                layout[idx] = candidate
+    return layout
 
 
 # ---------------------------------------------------------------------------
@@ -738,6 +829,89 @@ class TorrentEngine:
                     except Exception:
                         pass
 
+    def apply_kill_switch(self, enabled: bool) -> None:
+        """Apply a kill-switch change from Settings to the running session.
+
+        Only matters while no VPN is connected: with a VPN up the session is
+        bound to it either way. Turning the switch on moves the session to
+        loopback and pauses everything; turning it off used to do nothing until
+        a restart, leaving every torrent stuck on "Waiting for VPN" with the
+        session still bound to loopback.
+        """
+        if self.ses is None or self.vpn_ip:
+            return
+        if enabled:
+            logger.warning("VPN kill switch enabled with no VPN - pausing all transfers")
+            try:
+                self.ses.apply_settings({'listen_interfaces': f'127.0.0.1:{PEER_PORT}', 'outgoing_interfaces': '127.0.0.1'})
+            except Exception as e:
+                logger.error(f"Failed to rebind session for the kill switch: {e}")
+            for name in self.store.all_names():
+                t = self.store.get(name)
+                handle = self.store.get_handle(name)
+                if handle and t and not t.get('intended_pause', False):
+                    try:
+                        handle.pause()
+                        self.store.update(name, vpn_paused=True, paused=True)
+                    except Exception:
+                        pass
+        else:
+            logger.info("VPN kill switch turned off with no VPN - rebinding to 0.0.0.0 and resuming")
+            try:
+                self.ses.apply_settings({'listen_interfaces': f'0.0.0.0:{PEER_PORT}', 'outgoing_interfaces': ''})
+            except Exception as e:
+                logger.error(f"Failed to rebind session after the kill switch was turned off: {e}")
+            for name in self.store.all_names():
+                t = self.store.get(name)
+                handle = self.store.get_handle(name)
+                if handle and t and t.get('vpn_paused', False):
+                    try:
+                        handle.resume()
+                        self.store.update(name, vpn_paused=False, paused=False)
+                    except Exception:
+                        pass
+
+    # ── Duplicates ────────────────────────────────────────────────────────────
+
+    def _existing_for(self, info_hashes) -> Optional[str]:
+        """Name of the transfer that already holds this torrent, or None."""
+        for name in self.store.all_names():
+            handle = self.store.get_handle(name)
+            try:
+                if handle is not None and handle.is_valid() and _same_torrent(handle.info_hashes(), info_hashes):
+                    return name
+            except Exception:
+                continue
+        return None
+
+    def _claim(self, info_hashes, for_preview: bool) -> Optional[str]:
+        """Called before adding a torrent, so the same torrent is never added
+        to the session twice.
+
+        libtorrent answers a second add of a torrent it already has by handing
+        back the SAME handle. Hydra used to treat that as a new torrent: a
+        preview of something already downloading shared the live handle, so
+        closing the dialog removed the real download from the session, and a
+        second plain add overwrote the existing record (losing where its files
+        had been moved to and its upload total).
+
+        Returns None when the add may go ahead. A leftover preview of the same
+        torrent (dialog closed, delete still in flight, or opened twice) is
+        discarded first. For a real transfer: a preview raises
+        DuplicateTorrentError, a plain add gets the existing name back and
+        must return it without adding anything.
+        """
+        existing = self._existing_for(info_hashes)
+        if existing is None:
+            return None
+        if (self.store.get(existing) or {}).get('hidden'):
+            self.remove(existing)
+            return None
+        if for_preview:
+            raise DuplicateTorrentError(existing)
+        logger.info(f"Not adding a torrent that is already here: '{existing}'")
+        return existing
+
     # ── Add torrent ───────────────────────────────────────────────────────────
 
     def add_magnet(self, magnet_uri: str, save_path: Optional[str] = None) -> str:
@@ -753,6 +927,15 @@ class TorrentEngine:
 
         if save_path is None:
             save_path = DOWNLOAD_DIR_INCOMPLETE
+
+        try:
+            wanted = lt.parse_magnet_uri(magnet_uri).info_hashes
+        except Exception:
+            wanted = None
+        if wanted is not None:
+            existing = self._claim(wanted, for_preview=False)
+            if existing is not None:
+                return existing
 
         vpn_required = load_config().get('vpn_required', False)
 
@@ -779,7 +962,8 @@ class TorrentEngine:
         if vpn_required and not self.vpn_ip:
             handle.pause()
             self.store.add(placeholder, magnet_uri, 0, handle)
-            self.store.update(placeholder, vpn_paused=True, paused=True, status='Waiting for VPN')
+            self.store.update(placeholder, vpn_paused=True, paused=True, status='Waiting for VPN',
+                              save_path=save_path)
             logger.warning(f"'{placeholder}' added paused - kill switch on, no VPN")
             threading.Thread(
                 target=self._monitor_download,
@@ -791,7 +975,7 @@ class TorrentEngine:
 
         # Add to store immediately so it shows in the UI
         self.store.add(placeholder, magnet_uri, 0, handle)
-        self.store.update(placeholder, status='Fetching metadata...')
+        self.store.update(placeholder, status='Fetching metadata...', save_path=save_path)
         logger.info(f"Added magnet '{placeholder}' → fetching metadata...")
 
         start_wait = time.time()
@@ -851,7 +1035,11 @@ class TorrentEngine:
             # Older libtorrent versions require explicit bdecode first
             ti = lt.torrent_info(lt.bdecode(data))
 
-        real_name = ti.name() or os.path.splitext(filename)[0] or "unnamed_torrent"
+        existing = self._claim(ti.info_hashes(), for_preview=False)
+        if existing is not None:
+            return existing
+
+        real_name = self._unique_store_name(ti.name() or os.path.splitext(filename)[0] or "unnamed_torrent")
         total_size = ti.total_size()
         logger.info(f"Torrent file → '{real_name}' ({total_size:,} bytes)")
 
@@ -865,6 +1053,7 @@ class TorrentEngine:
         handle.force_reannounce()
 
         self.store.add(real_name, '', total_size, handle)
+        self.store.update(real_name, save_path=DOWNLOAD_DIR_INCOMPLETE)
         threading.Thread(
             target=self._monitor_download,
             args=(real_name, handle, total_size),
@@ -872,6 +1061,38 @@ class TorrentEngine:
             name=f"dl-{real_name[:24]}",
         ).start()
         return real_name
+
+    def add_torrent_url(self, url: str) -> str:
+        """Fetch a .torrent link (a Jackett proxy download URL) and add it.
+
+        Returns the torrent name. Raises on any failure, so a caller such as
+        the Auto-DL poller knows the release was NOT added.
+        """
+        import requests as _requests
+
+        # Do NOT auto-follow redirects: Jackett proxy links commonly 302 to a
+        # magnet: URI, which requests cannot fetch (no adapter for magnet:) and
+        # would silently fail. Follow http(s) hops manually; hand magnet: to add_magnet.
+        trusted = _indexer_trusted_hosts()
+        _ensure_safe_fetch_url(url, trusted)
+        resp = _requests.get(url, timeout=30, allow_redirects=False)
+        hops = 0
+        while resp.is_redirect and hops < 6:
+            loc = resp.headers.get('Location', '')
+            if loc.startswith('magnet:'):
+                return self.add_magnet(loc)
+            _ensure_safe_fetch_url(loc, trusted)
+            resp = _requests.get(loc, timeout=30, allow_redirects=False)
+            hops += 1
+        if resp.status_code != 200:
+            raise RuntimeError(f"HTTP {resp.status_code} fetching the torrent link")
+        data = resp.content
+        if data[:7] == b'magnet:':
+            return self.add_magnet(data.decode('utf-8', 'ignore').strip())
+        fname = url.split('/')[-1].split('?')[0] or 'download.torrent'
+        if not fname.lower().endswith('.torrent'):
+            fname += '.torrent'
+        return self.add_torrent_file(data, fname)
 
     # ── Add-torrent preview (metadata + file picker before committing) ─────────
     #
@@ -910,6 +1131,7 @@ class TorrentEngine:
         # priority defaults to 0 so the piece picker never requests
         # actual data. commit_preview is what turns real priorities on.
         params = lt.parse_magnet_uri(magnet_uri)
+        self._claim(params.info_hashes, for_preview=True)
         params.save_path = save_path
         params.storage_mode = lt.storage_mode_t(2)
         params.flags = (lt.torrent_flags.default_flags
@@ -941,7 +1163,12 @@ class TorrentEngine:
 
         def _wait() -> None:
             start = time.time()
-            while not handle.has_metadata():
+            while True:
+                try:
+                    if handle.has_metadata():
+                        break
+                except RuntimeError:
+                    return  # preview discarded: its handle is gone
                 if self.store.get(placeholder) is None:
                     return  # cancelled while waiting
                 if time.time() - start > 90:
@@ -988,6 +1215,8 @@ class TorrentEngine:
 
         if save_path is None:
             save_path = DOWNLOAD_DIR_INCOMPLETE
+
+        self._claim(ti.info_hashes(), for_preview=True)
 
         params = lt.add_torrent_params()
         params.ti = ti
@@ -1053,6 +1282,9 @@ class TorrentEngine:
         if save_path and save_path != entry.get('save_path'):
             try:
                 handle.move_storage(save_path)
+                # Recorded so a restart without usable resume data re-adds the
+                # torrent where it really is, not in the default folder.
+                self.store.update(name, save_path=save_path)
             except Exception as e:
                 logger.warning(f"move_storage failed for '{name}': {e}")
 
@@ -1122,6 +1354,26 @@ class TorrentEngine:
                 except Exception:
                     pass
                 break
+
+            # A magnet added while the kill switch was holding everything
+            # (or restored after a restart that interrupted its metadata fetch)
+            # starts being monitored before its metadata exists, under a
+            # placeholder name and with size 0. Nothing ever filled those in:
+            # the row kept the placeholder name and "0 B" for good, finished
+            # with bytes_done 0, and its seed ratio (uploaded / size) stayed 0
+            # so the seed-ratio limit never removed it.
+            if not total_size and s.has_metadata:
+                try:
+                    ti = handle.torrent_file()
+                    total_size = ti.total_size()
+                    self.store.update(name, size=total_size)
+                    real_name = ti.name()
+                    if real_name and real_name != name and self.store.get(real_name) is None:
+                        self.store.rename(name, real_name)
+                        logger.info(f"Metadata arrived for '{name}' → '{real_name}' ({total_size:,} bytes)")
+                        name = real_name
+                except Exception as e:
+                    logger.warning(f"Could not read metadata for '{name}': {e}")
 
             # Honour intended pause
             if t.get('intended_pause', False):
@@ -1325,7 +1577,16 @@ class TorrentEngine:
         # is what lets remove()'s delete-files path actually clean up
         # for real, instead of reporting success while quietly leaving
         # the media behind.
-        moved_files = list(self.store.get(name).get('moved_files') or [])
+        moved_files = list(entry.get('moved_files') or [])
+        # The same destinations keyed by the file's index in the torrent, and
+        # reported to libtorrent as each move happens (_remap_moved_file).
+        # Without that, libtorrent kept looking for the file at its old path:
+        # the torrent said "Seeding" but could not serve a single piece, and
+        # after a restart a multi-file torrent was re-added pointing at the
+        # library folder, where libtorrent looked for
+        # <library folder>/<torrent folder>/<file>, found nothing, and
+        # downloaded the whole torrent again into the library.
+        moved_map = dict(entry.get('moved_map') or {})
         # A torrent's own file list is attacker-controlled (a malicious
         # .torrent/magnet can declare a path like '../../../etc/passwd').
         # libtorrent sanitizes this itself before writing to disk, but
@@ -1363,7 +1624,7 @@ class TorrentEngine:
         # can follow it in pass 2, whether that's the real Plex library
         # or the general-downloads fallback.
         video_destinations = []
-        for file_info in files:
+        for file_index, file_info in enumerate(files):
             basename = os.path.basename(file_info.path)
             if not is_video_file(basename):
                 continue
@@ -1377,6 +1638,8 @@ class TorrentEngine:
             if success:
                 plex_dir = os.path.dirname(dest_path)
                 moved_files.append(dest_path)
+                moved_map[str(file_index)] = dest_path
+                self._remap_moved_file(name, handle, file_index, dest_path)
                 video_destinations.append((os.path.splitext(basename)[0], plex_dir))
                 really_organized = _is_under_library_root(plex_dir)
                 # Sticky once true, not last-write-wins: a torrent's main
@@ -1395,6 +1658,7 @@ class TorrentEngine:
                 plex_path = plex_dir if really_organized else entry.get('plex_path', plex_dir)
                 self.store.update(
                     name, moved_to_plex=moved_to_plex, plex_path=plex_path, moved_files=moved_files,
+                    moved_map=moved_map,
                 )
                 logger.info(f"{'Moved to Plex' if really_organized else 'Moved'}: {dest_path}")
             elif error and error not in ("Not a video file", "Library path not configured"):
@@ -1405,7 +1669,7 @@ class TorrentEngine:
         # has no video at all) stays put in the incomplete folder -
         # guessing wrong would misplace it, and it's not urgent clutter.
         if video_destinations:
-            for file_info in files:
+            for file_index, file_info in enumerate(files):
                 basename = os.path.basename(file_info.path)
                 if not is_subtitle_file(basename):
                     continue
@@ -1424,7 +1688,9 @@ class TorrentEngine:
                 success, dest_path, error = move_subtitle_alongside_video(basename, file_path, dest_dir)
                 if success:
                     moved_files.append(dest_path)
-                    self.store.update(name, moved_files=moved_files)
+                    moved_map[str(file_index)] = dest_path
+                    self._remap_moved_file(name, handle, file_index, dest_path)
+                    self.store.update(name, moved_files=moved_files, moved_map=moved_map)
                     logger.info(f"Moved subtitle alongside video: {dest_path}")
                 elif error:
                     logger.warning(f"Could not move subtitle for '{name}': {error}")
@@ -1432,6 +1698,46 @@ class TorrentEngine:
         # Everything else (cover art, NFOs, samples, promo images) is
         # intentionally left alone in the incomplete folder - see the
         # docstring above for why.
+
+    def _remap_moved_file(self, name: str, handle, file_index: int, dest_path: str) -> None:
+        """Tell libtorrent a file it is seeding now lives at dest_path.
+
+        The move itself is already done (a plain filesystem move by
+        media_organizer). rename_file() with an absolute path only updates
+        libtorrent's own idea of where that file is: with the old path already
+        gone there is nothing left for it to move. Checked against this
+        libtorrent version: after this call a peer can download the moved file
+        again, without it a peer gets nothing.
+        """
+        try:
+            handle.rename_file(file_index, os.path.abspath(dest_path))
+        except Exception as e:
+            logger.warning(f"Could not point libtorrent at the moved file for '{name}': {e}")
+
+    def _apply_moved_layout_when_ready(self, name: str, handle, transfer: dict) -> None:
+        """Restart path for a moved torrent that has no saved metadata: wait
+        for the metadata to arrive from the swarm, then point libtorrent at the
+        moved files and have it check them. The torrent was added in upload
+        mode, so nothing is downloaded while this waits."""
+        while True:
+            if self.store.get(name) is None:
+                return
+            try:
+                if not handle.is_valid():
+                    return
+                if handle.status().has_metadata:
+                    break
+            except Exception:
+                return
+            time.sleep(2)
+        try:
+            layout = _moved_layout(handle.torrent_file(), transfer)
+            for file_index, dest_path in layout.items():
+                handle.rename_file(file_index, os.path.abspath(dest_path))
+            if layout:
+                handle.force_recheck()
+        except Exception as e:
+            logger.warning(f"Could not point libtorrent at the moved files for '{name}': {e}")
 
     # ── Seeding monitor ────────────────────────────────────────────────────────
 
@@ -1566,15 +1872,18 @@ class TorrentEngine:
         handle = self.store.get_handle(name)
         if not handle:
             return
-        self.store.update(name, intended_pause=False, vpn_paused=False)
-        if self.vpn_ip:
-            try:
-                handle.resume()
-            except Exception:
-                pass
-            self.store.update(name, paused=False)
-        else:
+        if not self.vpn_ip and load_config().get('vpn_required', False):
+            # Kill switch on, no VPN: it stays held (and stays marked as held,
+            # so it starts by itself when the VPN is back).
+            self.store.update(name, intended_pause=False, vpn_paused=True)
             logger.warning(f"Cannot resume '{name}' - VPN not connected")
+            return
+        self.store.update(name, intended_pause=False, vpn_paused=False)
+        try:
+            handle.resume()
+        except Exception:
+            pass
+        self.store.update(name, paused=False)
 
     def remove(self, name: str, delete_files: bool = False) -> None:
         entry = self.store.get(name)
@@ -1743,55 +2052,98 @@ class TorrentEngine:
             if not t or t.get('status') == 'Failed':
                 continue
 
-            save_path = t.get('plex_path') or DOWNLOAD_DIR_INCOMPLETE
+            # Where the torrent was saved, NOT 'plex_path'. A moved torrent used
+            # to be re-added with the library folder as its save path. That
+            # only lined up for a single-file torrent; for anything with its
+            # own folder libtorrent looked for
+            # <library folder>/<torrent folder>/<file>, found nothing, and
+            # downloaded the whole torrent again into the library while the
+            # row said "Seeding". Moved files are now mapped one by one to
+            # where they really are (_moved_layout), from the original folder.
+            save_path = t.get('save_path') or DOWNLOAD_DIR_INCOMPLETE
+            finished = t.get('status') == 'Seeding'
+            moved = bool(t.get('moved_to_plex') or t.get('moved_files') or t.get('moved_map'))
             handle = None
-            entry = resume_data.get(name)
-            # Only worth attempting with both pieces present - resume data
-            # alone can't do anything (no file list to verify pieces
-            # against), and a torrent that hadn't received metadata yet by
-            # the last shutdown gets nothing from re-trying that here either.
-            if entry and 'resume' in entry and 'metadata' in entry and not t.get('moved_to_plex'):
+            waiting_for_layout = False
+            entry = resume_data.get(name) or {}
+
+            ti = None
+            if 'metadata' in entry:
                 try:
-                    params = lt.read_resume_data(entry['resume'])
                     # Already wrapped into a {'info': ...} structure at save
                     # time (see _save_resume_data) - torrent_info's
                     # constructor takes it as-is.
-                    params.ti = lt.torrent_info(entry['metadata'])
-                    # read_resume_data() never restores trackers from a
-                    # magnet-only add, so pull them back in from the magnet
-                    # URI itself - without this the torrent has verified
-                    # pieces but no way to reach peers for the rest.
-                    params.trackers = (lt.parse_magnet_uri(t['magnet']).trackers
-                                       if t.get('magnet') else list(_TRACKERS))
+                    ti = lt.torrent_info(entry['metadata'])
+                except Exception as e:
+                    logger.warning(f"Saved metadata unusable for '{name}': {e}")
+
+            def _trackers():
+                # read_resume_data() never restores trackers from a
+                # magnet-only add, so pull them back in from the magnet URI
+                # itself - without this the torrent has verified pieces but no
+                # way to reach peers for the rest.
+                if t.get('magnet'):
+                    try:
+                        return list(lt.parse_magnet_uri(t['magnet']).trackers)
+                    except Exception:
+                        pass
+                return list(_TRACKERS)
+
+            # 1. Fast resume: only with both pieces present (resume data alone
+            # has no file list to verify pieces against), and never for a
+            # torrent whose files were moved, because its resume data still
+            # describes the pre-move location.
+            if ti is not None and 'resume' in entry and not moved:
+                try:
+                    params = lt.read_resume_data(entry['resume'])
+                    params.ti = ti
+                    params.trackers = _trackers()
+                    if finished:
+                        params.flags = _seed_only_flags(params.flags)
                     handle = self.ses.add_torrent(params)
                 except Exception as e:
                     # A corrupt/incompatible resume blob (e.g. a libtorrent
                     # version bump changed the format) shouldn't sink the
-                    # whole torrent - fall back to the always-works magnet
-                    # re-add below instead, same as before this existed.
-                    logger.warning(f"Resume data unusable for '{name}', falling back to magnet re-add: {e}")
+                    # whole torrent - fall back to the re-adds below.
+                    logger.warning(f"Resume data unusable for '{name}', re-adding without it: {e}")
+                    handle = None
 
             try:
-                if handle is None and t.get('magnet'):
-                    magnet_params = {
-                        'url': t['magnet'],
-                        'save_path': save_path,
-                        'storage_mode': lt.storage_mode_t(2),
-                    }
-                    handle = lt.add_magnet_uri(self.ses, t['magnet'], magnet_params)
-                elif handle is None and entry and 'metadata' in entry:
-                    # No magnet (added from a .torrent): re-add from the saved
-                    # metadata at the real save path. No resume blob here, so
-                    # libtorrent re-hashes, which is the correct thing for a
-                    # torrent that was moved to a library anyway.
+                # 2. Saved metadata, no resume data: libtorrent re-hashes what
+                # is on disk. Covers torrents added from a .torrent (no magnet
+                # to fall back on) and every moved torrent.
+                if handle is None and ti is not None:
                     params = lt.add_torrent_params()
-                    params.ti = lt.torrent_info(entry['metadata'])
+                    params.ti = ti
                     params.save_path = save_path
                     params.storage_mode = lt.storage_mode_t(2)
-                    params.trackers = list(_TRACKERS)
+                    params.trackers = _trackers()
+                    if moved:
+                        layout = _moved_layout(ti, t)
+                        if layout:
+                            params.renamed_files = {i: os.path.abspath(d) for i, d in layout.items()}
+                    if finished:
+                        params.flags = _seed_only_flags(params.flags)
                     handle = self.ses.add_torrent(params)
+                # 3. Nothing saved but the magnet link.
+                elif handle is None and t.get('magnet'):
+                    params = lt.parse_magnet_uri(t['magnet'])
+                    params.save_path = save_path
+                    params.storage_mode = lt.storage_mode_t(2)
+                    params.trackers = list(dict.fromkeys(list(params.trackers) + _TRACKERS))
+                    if finished:
+                        params.flags = _seed_only_flags(params.flags)
+                    handle = self.ses.add_torrent(params)
+                    waiting_for_layout = moved
                 elif handle is None:
                     raise RuntimeError("no magnet link and no saved metadata to restore it from")
+                if waiting_for_layout:
+                    threading.Thread(
+                        target=self._apply_moved_layout_when_ready,
+                        args=(name, handle, dict(t)),
+                        daemon=True,
+                        name=f"layout-{name[:20]}",
+                    ).start()
                 # A torrent's saved vpn_paused/paused fields reflect
                 # whatever was true when the daemon last shut down - if
                 # that was a real kill-switch pause and VPN happens to
@@ -1848,7 +2200,7 @@ class TorrentEngine:
 
 store = DaemonStore(path=_TRANSFERS_PATH)
 engine = TorrentEngine(store)
-rss_poller = RssPoller(engine.add_magnet)
+rss_poller = RssPoller(engine.add_magnet, add_url_fn=engine.add_torrent_url)
 _ws_clients: Set[WebSocket] = set()
 
 
@@ -2186,38 +2538,9 @@ def add_torrent_from_url(req: AddTorrentUrlRequest, background_tasks: Background
     provide a proxy download link instead of a magnet URI.
     Returns 202 immediately; download runs in background.
     """
-    import requests as _requests
-
     def _add() -> None:
         try:
-            # Do NOT auto-follow redirects: Jackett proxy links commonly 302 to a
-            # magnet: URI, which requests cannot fetch (no adapter for magnet:) and
-            # would silently fail. Follow http(s) hops manually; hand magnet: to add_magnet.
-            trusted = _indexer_trusted_hosts()
-            _ensure_safe_fetch_url(req.url, trusted)
-            resp = _requests.get(req.url, timeout=30, allow_redirects=False)
-            hops = 0
-            while resp.is_redirect and hops < 6:
-                loc = resp.headers.get('Location', '')
-                if loc.startswith('magnet:'):
-                    name = engine.add_magnet(loc)
-                    logger.info(f"Torrent URL resolved to magnet, added: '{name}'")
-                    return
-                _ensure_safe_fetch_url(loc, trusted)
-                resp = _requests.get(loc, timeout=30, allow_redirects=False)
-                hops += 1
-            if resp.status_code != 200:
-                logger.error(f"Failed to fetch torrent URL {req.url}: HTTP {resp.status_code}")
-                return
-            data = resp.content
-            if data[:7] == b'magnet:':
-                name = engine.add_magnet(data.decode('utf-8', 'ignore').strip())
-                logger.info(f"Torrent URL body was a magnet, added: '{name}'")
-                return
-            fname = req.url.split('/')[-1].split('?')[0] or 'download.torrent'
-            if not fname.lower().endswith('.torrent'):
-                fname += '.torrent'
-            name = engine.add_torrent_file(data, fname)
+            name = engine.add_torrent_url(req.url)
             logger.info(f"Torrent URL added via API: '{name}'")
         except Exception as e:
             logger.error(f"Failed to add torrent from URL '{req.url}': {e}")
@@ -2250,6 +2573,8 @@ def preview_transfer(req: PreviewTorrentRequest) -> dict:
             name = engine.preview_torrent_url(req.url, req.save_path)
     except HTTPException:
         raise
+    except DuplicateTorrentError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         # ValueError here is always one of our own deliberately-worded
         # messages (SSRF guard rejection, etc.) - safe to show verbatim.
@@ -2824,6 +3149,28 @@ def get_logs_tail(lines: int = 200) -> dict:
     return {"lines": text.splitlines()}
 
 
+def _apply_live_folder_settings(updates: dict) -> None:
+    """Make a changed Movies/TV/"other downloads" folder take effect now.
+
+    config.py reads these once at import and media_organizer.py and this
+    module copy them at import too, so a change in Settings was saved to disk
+    but finished downloads kept being filed using the old values (or, on a
+    first-time setup, were not filed at all) until Hydra was restarted.
+    """
+    import config as _config
+    import media_organizer as _media_organizer
+
+    this_module = sys.modules[__name__]
+    for key, const, holders in (
+        ('media_dir_movies', 'MEDIA_DIR_MOVIES', (_config, _media_organizer, this_module)),
+        ('media_dir_tv', 'MEDIA_DIR_TV', (_config, _media_organizer, this_module)),
+        ('download_dir_other', 'DOWNLOAD_DIR_OTHER', (_config, _media_organizer)),
+    ):
+        if key in updates:
+            for holder in holders:
+                setattr(holder, const, updates[key] or '')
+
+
 @app.patch("/config", dependencies=[Depends(_require_api_key)])
 def update_config(req: ConfigUpdate) -> dict:
     """Persist a partial config update.  Only editable keys are written."""
@@ -2832,6 +3179,7 @@ def update_config(req: ConfigUpdate) -> dict:
                if k in _EDITABLE_CONFIG_KEYS}
     if not updates:
         return {"saved": []}
+    kill_switch_was_on = bool(cfg.get('vpn_required', False))
     cfg.update(updates)
     try:
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
@@ -2846,19 +3194,14 @@ def update_config(req: ConfigUpdate) -> dict:
             int(cfg.get('download_rate_limit', 0) or 0),
             int(cfg.get('upload_rate_limit', 0) or 0),
         )
-    # Live-apply VPN kill switch - if just turned on and VPN is off, pause all
-    if 'vpn_required' in updates and updates['vpn_required'] and not engine.vpn_ip:
-        logger.warning("VPN kill switch enabled with no VPN - pausing all transfers")
-        engine.ses.apply_settings({'listen_interfaces': f'127.0.0.1:{PEER_PORT}', 'outgoing_interfaces': '127.0.0.1'})
-        for name in store.all_names():
-            t = store.get(name)
-            handle = store.get_handle(name)
-            if handle and t and not t.get('intended_pause', False):
-                try:
-                    handle.pause()
-                    store.update(name, vpn_paused=True, paused=True)
-                except Exception:
-                    pass
+    # Live-apply the VPN kill switch. Turning it on is always applied (it is
+    # harmless to repeat); turning it off only when it really changed, so a
+    # Settings save that merely re-sends "off" does not rebind the session.
+    if 'vpn_required' in updates:
+        now_on = bool(updates['vpn_required'])
+        if now_on or kill_switch_was_on:
+            engine.apply_kill_switch(now_on)
+    _apply_live_folder_settings(updates)
     return {"saved": list(updates.keys())}
 
 

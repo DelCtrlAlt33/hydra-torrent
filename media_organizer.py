@@ -2,7 +2,6 @@ import os
 import re
 import shutil
 import requests
-from pathlib import Path
 from config import (
     DOWNLOAD_DIR_INCOMPLETE,
     MEDIA_DIR_MOVIES,
