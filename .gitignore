@@ -66,3 +66,6 @@ hydra.log
 HydraTorrent-Windows.zip
 Jackett/
 image8(1).ico
+
+# Website images (the *.png rule above would drop them)
+!site/img/*.png
