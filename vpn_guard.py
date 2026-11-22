@@ -200,6 +200,75 @@ def detect_vpn_interface():
 detect_pia_interface = detect_vpn_interface
 
 
+class VPNRequiredError(RuntimeError):
+    """A fetch was refused because it would have left over the real connection."""
+
+
+def _is_local_address(ip: str) -> bool:
+    import ipaddress
+    try:
+        a = ipaddress.ip_address(ip.split('%')[0])
+    except ValueError:
+        return False
+    return a.is_private or a.is_loopback or a.is_link_local
+
+
+def link_route(resolved_ips, vpn_ip, kill_switch):
+    """How to fetch a URL whose host resolves to resolved_ips.
+
+    'direct': the host is on this machine or the LAN (Jackett, usually). The
+              tunnel can't reach the LAN, and nothing leaves home anyway.
+    'vpn':    a public host and the VPN is up: bind the request to the VPN IP.
+    'refuse': a public host, no VPN, kill switch on. Fetching anyway would
+              show the host your real IP, which is what the kill switch is for.
+    'direct' is also the answer for a public host with no VPN and the kill
+    switch off: the user has chosen to run without a VPN.
+    """
+    ips = [ip for ip in (resolved_ips or []) if ip]
+    if ips and all(_is_local_address(ip) for ip in ips):
+        return 'direct'
+    if vpn_ip:
+        return 'vpn'
+    return 'refuse' if kill_switch else 'direct'
+
+
+def link_session(url, vpn_ip, kill_switch):
+    """A requests session for fetching url without leaking the real IP.
+
+    Used for .torrent links. Before this, they were fetched with a plain
+    requests.get, which follows the default route, not the VPN (the VPN's
+    policy routing only covers traffic sent FROM the VPN address). Measured
+    2026-11-22 on LXC 108: adding a torrent by URL fetched it over the home
+    connection's real IPv6 address, VPN up or down.
+    """
+    import socket
+    from urllib.parse import urlparse
+    import requests
+    from requests.adapters import HTTPAdapter
+
+    host = urlparse(url).hostname or ''
+    try:
+        ips = [info[4][0] for info in socket.getaddrinfo(host, None)]
+    except OSError:
+        ips = []
+    route = link_route(ips, vpn_ip, kill_switch)
+    if route == 'refuse':
+        raise VPNRequiredError(
+            f"VPN is down and the kill switch is on - not fetching {host} over your real connection")
+    session = requests.Session()
+    if route == 'vpn':
+        class _Bound(HTTPAdapter):
+            def init_poolmanager(self, *args, **kwargs):
+                # Binding to the (IPv4) VPN address also rules out IPv6:
+                # an AF_INET6 socket can't bind it, so only IPv4 is tried.
+                kwargs['source_address'] = (vpn_ip, 0)
+                super().init_poolmanager(*args, **kwargs)
+        adapter = _Bound()
+        session.mount('https://', adapter)
+        session.mount('http://', adapter)
+    return session
+
+
 def get_public_ip(timeout=5, source_ip=None):
     """
     Fetch the current public IP as seen by the internet.

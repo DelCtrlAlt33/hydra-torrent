@@ -13,6 +13,15 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-11-22 - .torrent links were fetched over the real connection, not the VPN (v1.4.35; found by measuring the kill switch for a write-up)
+
+- **Adding a torrent by URL showed the host of that URL your real IP address, VPN up or down.** BitTorrent traffic itself never leaked; this was the HTTP fetch of the `.torrent` file.
+  - **Seen live on LXC 108:** during a deliberate tunnel drop (`wg-quick down wg0`), adding a Debian netinst torrent by URL opened `tcp ESTAB [2403:5807:...]:37292 -> [2001:6b0:19::173]:443` from the Hydra process: the home connection's real IPv6 address talking to cdimage.debian.org. A plain `requests.get` on the same box exits as that IPv6 address with the VPN up too.
+  - **Cause:** `add_torrent_url()` and `preview_torrent_url()` used a plain `requests.get`, which follows the default route. The VPN setup on 108 (and the PIA renew script) uses policy routing that only sends traffic *from* the VPN address into the tunnel, so an unbound request goes out the real interface. `get_public_ip()` already bound itself to the VPN address; the `.torrent` fetch never did. Affected every URL add: Search results (a Jackett proxy link can redirect to a public tracker URL), Auto-DL releases without a magnet, and pasted links.
+  - **Fix:** `vpn_guard.link_session()` decides per URL (`link_route()`): a host on the LAN or this machine (Jackett, usually) is fetched directly, since the tunnel cannot reach the LAN and nothing leaves home; a public host is fetched bound to the VPN address (which also rules out IPv6); with the kill switch on and no VPN, the fetch is refused with `VPNRequiredError` (HTTP 503 from the preview endpoint) instead of falling back to the real connection. Each redirect hop is re-checked. With the kill switch off and no VPN, behaviour is unchanged (the user chose to run without one).
+  - **Verified on 108:** a fetch through the new session exits as the PIA address (`89.34.126.39`) where a plain one exits as the home IPv6 address; in a repeat of the tunnel-drop test, the URL add during the outage was refused, and no Hydra socket used the real interface for the whole 22 s outage.
+  - **Tests:** `tests/test_vpn_guard.py` (route decision for LAN/public/mixed/unresolvable hosts, refusal, and that the session really binds the VPN address).
+
 ## 2026-11-22 - Optional web UI password, published Docker image (v1.4.34)
 
 - **Anyone on the network could control Hydra, and the only defence was "keep the port private".** `/ui` embeds the API key, so loading the page was enough. That was documented, but it is the first objection anyone reviewing a self-hosted torrent client raises.

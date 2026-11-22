@@ -302,3 +302,48 @@ def test_guard_still_reports_plain_drop_and_reconnect_once_each():
         (True, "wg0", "10.0.0.5"),
     ])
     assert fired == [(False, None, None), (True, "wg0", "10.0.0.5")]
+
+
+# --- .torrent link fetches must not leave over the real connection ---------
+# Found 2026-11-22 on LXC 108: adding a torrent by URL fetched the .torrent
+# with a plain requests.get, over the home connection's real IPv6 address.
+
+import pytest as _pytest
+from vpn_guard import link_route as _link_route, link_session as _link_session, VPNRequiredError as _VPNRequiredError
+
+
+@_pytest.mark.parametrize("ips,vpn,ks,expected", [
+    (["192.168.20.33"], None, True, "direct"),        # LAN Jackett, VPN down, kill switch on: fine
+    (["127.0.0.1"], "10.1.2.3", True, "direct"),      # local Jackett with VPN up: direct, tunnel can't reach it
+    (["::1", "127.0.0.1"], None, False, "direct"),
+    (["130.239.18.158"], "10.1.2.3", True, "vpn"),    # public host, VPN up: through the tunnel
+    (["2001:6b0:19::173", "130.239.18.158"], "10.1.2.3", False, "vpn"),
+    (["130.239.18.158"], None, True, "refuse"),       # public host, VPN down, kill switch on
+    (["130.239.18.158"], None, False, "direct"),      # user runs without a VPN on purpose
+    (["192.168.1.5", "8.8.8.8"], None, True, "refuse"),  # mixed answers count as public
+    ([], None, True, "refuse"),                       # unresolvable: fail closed
+])
+def test_link_route(ips, vpn, ks, expected):
+    assert _link_route(ips, vpn, ks) == expected
+
+
+def test_link_session_refuses_public_host_when_vpn_down(monkeypatch):
+    import socket
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("130.239.18.158", 0))])
+    with _pytest.raises(_VPNRequiredError):
+        _link_session("https://cdimage.debian.org/x.torrent", None, True)
+
+
+def test_link_session_binds_public_host_to_vpn_ip(monkeypatch):
+    import socket
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("130.239.18.158", 0))])
+    s = _link_session("https://cdimage.debian.org/x.torrent", "10.1.2.3", True)
+    pool_kwargs = s.get_adapter("https://cdimage.debian.org/").poolmanager.connection_pool_kw
+    assert pool_kwargs.get("source_address") == ("10.1.2.3", 0)
+
+
+def test_link_session_leaves_lan_host_unbound(monkeypatch):
+    import socket
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("192.168.20.33", 0))])
+    s = _link_session("http://192.168.20.33:9117/dl/x", "10.1.2.3", True)
+    assert "source_address" not in s.get_adapter("http://192.168.20.33:9117/").poolmanager.connection_pool_kw

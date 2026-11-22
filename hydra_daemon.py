@@ -72,7 +72,7 @@ from config import (
     save_config,
     logger,
 )
-from vpn_guard import VPNGuard, get_public_ip as _fetch_public_ip
+from vpn_guard import VPNGuard, VPNRequiredError, link_session as _link_session, get_public_ip as _fetch_public_ip
 from media_organizer import (
     auto_move_completed_download,
     is_video_file,
@@ -1063,27 +1063,34 @@ class TorrentEngine:
         ).start()
         return real_name
 
+    def _link_get(self, url: str):
+        """GET a .torrent link (no redirects followed) without leaking the real IP:
+        public hosts go through the VPN, LAN hosts (Jackett) direct, and nothing
+        is fetched over the real connection while the kill switch holds. See
+        vpn_guard.link_session."""
+        kill_switch = bool(load_config().get('vpn_required', False))
+        session = _link_session(url, self.vpn_ip, kill_switch)
+        return session.get(url, timeout=30, allow_redirects=False)
+
     def add_torrent_url(self, url: str) -> str:
         """Fetch a .torrent link (a Jackett proxy download URL) and add it.
 
         Returns the torrent name. Raises on any failure, so a caller such as
         the Auto-DL poller knows the release was NOT added.
         """
-        import requests as _requests
-
         # Do NOT auto-follow redirects: Jackett proxy links commonly 302 to a
         # magnet: URI, which requests cannot fetch (no adapter for magnet:) and
         # would silently fail. Follow http(s) hops manually; hand magnet: to add_magnet.
         trusted = _indexer_trusted_hosts()
         _ensure_safe_fetch_url(url, trusted)
-        resp = _requests.get(url, timeout=30, allow_redirects=False)
+        resp = self._link_get(url)
         hops = 0
         while resp.is_redirect and hops < 6:
             loc = resp.headers.get('Location', '')
             if loc.startswith('magnet:'):
                 return self.add_magnet(loc)
             _ensure_safe_fetch_url(loc, trusted)
-            resp = _requests.get(loc, timeout=30, allow_redirects=False)
+            resp = self._link_get(loc)
             hops += 1
         if resp.status_code != 200:
             raise RuntimeError(f"HTTP {resp.status_code} fetching the torrent link")
@@ -1187,18 +1194,16 @@ class TorrentEngine:
         return placeholder
 
     def preview_torrent_url(self, url: str, save_path: Optional[str] = None) -> str:
-        import requests as _requests
-
         trusted = _indexer_trusted_hosts()
         _ensure_safe_fetch_url(url, trusted)
-        resp = _requests.get(url, timeout=30, allow_redirects=False)
+        resp = self._link_get(url)
         hops = 0
         while resp.is_redirect and hops < 6:
             loc = resp.headers.get('Location', '')
             if loc.startswith('magnet:'):
                 return self.preview_magnet(loc, save_path)
             _ensure_safe_fetch_url(loc, trusted)
-            resp = _requests.get(loc, timeout=30, allow_redirects=False)
+            resp = self._link_get(loc)
             hops += 1
         if resp.status_code != 200:
             raise RuntimeError(f"Failed to fetch torrent URL: HTTP {resp.status_code}")
@@ -2576,6 +2581,8 @@ def preview_transfer(req: PreviewTorrentRequest) -> dict:
         raise
     except DuplicateTorrentError as e:
         raise HTTPException(status_code=409, detail=str(e))
+    except VPNRequiredError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except ValueError as e:
         # ValueError here is always one of our own deliberately-worded
         # messages (SSRF guard rejection, etc.) - safe to show verbatim.
