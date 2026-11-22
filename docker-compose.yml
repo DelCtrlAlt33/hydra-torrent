@@ -1,6 +1,9 @@
 services:
   hydra:
-    build: .
+    image: ghcr.io/delctrlalt33/hydra-torrent:latest
+    # Building from source instead? Clone the repo, comment out `image:` above
+    # and uncomment this:
+    # build: .
     container_name: hydra-torrent
     restart: unless-stopped
     ports:
@@ -18,6 +21,9 @@ services:
       # - /path/to/tv:/tv
     environment:
       - TZ=UTC
+      # Optional: ask for a password before the web UI opens. You can also
+      # set one later in Settings -> Web UI password instead.
+      # - HYDRA_PASSWORD=change-me
 
 # Want your torrent traffic to go through a VPN? See docs/recommended-setup.md
 # for a complete working example with gluetun.

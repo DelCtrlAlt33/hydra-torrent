@@ -6,11 +6,10 @@
 
 **Docker:**
 ```bash
-cd hydra-torrent
-git pull
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
-`./data` stays mounted as a volume, so config/certs/transfers survive the rebuild untouched.
+`./data` stays mounted as a volume, so config/certs/transfers survive the update untouched. (Built from source with `build: .` instead? Then it is `git pull` followed by `docker compose up -d --build`.)
 
 **Linux:**
 ```bash

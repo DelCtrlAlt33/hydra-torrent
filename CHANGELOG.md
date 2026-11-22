@@ -13,6 +13,18 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-11-22 - Optional web UI password, published Docker image (v1.4.34)
+
+- **Anyone on the network could control Hydra, and the only defence was "keep the port private".** `/ui` embeds the API key, so loading the page was enough. That was documented, but it is the first objection anyone reviewing a self-hosted torrent client raises.
+  - **Now:** an optional password (`ui_auth.py`). Set it in Settings > Web UI password (stored as PBKDF2-SHA256, 200k iterations, in `ui_password_hash`) or with the `HYDRA_PASSWORD` environment variable, which wins if both are set. With a password, `/ui` and `/download/tray` (the other route that hands out the key) serve a sign-in page with HTTP 401 until the browser holds a valid `hydra_session` cookie (HttpOnly, SameSite=Strict, Secure over HTTPS, 30 days).
+  - **Sessions** are `<expiry>.<HMAC>`, keyed on the API key plus a fingerprint of the password, so they survive a daemon restart (Hydra restarts on every deploy) and changing either the password or the API key signs everyone out. No server-side session store.
+  - **Brute force:** 5 wrong passwords from one IP in 5 minutes locks that IP out for the rest of the window (HTTP 429). A correct password resets the count.
+  - **Desktop app:** its own window loads `/ui` over loopback and never asks, but only when `desktop_mode` is set. A server install behind a same-host reverse proxy also arrives from loopback, so exempting loopback there would have made the password useless.
+  - **Not changed:** the API key is still the credential for every API call, so the tray, scripts and anything already holding the key keep working. A browser that loaded `/ui` before a password was set already has the key; rotate the key too if that matters.
+  - Live-tested against a real daemon: page and tray zip gated, wrong password 401, forged/expired cookie gets the sign-in page, lockout after 5 failures, removing the password restores open access.
+- **Docker users had to clone the repo and build the image themselves.** `.github/workflows/docker.yml` now publishes `ghcr.io/delctrlalt33/hydra-torrent` (amd64 + arm64; libtorrent 2.1.1 ships manylinux aarch64 wheels) on every version tag. Before pushing, it builds the image, starts it, and requires `/ui` to answer 200, and 401 with `HYDRA_PASSWORD` set, so a broken image never reaches `latest`. `docker-compose.yml` now uses the published image (with `build: .` left as a comment). Also added: an Unraid template (`unraid/hydra-torrent.xml`).
+- **Guard against the v1.4.5 failure:** `tests/test_build_bundle.py` walks `hydra_daemon.py`'s local imports and fails if any of them is missing from `build_installer.py`'s `--add-data` list. The daemon is loaded from a data copy inside the exe, so PyInstaller never sees its imports; that is how `ssrf_guard.py` went missing in v1.4.5 and the exe could not start. `ui_auth.py` was added to the list in the same change.
+
 ## 2026-11-10 - Audit fixes: moved torrents re-downloading after a restart, duplicate adds, VPN detection, Auto-DL (v1.4.33; found by reading the whole codebase after a red CI run, not from a bug report)
 
 - **A finished multi-file torrent downloaded itself again into the library after every restart.** Reproduced with two real libtorrent sessions before fixing.

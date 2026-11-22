@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://delctrlalt33.github.io/hydra-torrent/sitemap.xml

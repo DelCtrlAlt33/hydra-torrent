@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>hydra-torrent</Name>
+  <Repository>ghcr.io/delctrlalt33/hydra-torrent:latest</Repository>
+  <Registry>https://github.com/DelCtrlAlt33/hydra-torrent/pkgs/container/hydra-torrent</Registry>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/DelCtrlAlt33/hydra-torrent/issues</Support>
+  <Project>https://github.com/DelCtrlAlt33/hydra-torrent</Project>
+  <Overview>A BitTorrent client built for your media server. Search through your own Jackett, pick up new episodes with RSS rules, and have finished downloads filed into Plex or Jellyfin automatically, with a VPN kill switch built in. Open the web UI, accept the self-signed certificate warning once, and set a Web UI password in Settings (or the Password field below).</Overview>
+  <Category>Downloaders: MediaApp:Video</Category>
+  <WebUI>https://[IP]:[PORT:8765]/ui</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/DelCtrlAlt33/hydra-torrent/main/unraid/hydra-torrent.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/DelCtrlAlt33/hydra-torrent/main/static/logo.png</Icon>
+  <ExtraParams>--restart unless-stopped</ExtraParams>
+  <Config Name="Web UI" Target="8765" Default="8765" Mode="tcp" Description="Web UI (HTTPS, self-signed)." Type="Port" Display="always" Required="true" Mask="false">8765</Config>
+  <Config Name="BitTorrent TCP" Target="6001" Default="6001" Mode="tcp" Description="Incoming peer connections." Type="Port" Display="always" Required="true" Mask="false">6001</Config>
+  <Config Name="BitTorrent UDP" Target="6001" Default="6001" Mode="udp" Description="DHT and uTP." Type="Port" Display="always" Required="true" Mask="false">6001</Config>
+  <Config Name="AppData" Target="/data" Default="/mnt/user/appdata/hydra-torrent" Mode="rw" Description="Config, certificates and downloads." Type="Path" Display="advanced" Required="true" Mask="false">/mnt/user/appdata/hydra-torrent</Config>
+  <Config Name="Movies library" Target="/movies" Default="" Mode="rw" Description="Optional. Your Plex/Jellyfin movies folder; then set /movies in Hydra's Settings." Type="Path" Display="always" Required="false" Mask="false"/>
+  <Config Name="TV library" Target="/tv" Default="" Mode="rw" Description="Optional. Your Plex/Jellyfin TV folder; then set /tv in Hydra's Settings." Type="Path" Display="always" Required="false" Mask="false"/>
+  <Config Name="Password" Target="HYDRA_PASSWORD" Default="" Mode="" Description="Optional but recommended. Other devices must sign in with this before the web UI opens." Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="Timezone" Target="TZ" Default="UTC" Mode="" Description="Your timezone, e.g. Europe/London." Type="Variable" Display="advanced" Required="false" Mask="false">UTC</Config>
+</Container>

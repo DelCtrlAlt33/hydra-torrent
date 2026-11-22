@@ -5,7 +5,7 @@
 [![license: MIT](https://img.shields.io/static/v1?label=license&message=MIT&color=blue)](LICENSE)
 [![last commit](https://img.shields.io/github/last-commit/DelCtrlAlt33/hydra-torrent?label=last%20commit)](https://github.com/DelCtrlAlt33/hydra-torrent/commits/main)
 
-**A BitTorrent client, built for your media server.** Search through your own Jackett, pick up new episodes with RSS rules, and have finished downloads filed into Plex or Jellyfin automatically, with a VPN kill switch built in. Free and open source.
+**[Website](https://delctrlalt33.github.io/hydra-torrent/)** · **A BitTorrent client, built for your media server.** Search through your own Jackett, pick up new episodes with RSS rules, and have finished downloads filed into Plex or Jellyfin automatically, with a VPN kill switch built in. Free and open source.
 
 ![Hydra Torrent](screenshots/Title.gif)
 
@@ -22,10 +22,12 @@ Windows may show a SmartScreen warning because the exe is not code-signed. Click
 ### Docker
 
 ```bash
-git clone https://github.com/DelCtrlAlt33/hydra-torrent.git
-cd hydra-torrent
+mkdir hydra-torrent && cd hydra-torrent
+curl -O https://raw.githubusercontent.com/DelCtrlAlt33/hydra-torrent/main/docker-compose.yml
 docker compose up -d
 ```
+
+Or as a one-liner: `docker run -d --name hydra-torrent -p 8765:8765 -p 6001:6001 -p 6001:6001/udp -v "$PWD/data:/data" ghcr.io/delctrlalt33/hydra-torrent:latest`. Images are published for x86-64 and ARM64 (Raspberry Pi 4/5, ARM NAS boxes).
 
 Settings and downloads live in `./data` (finished and in-progress downloads are in `./data/downloads`). The container runs as root, so those files are root-owned: use `sudo` to move or delete them, or run `sudo chown -R $USER ./data` once. If you get a permission error running `docker`, use `sudo docker compose up -d` or add yourself to the `docker` group.
 
@@ -54,7 +56,7 @@ Go to **https://localhost:8765/ui** (or the address `install.sh` printed, e.g. `
 
 Your browser will show a certificate warning the first time. That is expected: Hydra makes its own certificate. Choose **Advanced**, then **Proceed**. Everything else is set up in the **Settings** tab, and nothing is required.
 
-> **Keep it on your own network.** Hydra has no login screen, like most torrent clients' web UIs on a trusted LAN. Anyone who can reach port 8765 can control it. Don't expose that port to the internet (no router port-forward, no public Docker `-p`). To reach it from outside your home, use a VPN such as WireGuard or Tailscale, or put it behind a reverse proxy that adds authentication.
+> **Set a password, and keep it on your own network.** Out of the box anyone who can reach port 8765 can control Hydra. Turn on **Settings > Web UI password** (or set `HYDRA_PASSWORD` in Docker) and other devices must sign in first; the desktop app's own window never asks. Even with a password, don't expose port 8765 to the internet (no router port-forward). To reach it from outside your home, use a VPN such as WireGuard or Tailscale, or a reverse proxy that adds its own authentication.
 
 ## Why Hydra?
 
@@ -82,10 +84,27 @@ Your browser will show a certificate warning the first time. That is expected: H
 - Seed ratio limits with auto-remove
 - RSS rules that grab new episodes as they drop
 - Auto-sort to Plex and/or Jellyfin with a library scan on completion
-- HTTPS (self-signed certificate) and rate limiting; no login, so keep it on your LAN or VPN
+- HTTPS (self-signed certificate), rate limiting, and an optional web UI password with brute-force lockout
 - Windows system tray app with toast notifications
 
 ![Hydra Torrent - Downloads](screenshots/Downloads.png)
+
+## Hydra or an *arr stack?
+
+Hydra is the short path: one app instead of a torrent client plus Sonarr, Radarr and the glue between them. It is not trying to replace everything those tools do, so here is the honest split.
+
+| | Hydra | qBittorrent + Sonarr + Radarr |
+|---|---|---|
+| Apps to install and keep talking to each other | 1 | 3 or more |
+| Search through your own Jackett | Yes | Yes (via Prowlarr/Jackett) |
+| Grab new episodes from RSS | Yes, simple name/season/quality rules | Yes, with full quality profiles |
+| File into Plex/Jellyfin and trigger a scan | Yes | Yes |
+| VPN kill switch built into the client | Yes, bound to the VPN interface | Usually a separate VPN container |
+| Upgrade an existing file to better quality later | No | Yes |
+| Calendar, missing-episode tracking, metadata | No | Yes |
+| Works with other *arr tools as a download client | No | Yes |
+
+If you want "add a show, it lands in Plex" with the fewest moving parts, Hydra fits. If you want fine-grained quality management for a large library, the *arr stack is the better tool.
 
 ## Optional setup
 

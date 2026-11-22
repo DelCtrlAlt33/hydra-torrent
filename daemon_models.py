@@ -162,6 +162,7 @@ class ConfigResponse(BaseModel):
     upload_rate_limit: int = 0        # bytes/sec; 0 = unlimited
     daemon_api_key: str = ""          # read-only; displayed for tray config copy
     platform: str = ""                # read-only; host OS string for bug reports
+    ui_password_source: str = ""      # read-only; "env", "config" or "" (no web UI password)
 
 
 class ConfigUpdate(BaseModel):

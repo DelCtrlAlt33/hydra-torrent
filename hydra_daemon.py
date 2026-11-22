@@ -39,6 +39,7 @@ import asyncio
 import zipfile
 
 from ssrf_guard import ensure_safe_fetch_url as _ensure_safe_fetch_url, trusted_host_from_url as _trusted_host_from_url
+import ui_auth
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import List, Optional, Set
@@ -3037,9 +3038,125 @@ def root_redirect() -> RedirectResponse:
     return RedirectResponse(url="/ui")
 
 
+# ---------------------------------------------------------------------------
+# Optional web UI password (see ui_auth.py for the design)
+# ---------------------------------------------------------------------------
+
+_login_throttle = ui_auth.LoginThrottle()
+
+
+def _ui_login_needed(request: Request) -> bool:
+    """True if this request must sign in before it may receive the API key.
+
+    No password set: never (the old behaviour). The desktop app's own window
+    talks to its daemon over loopback and is exempt in desktop mode only -
+    a server install behind a same-host reverse proxy also arrives from
+    loopback, so exempting loopback there would make the password useless.
+    """
+    cfg = load_config()
+    if not ui_auth.password_required(cfg):
+        return False
+    client = request.client.host if request.client else None
+    if cfg.get('desktop_mode') and ui_auth.is_loopback(client):
+        return False
+    token = request.cookies.get(ui_auth.COOKIE_NAME)
+    return not ui_auth.check_session(token, API_KEY, cfg)
+
+
+def _login_page() -> HTMLResponse:
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'login.html')
+    try:
+        with open(path, encoding='utf-8') as f:
+            html = f.read()
+    except FileNotFoundError:
+        html = "<h1>Sign in required</h1><p>static/login.html is missing.</p>"
+    return HTMLResponse(content=html, status_code=401,
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
+@app.post("/login", include_in_schema=False)
+async def login(request: Request) -> JSONResponse:
+    ip = request.client.host if request.client else "unknown"
+    wait = _login_throttle.retry_after(ip)
+    if wait:
+        return JSONResponse({"detail": f"Too many attempts. Try again in {wait} seconds."},
+                            status_code=429, headers={"Retry-After": str(wait)})
+    try:
+        body = await request.json()
+        password = str(body.get('password', ''))
+    except Exception:
+        password = ''
+    cfg = load_config()
+    if not ui_auth.password_required(cfg):
+        return JSONResponse({"ok": True})
+    if not password or not ui_auth.check_password(password, cfg):
+        _login_throttle.record_failure(ip)
+        logger.warning(f"Failed web UI sign-in from {ip}")
+        return JSONResponse({"detail": "Wrong password."}, status_code=401)
+    _login_throttle.reset(ip)
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie(
+        ui_auth.COOKIE_NAME, ui_auth.make_session(API_KEY, cfg),
+        max_age=ui_auth.SESSION_TTL, httponly=True, samesite='strict',
+        secure=request.url.scheme == 'https', path='/',
+    )
+    return resp
+
+
+@app.post("/logout", include_in_schema=False)
+def logout() -> JSONResponse:
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(ui_auth.COOKIE_NAME, path='/')
+    return resp
+
+
+@app.post("/ui-password", dependencies=[Depends(_require_api_key)])
+async def set_ui_password(request: Request) -> dict:
+    """Set, change or remove (empty password) the web UI password."""
+    try:
+        body = await request.json()
+        password = str(body.get('password', ''))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Send {\"password\": \"...\"}")
+    if ui_auth.env_password():
+        raise HTTPException(status_code=409,
+                            detail=f"The password is set by the {ui_auth.ENV_VAR} environment "
+                                   "variable. Change it there and restart Hydra.")
+    if password and len(password) < ui_auth.MIN_PASSWORD_LENGTH:
+        raise HTTPException(status_code=400,
+                            detail=f"Use at least {ui_auth.MIN_PASSWORD_LENGTH} characters.")
+    cfg = load_config()
+    if password:
+        cfg['ui_password_hash'] = ui_auth.hash_password(password)
+    else:
+        cfg.pop('ui_password_hash', None)
+    try:
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(cfg, f, indent=2)
+        restrict_to_owner(CONFIG_FILE)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to write config: {e}")
+    logger.info("Web UI password " + ("set" if password else "removed"))
+    # Hand the browser that just changed it a fresh session, so setting a
+    # password does not immediately lock out the person who set it.
+    resp = JSONResponse({"password_set": bool(password)})
+    if password:
+        resp.set_cookie(
+            ui_auth.COOKIE_NAME, ui_auth.make_session(API_KEY, cfg),
+            max_age=ui_auth.SESSION_TTL, httponly=True, samesite='strict',
+            secure=request.url.scheme == 'https', path='/',
+        )
+    else:
+        resp.delete_cookie(ui_auth.COOKIE_NAME, path='/')
+    return resp
+
+
 @app.get("/ui", response_class=HTMLResponse, include_in_schema=False)
-def web_ui() -> HTMLResponse:
-    """Serve the single-page Web UI with the API key embedded."""
+def web_ui(request: Request) -> HTMLResponse:
+    """Serve the single-page Web UI with the API key embedded (or the
+    sign-in page first, if a web UI password is set)."""
+    if _ui_login_needed(request):
+        return _login_page()
     ui_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'index.html')
     try:
         with open(ui_path, encoding='utf-8') as f:
@@ -3050,8 +3167,10 @@ def web_ui() -> HTMLResponse:
 
 
 @app.get("/download/tray", include_in_schema=False)
-def download_tray() -> StreamingResponse:
+def download_tray(request: Request) -> StreamingResponse:
     """Serve hydra_tray.exe + pre-configured hydra_config.json as a ready-to-run zip."""
+    if _ui_login_needed(request):
+        return JSONResponse({"detail": "Sign in at /ui first."}, status_code=401)
     exe_path = os.path.join(BASE_DIR, 'hydra_tray.exe')
     if not os.path.exists(exe_path):
         return JSONResponse(
@@ -3107,6 +3226,7 @@ def get_config() -> ConfigResponse:
         upload_rate_limit=int(cfg.get('upload_rate_limit', 0) or 0),
         daemon_api_key=API_KEY,
         platform=platform.platform(),
+        ui_password_source=ui_auth.password_source(cfg),
     )
 
 

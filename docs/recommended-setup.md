@@ -40,7 +40,7 @@ services:
     restart: unless-stopped
 
   hydra:
-    build: .
+    image: ghcr.io/delctrlalt33/hydra-torrent:latest
     volumes:
       - ./data:/data
       - /path/to/movies:/movies

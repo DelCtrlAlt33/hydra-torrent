@@ -1968,6 +1968,32 @@
       </div>
     </div>
 
+    <!-- Web UI password -->
+    <div class="acc-item" data-acc="password">
+      <div class="acc-head" onclick="toggleAcc(this)">
+        <svg class="acc-chevron" viewBox="0 0 10 10"><path d="M2 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span class="acc-icon">&#9919;</span>
+        <span class="acc-title">Web UI password</span>
+        <span class="acc-summary" id="acc-summary-password"></span>
+      </div>
+      <div class="acc-body">
+        <div class="acc-body-inner single">
+          <div class="acc-field">
+            <label id="ui-pw-label">New password</label>
+            <div class="secret-row">
+              <input type="password" id="cfg-ui-password" autocomplete="new-password" placeholder="At least 8 characters">
+              <button class="btn btn-sm btn-pause" id="ui-pw-save" onclick="saveUiPassword(false)">Set</button>
+              <button class="btn btn-sm btn-pause" id="ui-pw-remove" onclick="saveUiPassword(true)" style="display:none">Remove</button>
+              <button class="btn btn-sm btn-pause" id="ui-pw-logout" onclick="logoutUi()" style="display:none">Sign out</button>
+            </div>
+          </div>
+          <div class="acc-subtext" id="ui-pw-hint">
+            Ask for a password before anyone can open this page from another device. Optional - off by default. The desktop app's own window never asks.
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Indexer -->
     <div class="acc-item" data-acc="indexer">
       <div class="acc-head" onclick="toggleAcc(this)">
@@ -4056,6 +4082,7 @@ async function loadSettings() {
     document.getElementById('cfg-api-key').value        = cfg.daemon_api_key   || '';
     document.getElementById('cfg-vpn-required').checked = cfg.vpn_required === true;
     _settingsLoaded = true;
+    if (typeof _renderUiPassword === 'function') _renderUiPassword(cfg.ui_password_source || '');
     updateLibraryFolders();
     // Check the saved Movies/TV folders right away, not only while typing: a
     // folder this computer can't open (for example Plex's own /data/movies) is
@@ -4251,6 +4278,54 @@ async function copyDiagnosticLog() {
     if (resultEl) { resultEl.textContent = 'Could not copy log: ' + e.message; resultEl.className = 'acc-result err'; }
     toast('Could not copy log: ' + e.message, 'err');
   }
+}
+
+// Web UI password card. source: "env" (HYDRA_PASSWORD), "config" (set here), "" (off).
+function _renderUiPassword(source) {
+  const input = document.getElementById('cfg-ui-password');
+  const hint = document.getElementById('ui-pw-hint');
+  const summary = document.getElementById('acc-summary-password');
+  if (!input || !hint) return;
+  const fromEnv = source === 'env';
+  input.disabled = fromEnv;
+  input.value = '';
+  document.getElementById('ui-pw-label').textContent = source ? 'Change password' : 'New password';
+  document.getElementById('ui-pw-save').style.display = fromEnv ? 'none' : '';
+  document.getElementById('ui-pw-save').textContent = source ? 'Change' : 'Set';
+  document.getElementById('ui-pw-remove').style.display = source === 'config' ? '' : 'none';
+  document.getElementById('ui-pw-logout').style.display = source ? '' : 'none';
+  if (summary) summary.textContent = source ? 'On' : 'Off';
+  if (fromEnv) {
+    hint.textContent = 'Set by the HYDRA_PASSWORD environment variable. Change or remove it there, then restart Hydra.';
+  } else if (source) {
+    hint.textContent = 'Other devices must sign in before they can open this page. Forgot it? Delete "ui_password_hash" from hydra_config.json and restart Hydra.';
+  } else {
+    hint.textContent = "Ask for a password before anyone can open this page from another device. Optional - off by default. The desktop app's own window never asks.";
+  }
+}
+
+async function saveUiPassword(remove) {
+  const input = document.getElementById('cfg-ui-password');
+  const password = remove ? '' : input.value;
+  if (!remove && password.length < 8) { toast('Use at least 8 characters', 'err'); return; }
+  if (remove && !confirm('Remove the web UI password? Anyone on your network will be able to open Hydra again.')) return;
+  try {
+    const r = await fetch(BASE + '/ui-password', {
+      method: 'POST', headers: HEADERS, credentials: 'same-origin',
+      body: JSON.stringify({ password }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { toast(d.detail || ('Could not save password: ' + r.status), 'err'); return; }
+    toast(d.password_set ? 'Password saved' : 'Password removed', 'ok');
+    _renderUiPassword(d.password_set ? 'config' : '');
+  } catch (e) {
+    toast('Could not save password: ' + e.message, 'err');
+  }
+}
+
+async function logoutUi() {
+  try { await fetch(BASE + '/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {}
+  window.location.replace('/ui');
 }
 
 async function saveSettings(silent = false) {

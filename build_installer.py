@@ -39,8 +39,12 @@ fetch_geoip.fetch()
 print("\n[2/3] Building Hydra Torrent executable...")
 print("This may take a few minutes...\n")
 
+# sys.executable -m PyInstaller, not a bare "pyinstaller": the bare command is
+# whichever one is first on PATH, so running this with a clean venv's python
+# (without activating the venv) silently built with the global Python instead.
+# That happened for v1.4.34: a Python 3.11 exe with numpy inside, 18 MB larger.
 pyinstaller_cmd = [
-    "pyinstaller",
+    sys.executable, "-m", "PyInstaller",
     "--name=HydraTorrent",
     "--windowed",  # No console window
     "--onefile",   # Single .exe
@@ -65,6 +69,7 @@ pyinstaller_cmd = [
     "--add-data=health.py;.",
     "--add-data=updater.py;.",
     "--add-data=ssrf_guard.py;.",
+    "--add-data=ui_auth.py;.",
     # Hidden imports - pywebview + GUI
     "--hidden-import=webview",
     "--hidden-import=pystray",

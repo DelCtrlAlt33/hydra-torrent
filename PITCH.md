@@ -27,7 +27,7 @@ Hydra puts the whole path in one app: search, download, RSS, filing and the libr
 
 ## What it is not
 
-Hydra is its own client. It is built on libtorrent, the same library behind several well-known clients, but it does not mimic their web APIs, so tools that expect those will not connect to it as a download client. There is no login screen yet, so it belongs on your own network or behind a VPN, not on the open internet.
+Hydra is its own client. It is built on libtorrent, the same library behind several well-known clients, but it does not mimic their web APIs, so tools that expect those will not connect to it as a download client. It has an optional password for the web UI, but it is still built for your own network or a VPN, not the open internet.
 
 ## Where it's going
 
