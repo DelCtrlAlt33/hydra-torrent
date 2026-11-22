@@ -193,6 +193,18 @@ _RESUME_DATA_PATH = os.path.join(BASE_DIR, 'resume_data.json')
 # API key auth
 # ---------------------------------------------------------------------------
 
+def _peer_port() -> int:
+    """The BitTorrent listening port: peer_port from the config if set (a VPN
+    that forwards a port to you, such as PIA, assigns its own), else the
+    default PEER_PORT. Read on every (re)bind, so a change applies at the
+    next bind and apply_peer_port() can apply it at once."""
+    try:
+        port = int(load_config().get('peer_port') or 0)
+    except (TypeError, ValueError):
+        port = 0
+    return port if 1024 <= port <= 65535 else PEER_PORT
+
+
 def _get_or_create_api_key() -> str:
     """Read daemon_api_key from config; generate and save one if absent."""
     cfg = load_config()
@@ -617,7 +629,7 @@ class TorrentEngine:
 
         self._resume_persisted()
         self.vpn_guard.start(self._on_vpn_change)
-        logger.info(f"TorrentEngine ready on {listen_ip}:{PEER_PORT}")
+        logger.info(f"TorrentEngine ready on {listen_ip}:{_peer_port()}")
 
     def _auto_arm_kill_switch(self) -> None:
         """Turn the kill switch on, once, the first time a VPN is seen.
@@ -666,7 +678,7 @@ class TorrentEngine:
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="libtorrent")
         cfg = load_config()
         self.ses = lt.session({
-            'listen_interfaces': f'{listen_ip}:{PEER_PORT}',
+            'listen_interfaces': f'{listen_ip}:{_peer_port()}',
             # '0.0.0.0' is a wildcard address, not an interface: handing it to
             # libtorrent as an outgoing interface made every outbound connection
             # fail (0 peers, nothing downloads) on an install with no VPN. Empty
@@ -787,13 +799,13 @@ class TorrentEngine:
                 self.vpn_ip = None
                 _public_ip = None
                 try:
-                    self.ses.apply_settings({'listen_interfaces': f'0.0.0.0:{PEER_PORT}', 'outgoing_interfaces': ''})
+                    self.ses.apply_settings({'listen_interfaces': f'0.0.0.0:{_peer_port()}', 'outgoing_interfaces': ''})
                 except Exception as e:
                     logger.error(f"Failed to rebind on VPN drop: {e}")
                 return
             logger.warning("VPN DISCONNECTED - kill switch activated")
             try:
-                self.ses.apply_settings({'listen_interfaces': f'127.0.0.1:{PEER_PORT}', 'outgoing_interfaces': '127.0.0.1'})
+                self.ses.apply_settings({'listen_interfaces': f'127.0.0.1:{_peer_port()}', 'outgoing_interfaces': '127.0.0.1'})
             except Exception as e:
                 logger.error(f"Failed to rebind session on VPN drop: {e}")
 
@@ -816,7 +828,7 @@ class TorrentEngine:
             _public_ip = None
             threading.Thread(target=self._refresh_public_ip_sync, daemon=True).start()
             try:
-                self.ses.apply_settings({'listen_interfaces': f'{ip}:{PEER_PORT}', 'outgoing_interfaces': ip})
+                self.ses.apply_settings({'listen_interfaces': f'{ip}:{_peer_port()}', 'outgoing_interfaces': ip})
             except Exception as e:
                 logger.error(f"Failed to rebind session on VPN reconnect: {e}")
 
@@ -829,6 +841,19 @@ class TorrentEngine:
                         self.store.update(name, vpn_paused=False, paused=False)
                     except Exception:
                         pass
+
+    def apply_peer_port(self) -> None:
+        """Re-listen on the configured peer port without changing which
+        address the session is bound to (VPN, loopback or any)."""
+        if self.ses is None:
+            return
+        try:
+            current = self.ses.get_settings().get('listen_interfaces', '')
+            ip = current.rsplit(':', 1)[0] if ':' in current else (self.vpn_ip or '0.0.0.0')
+            self.ses.apply_settings({'listen_interfaces': f'{ip}:{_peer_port()}'})
+            logger.info(f"Peer port is now {_peer_port()} (listening on {ip})")
+        except Exception as e:
+            logger.error(f"Failed to apply the new peer port: {e}")
 
     def apply_kill_switch(self, enabled: bool) -> None:
         """Apply a kill-switch change from Settings to the running session.
@@ -844,7 +869,7 @@ class TorrentEngine:
         if enabled:
             logger.warning("VPN kill switch enabled with no VPN - pausing all transfers")
             try:
-                self.ses.apply_settings({'listen_interfaces': f'127.0.0.1:{PEER_PORT}', 'outgoing_interfaces': '127.0.0.1'})
+                self.ses.apply_settings({'listen_interfaces': f'127.0.0.1:{_peer_port()}', 'outgoing_interfaces': '127.0.0.1'})
             except Exception as e:
                 logger.error(f"Failed to rebind session for the kill switch: {e}")
             for name in self.store.all_names():
@@ -859,7 +884,7 @@ class TorrentEngine:
         else:
             logger.info("VPN kill switch turned off with no VPN - rebinding to 0.0.0.0 and resuming")
             try:
-                self.ses.apply_settings({'listen_interfaces': f'0.0.0.0:{PEER_PORT}', 'outgoing_interfaces': ''})
+                self.ses.apply_settings({'listen_interfaces': f'0.0.0.0:{_peer_port()}', 'outgoing_interfaces': ''})
             except Exception as e:
                 logger.error(f"Failed to rebind session after the kill switch was turned off: {e}")
             for name in self.store.all_names():
@@ -3205,7 +3230,7 @@ _EDITABLE_CONFIG_KEYS = frozenset({
     'plex_url', 'plex_token', 'jellyfin_url', 'jellyfin_api_key', 'jackett_api_key',
     'indexing_server', 'download_dir_incomplete', 'media_dir_movies', 'media_dir_tv',
     'download_dir_other', 'auto_move_to_plex', 'vpn_required', 'seed_ratio',
-    'download_rate_limit', 'upload_rate_limit',
+    'download_rate_limit', 'upload_rate_limit', 'peer_port',
 })
 
 
@@ -3231,6 +3256,7 @@ def get_config() -> ConfigResponse:
         seed_ratio=float(cfg.get('seed_ratio', 0) or 0),
         download_rate_limit=int(cfg.get('download_rate_limit', 0) or 0),
         upload_rate_limit=int(cfg.get('upload_rate_limit', 0) or 0),
+        peer_port=int(cfg.get('peer_port', 0) or 0),
         daemon_api_key=API_KEY,
         platform=platform.platform(),
         ui_password_source=ui_auth.password_source(cfg),
@@ -3306,6 +3332,9 @@ def update_config(req: ConfigUpdate) -> dict:
                if k in _EDITABLE_CONFIG_KEYS}
     if not updates:
         return {"saved": []}
+    if 'peer_port' in updates and updates['peer_port'] and not 1024 <= updates['peer_port'] <= 65535:
+        raise HTTPException(status_code=400, detail="Peer port must be between 1024 and 65535 (or 0 for the default)")
+    port_changed = 'peer_port' in updates and (updates['peer_port'] or 0) != (cfg.get('peer_port') or 0)
     kill_switch_was_on = bool(cfg.get('vpn_required', False))
     cfg.update(updates)
     try:
@@ -3329,6 +3358,8 @@ def update_config(req: ConfigUpdate) -> dict:
         if now_on or kill_switch_was_on:
             engine.apply_kill_switch(now_on)
     _apply_live_folder_settings(updates)
+    if port_changed:
+        engine.apply_peer_port()
     return {"saved": list(updates.keys())}
 
 

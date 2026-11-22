@@ -13,6 +13,13 @@ where knowing *why* it broke matters as much as knowing that it's fixed now.
 
 ---
 
+## 2026-11-22 - Seeding barely worked behind a VPN: the listening port was fixed at 6001 (v1.4.36)
+
+- **A seeding torrent on LXC 108 listed 33 peers and had 0 connected.** Every one was an outgoing attempt from Hydra that never completed (no handshake, 0 bytes either way over 20 s). The swarm map, which leaves out peers still connecting, correctly showed nothing; it looked like a map bug, but the map was right.
+  - **Cause:** nobody could connect IN. PIA forwards no port unless asked, and when it does it picks a random one, but Hydra only ever listened on the hard-coded `config.PEER_PORT` (6001). A seed can then only dial out, and most leechers are behind NAT themselves, so almost nothing connects. Every VPN that forwards ports (PIA, ProtonVPN, AirVPN) assigns the number, so this hit anyone seeding behind one.
+  - **Fix:** `peer_port` in the config (Settings > VPN > Listening port, or `PATCH /config`), 1024-65535, blank/0 for the default. `_peer_port()` is read on every (re)bind, so VPN up/down and kill-switch rebinds all use it, and `TorrentEngine.apply_peer_port()` re-listens at once on the same address when it changes. On LXC 108 a `pia-portforward` timer keeps PIA's port bound and sets `peer_port` through the API (homelab side, not part of the repo).
+  - **Tests:** `tests/test_peer_port.py` (real libtorrent session: value parsing and range, new session, live change keeps the address, VPN rebind keeps the port). Runs in the `engine-tests` CI job.
+
 ## 2026-11-22 - .torrent links were fetched over the real connection, not the VPN (v1.4.35; found by measuring the kill switch for a write-up)
 
 - **Adding a torrent by URL showed the host of that URL your real IP address, VPN up or down.** BitTorrent traffic itself never leaked; this was the HTTP fetch of the `.torrent` file.

@@ -62,7 +62,7 @@ jobs:
         # Windows desktop tray component with no Linux/server counterpart,
         # so unlike libtorrent this doesn't get its own job here either;
         # it only ever runs locally on the Windows desktop it's built for.
-        run: python -m pytest -v --cov=. --cov-report=term-missing --ignore=tests/test_torrent_engine.py --ignore=tests/test_kill_switch_default.py --ignore=tests/test_engine_moves_and_duplicates.py --ignore=tests/test_tray_notifications.py
+        run: python -m pytest -v --cov=. --cov-report=term-missing --ignore=tests/test_torrent_engine.py --ignore=tests/test_kill_switch_default.py --ignore=tests/test_engine_moves_and_duplicates.py --ignore=tests/test_peer_port.py --ignore=tests/test_tray_notifications.py
 
       - name: Report failure on scheduled (drift-detection) run
         if: failure() && github.event_name == 'schedule'
@@ -123,7 +123,7 @@ jobs:
           pip install -r requirements-docker.txt
 
       - name: Run engine tests
-        run: python -m pytest tests/test_torrent_engine.py tests/test_kill_switch_default.py tests/test_engine_moves_and_duplicates.py -v
+        run: python -m pytest tests/test_torrent_engine.py tests/test_kill_switch_default.py tests/test_engine_moves_and_duplicates.py tests/test_peer_port.py -v
 
       - name: Notify Discord on failure
         if: failure()

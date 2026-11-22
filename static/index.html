@@ -1939,6 +1939,11 @@
               <div class="hint">When enabled, all torrents pause if your VPN disconnects. Turn off if you don't use a VPN.</div>
             </div>
           </div>
+          <div class="acc-field">
+            <label>Listening port</label>
+            <input type="text" id="cfg-peer-port" inputmode="numeric" placeholder="6001 (default)" style="max-width:160px;" onchange="saveSettings(true)">
+            <div class="hint">If your VPN forwards a port to you (PIA, ProtonVPN, AirVPN), enter that port so other peers can connect in. Seeding barely works without one. Leave blank for 6001.</div>
+          </div>
         </div>
       </div>
     </div>
@@ -4081,6 +4086,8 @@ async function loadSettings() {
     document.getElementById('cfg-seed-ratio').value     = cfg.seed_ratio > 0 ? cfg.seed_ratio : '';
     document.getElementById('cfg-api-key').value        = cfg.daemon_api_key   || '';
     document.getElementById('cfg-vpn-required').checked = cfg.vpn_required === true;
+    const portEl = document.getElementById('cfg-peer-port');
+    if (portEl) portEl.value = cfg.peer_port > 0 ? cfg.peer_port : '';
     _settingsLoaded = true;
     if (typeof _renderUiPassword === 'function') _renderUiPassword(cfg.ui_password_source || '');
     updateLibraryFolders();
@@ -4348,6 +4355,22 @@ async function saveSettings(silent = false) {
   if (ratioRaw !== '') {
     const ratioVal = parseFloat(ratioRaw);
     body.seed_ratio = (!isNaN(ratioVal) && ratioVal >= 0) ? ratioVal : 0;
+  }
+  // Listening port: blank means "default" (0), but only once the saved value
+  // has been loaded into the box - an empty box before that means "not loaded".
+  const portEl = document.getElementById('cfg-peer-port');
+  if (portEl) {
+    const portRaw = portEl.value.trim();
+    if (portRaw === '') {
+      if (_settingsLoaded) body.peer_port = 0;
+    } else {
+      const port = parseInt(portRaw, 10);
+      if (isNaN(port) || port < 1024 || port > 65535) {
+        toast('Listening port must be a number from 1024 to 65535', 'err');
+        return;
+      }
+      body.peer_port = port;
+    }
   }
   // Don't overwrite existing values with blank strings - EXCEPT the connection
   // and library fields, where blank means "the user cleared it". Skipping those

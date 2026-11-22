@@ -5,7 +5,7 @@ No imports from other hydra modules - keeps this file importable in any context.
 
 from enum import Enum
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +160,7 @@ class ConfigResponse(BaseModel):
     seed_ratio: float = 0.0           # 0 = seed forever; >0 = auto-remove at ratio
     download_rate_limit: int = 0      # bytes/sec; 0 = unlimited
     upload_rate_limit: int = 0        # bytes/sec; 0 = unlimited
+    peer_port: int = 0                # BitTorrent listening port; 0 = default (6001)
     daemon_api_key: str = ""          # read-only; displayed for tray config copy
     platform: str = ""                # read-only; host OS string for bug reports
     ui_password_source: str = ""      # read-only; "env", "config" or "" (no web UI password)
@@ -181,6 +182,9 @@ class ConfigUpdate(BaseModel):
     seed_ratio: Optional[float] = None
     download_rate_limit: Optional[int] = None   # bytes/sec; 0 = unlimited
     upload_rate_limit: Optional[int] = None     # bytes/sec; 0 = unlimited
+    # BitTorrent listening port; 0 = default. For a VPN that forwards a port
+    # to you (PIA, ProtonVPN, AirVPN), which picks the number itself.
+    peer_port: Optional[int] = Field(default=None, ge=0, le=65535)
 
 
 # ---------------------------------------------------------------------------
